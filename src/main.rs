@@ -4,7 +4,10 @@ use axum::routing::post;
 use axum::{Json, Router};
 use clap::{Args, Parser};
 use dotenv::dotenv;
+use log::LevelFilter;
 use serde::{Deserialize, Serialize};
+
+
 
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
@@ -25,6 +28,8 @@ struct Config {
 async fn main() {
     let _ = dotenv(); // load .env if present
 
+    env_logger::builder().filter_level(LevelFilter::Debug).init();
+
     let cfg = Config::parse();
 
     let app = Router::new()
@@ -35,6 +40,20 @@ async fn main() {
 }
 
 async fn token(State(cfg): State<Config>, Json(payload): Json<TokenRequest>) -> (StatusCode, Json<TokenResponse>) {
+    let params = ClientTokenRequest {
+        grant_type: "client_credentials".to_string(),
+        client_id: cfg.maskinporten_client_id,
+        client_secret: cfg.maskinporten_client_jwk,
+    };
+
+    let client = reqwest::Client::new();
+    let res = client.post(cfg.maskinporten_token_endpoint)
+        .form(&params)
+        .send()
+        .await.unwrap();
+
+    println!("{:?}", res.text().await.unwrap());
+
     let resp = TokenResponse {
         access_token: "dummy".to_string(),
         token_type: TokenType::Bearer,
@@ -50,6 +69,13 @@ struct TokenResponse {
     token_type: TokenType,
     #[serde(rename = "expires_in")]
     expires_in_seconds: usize,
+}
+
+#[derive(Serialize)]
+struct ClientTokenRequest {
+    grant_type: String,
+    client_id: String,
+    client_secret: String,
 }
 
 #[derive(Serialize)]
