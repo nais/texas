@@ -1,10 +1,10 @@
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::post;
 use axum::{Json, Router};
 use clap::Parser;
 use dotenv::dotenv;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug, Clone)]
@@ -29,19 +29,18 @@ async fn main() {
         println!("Howdy, {}!", args.texas_name);
     }
 
-    // build our application with a route
     let app = Router::new()
-        // `GET /` goes to `root`
-        .route("/", get(root)).with_state(Handler { args });
+        .route("/token", post(token)).with_state(Handler { args });
 
-    // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn root(State(handler): State<Handler>) -> (StatusCode, Json<RootResponse>) {
-    let resp = RootResponse {
-        name: handler.args.texas_name,
+async fn token(State(handler): State<Handler>, Json(payload): Json<TokenRequest>) -> (StatusCode, Json<TokenResponse>) {
+    let resp = TokenResponse {
+        access_token: format!("{} {}", handler.args.texas_name, payload.user_token.unwrap_or_default()),
+        token_type: TokenType::Bearer,
+        expires_in_seconds: 3600,
     };
 
     (StatusCode::OK, Json(resp))
@@ -53,6 +52,34 @@ struct Handler {
 }
 
 #[derive(Serialize)]
-struct RootResponse {
-    name: String,
+struct TokenResponse {
+    access_token: String,
+    token_type: TokenType,
+    #[serde(rename = "expires_in")]
+    expires_in_seconds: usize,
+}
+
+#[derive(Serialize)]
+enum TokenType {
+    Bearer
+}
+
+#[derive(Deserialize, Serialize)]
+struct TokenRequest {
+    target: String, // typically <cluster>:<namespace>:<app>
+    identity_provider: IdentityProvider,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    force: Option<bool>,
+}
+
+#[derive(Deserialize, Serialize)]
+enum IdentityProvider {
+    #[serde(rename = "entra")]
+    EntraID,
+    #[serde(rename = "tokenx")]
+    TokenX,
+    #[serde(rename = "maskinporten")]
+    Maskinporten,
 }
