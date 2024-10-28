@@ -4,4 +4,4 @@ all:
 	cargo build --release
 
 setup:
-	[ ! -f .env ] && cp -v dotenv.example .env
+	[ ! -f .env ] && cp -v .env.example .env
