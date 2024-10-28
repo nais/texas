@@ -4,5 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+axum = { version = "0.7.7", features = ["http2"] }
 clap = { version = "4", features = ["derive", "env"] }
 dotenv = { version = "0.15.0", features = ["clap"] }
+tokio = { version = "1.41.0", features = ["rt-multi-thread"] }
+serde = { version = "1.0.213", features = ["derive"] }
