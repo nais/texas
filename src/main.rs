@@ -2,53 +2,46 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router};
-use clap::Parser;
+use clap::{Args, Parser};
 use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 
-/// Simple program to greet a person
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
-struct Args {
-    /// Name of the person to greet
-    #[arg(short, long, env = "TEXAS_NAME")]
-    texas_name: String,
-
-    /// Number of times to greet
-    #[arg(short, long, default_value_t = 1)]
-    count: u8,
+struct Config {
+    #[arg(short, long, env, default_value = "127.0.0.1:3000")]
+    bind_addr: String,
+    #[arg(env)]
+    maskinporten_client_id: String,
+    #[arg(env)]
+    maskinporten_client_jwk: String,
+    #[arg(env)]
+    maskinporten_issuer: String,
+    #[arg(env)]
+    maskinporten_token_endpoint: String,
 }
 
 #[tokio::main]
 async fn main() {
     let _ = dotenv(); // load .env if present
 
-    let args = Args::parse();
-
-    for _ in 0..args.count {
-        println!("Howdy, {}!", args.texas_name);
-    }
+    let cfg = Config::parse();
 
     let app = Router::new()
-        .route("/token", post(token)).with_state(Handler { args });
+        .route("/token", post(token)).with_state(cfg.clone());
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(cfg.bind_addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn token(State(handler): State<Handler>, Json(payload): Json<TokenRequest>) -> (StatusCode, Json<TokenResponse>) {
+async fn token(State(cfg): State<Config>, Json(payload): Json<TokenRequest>) -> (StatusCode, Json<TokenResponse>) {
     let resp = TokenResponse {
-        access_token: format!("{} {}", handler.args.texas_name, payload.user_token.unwrap_or_default()),
+        access_token: "dummy".to_string(),
         token_type: TokenType::Bearer,
         expires_in_seconds: 3600,
     };
 
     (StatusCode::OK, Json(resp))
-}
-
-#[derive(Clone)]
-struct Handler {
-    args: Args,
 }
 
 #[derive(Serialize)]
