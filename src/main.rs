@@ -24,11 +24,28 @@ struct Config {
     maskinporten_token_endpoint: String,
 }
 
+fn print_texas_logo() {
+    info!(r#"      ____"#);
+    info!(r#"           !"#);
+    info!(r#"     !     !"#);
+    info!(r#"     !      `-  _ _    _ "#);
+    info!(r#"     |              ```  !      _"#);
+    info!(r#"_____!                   !     | |"#);
+    info!(r#"\,                        \    | |_ _____  ____ _ ___"#);
+    info!(r#"  l    _                  ;    | __/ _ \ \/ / _` / __|"#);
+    info!(r#"   \ _/  \.              /     | ||  __/>  < (_| \__ \"#);
+    info!(r#"           \           .’       \__\___/_/\_\__,_|___/"#);
+    info!(r#"            .       ./’"#);
+    info!(r#"             `.    ,"#);
+    info!(r#"               \   ;"#);
+    info!(r#"                 ``’"#);
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::builder().filter_level(LevelFilter::Debug).init();
 
-    info!("TEXAS starting");
+    print_texas_logo();
 
     let _ = dotenv(); // load .env if present
 
