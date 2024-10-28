@@ -1,0 +1,6 @@
+# Copy this file to `.env` to have it automatically loaded in your dev environment
+
+MASKINPORTEN_CLIENT_ID=client-id
+MASKINPORTEN_CLIENT_JWK=jwk
+MASKINPORTEN_ISSUER=usser
+MASKINPORTEN_TOKEN_ENDPOINT=http://localhost:8080/default/token
