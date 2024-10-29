@@ -69,7 +69,7 @@ pub mod handlers {
     use log::{error};
     use thiserror::Error;
     use crate::config::Config;
-    use crate::idprovider::*;
+    use crate::identity_provider::*;
     use crate::types;
     use crate::types::{IdentityProvider, TokenRequest, TokenResponse};
 
@@ -78,7 +78,7 @@ pub mod handlers {
         #[error("identity provider error: {0}")]
         UpstreamRequest(reqwest::Error),
 
-        #[error("upstream error")]
+        #[error("upstream error: {0}")]
         Upstream(types::ErrorResponse),
 
         #[error("invalid JSON in token response: {0}")]
@@ -102,16 +102,16 @@ pub mod handlers {
     }
 
     pub async fn token(State(cfg): State<Config>, Json(request): Json<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
-        let provider: Box<dyn Idprovider + Send> = match request.identity_provider {
+        let provider: Box<dyn Provider + Send> = match request.identity_provider {
             IdentityProvider::EntraID => Box::new(EntraID(cfg)),
             IdentityProvider::TokenX => Box::new(TokenX(cfg)),
             IdentityProvider::Maskinporten => Box::new(Maskinporten(cfg)),
         };
 
-        let params = provider.oauth_request();
+        let params = provider.token_request(request.target);
 
         let client = reqwest::Client::new();
-        let request_builder = client.post(provider.oauth_endpoint())
+        let request_builder = client.post(provider.token_endpoint())
             .header("accept", "application/json")
             .form(&params);
 
@@ -129,7 +129,7 @@ pub mod handlers {
         let res: TokenResponse = response
             .json().await
             .inspect_err(|err| {
-                error!("Maskinporten returned invalid JSON: {:?}", err)
+                error!("Identity provider returned invalid JSON: {:?}", err)
             })
             .map_err(ApiError::JSON)?
             ;
@@ -139,6 +139,7 @@ pub mod handlers {
 }
 
 pub mod types {
+    use std::fmt::{Display, Formatter};
     use serde::{Deserialize, Serialize};
 
     /// This is an upstream RFCXXXX token response.
@@ -157,12 +158,18 @@ pub mod types {
         pub description: String,
     }
 
+    impl Display for ErrorResponse {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}: {}", self.error, self.description)
+        }
+    }
+
     /// This is the token request sent to our identity provider.
+    /// TODO: hard coded parameters that only works with Maskinporten for now.
     #[derive(Serialize)]
     pub struct ClientTokenRequest {
         pub grant_type: String,
-        pub client_id: String,
-        pub client_secret: String,
+        pub assertion: String,
     }
 
     /// For forwards API compatibility. Token type is always Bearer,
@@ -194,13 +201,15 @@ pub mod types {
     }
 }
 
-pub mod idprovider {
+pub mod identity_provider {
+    use jsonwebkey as jwk;
+    use jsonwebtoken as jwt;
     use crate::config::Config;
     use crate::types::ClientTokenRequest;
 
-    pub trait Idprovider {
-        fn oauth_request(&self) -> ClientTokenRequest;
-        fn oauth_endpoint(&self) -> String;
+    pub trait Provider {
+        fn token_request(&self, target: String) -> ClientTokenRequest;
+        fn token_endpoint(&self) -> String;
     }
 
     #[derive(Clone, Debug)]
@@ -212,45 +221,77 @@ pub mod idprovider {
     #[derive(Clone, Debug)]
     pub struct TokenX(pub Config);
 
-    impl Idprovider for EntraID {
-        fn oauth_request(&self) -> ClientTokenRequest {
+    impl Provider for EntraID {
+        fn token_request(&self, target: String) -> ClientTokenRequest {
             ClientTokenRequest {
                 grant_type: "client_credentials".to_string(), // FIXME: urn:ietf:params:oauth:grant-type:jwt-bearer for OBO
-                client_id: "".to_string(),
-                client_secret: "".to_string(),
+                assertion: todo!(),
             }
         }
 
-        fn oauth_endpoint(&self) -> String {
+        fn token_endpoint(&self) -> String {
             todo!()
         }
     }
 
-    impl Idprovider for TokenX {
-        fn oauth_request(&self) -> ClientTokenRequest {
+    impl Provider for TokenX {
+        fn token_request(&self, target: String) -> ClientTokenRequest {
             ClientTokenRequest {
                 grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
-                client_id: "".to_string(),
-                client_secret: "".to_string(),
+                assertion: todo!(),
             }
         }
 
-        fn oauth_endpoint(&self) -> String {
+        fn token_endpoint(&self) -> String {
             todo!()
         }
     }
 
-    impl Idprovider for Maskinporten {
-        fn oauth_request(&self) -> ClientTokenRequest {
+    impl Provider for Maskinporten {
+        fn token_request(&self, target: String) -> ClientTokenRequest {
+            let the_jwk: jwk::JsonWebKey = self.0.maskinporten_client_jwk.parse().unwrap();
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let jti = uuid::Uuid::new_v4();
+
+            let claims = AssertionClaims {
+                exp: (now + 30) as usize,
+                iat: now as usize,
+                jti: jti.to_string(),
+                scope: target.to_string(),
+                iss: self.0.maskinporten_client_id.to_string(),
+                aud: self.0.maskinporten_issuer.to_string(),
+            };
+
+            let encoding_key: jwt::EncodingKey = the_jwk.key.to_encoding_key();
+            let alg: jwt::Algorithm = the_jwk.algorithm.unwrap().into();
+            let kid: String = the_jwk.key_id.unwrap();
+            let mut header = jwt::Header::new(alg);
+            header.kid = Some(kid);
+
+            let token = jwt::encode(
+                &header,
+                &claims,
+                &encoding_key,
+            ).unwrap();
+
             ClientTokenRequest {
                 grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
-                client_id: self.0.maskinporten_client_id.to_string(),
-                client_secret: self.0.maskinporten_client_jwk.to_string(),
+                assertion: token, // Use JWK to create an assertion
             }
         }
 
-        fn oauth_endpoint(&self) -> String {
+        fn token_endpoint(&self) -> String {
             self.0.maskinporten_token_endpoint.to_string()
         }
+    }
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct AssertionClaims {
+        exp: usize,
+        iat: usize,
+        jti: String,
+        scope: String,
+        iss: String,
+        aud: String,
     }
 }
