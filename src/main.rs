@@ -52,7 +52,8 @@ async fn main() {
     let cfg = Config::parse();
 
     let app = Router::new()
-        .route("/token", post(handlers::token)).with_state(cfg.clone());
+        .route("/token", post(handlers::token)).with_state(cfg.clone())
+        .route("/introspection", post(handlers::introspection).with_state(cfg.clone()));
 
     let listener = tokio::net::TcpListener::bind(cfg.bind_addr).await.unwrap();
 
@@ -68,10 +69,11 @@ pub mod handlers {
     use axum::response::{IntoResponse, Response};
     use log::{error};
     use thiserror::Error;
+    use jsonwebtoken as jwt;
     use crate::config::Config;
     use crate::identity_provider::*;
     use crate::types;
-    use crate::types::{IdentityProvider, TokenRequest, TokenResponse};
+    use crate::types::{IdentityProvider, IntrospectRequest, TokenRequest, TokenResponse};
 
     #[derive(Debug, Error)]
     pub enum ApiError {
@@ -136,6 +138,16 @@ pub mod handlers {
 
         Ok((StatusCode::OK, Json(res)))
     }
+
+    pub async fn introspect(State(cfg): State<Config>, Json(request): Json<IntrospectRequest>) -> Result<impl IntoResponse, ApiError> {
+        let token_issuer = jwt::
+
+        let provider: Box<dyn Provider + Send> = match token_issuer {
+            IdentityProvider::EntraID => Box::new(EntraID(cfg)),
+            IdentityProvider::TokenX => Box::new(TokenX(cfg)),
+            IdentityProvider::Maskinporten => Box::new(Maskinporten(cfg)),
+        };
+    }
 }
 
 pub mod types {
@@ -180,7 +192,7 @@ pub mod types {
     }
 
     /// This is a token request that comes from the application we are serving.
-    #[derive(Deserialize, Serialize)]
+    #[derive(Deserialize)]
     pub struct TokenRequest {
         pub target: String, // typically <cluster>:<namespace>:<app>
         pub identity_provider: IdentityProvider,
@@ -188,6 +200,11 @@ pub mod types {
         pub user_token: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub force: Option<bool>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct IntrospectRequest {
+        pub token: String,
     }
 
     #[derive(Deserialize, Serialize)]
@@ -202,14 +219,17 @@ pub mod types {
 }
 
 pub mod identity_provider {
+    use std::collections::HashMap;
     use jsonwebkey as jwk;
     use jsonwebtoken as jwt;
+    use serde::Serialize;
     use crate::config::Config;
     use crate::types::ClientTokenRequest;
 
     pub trait Provider {
         fn token_request(&self, target: String) -> ClientTokenRequest;
         fn token_endpoint(&self) -> String;
+        fn introspect(&self, token: String) -> HashMap<String, impl Serialize>;
     }
 
     #[derive(Clone, Debug)]
@@ -232,6 +252,10 @@ pub mod identity_provider {
         fn token_endpoint(&self) -> String {
             todo!()
         }
+
+        fn introspect(&self, token: String) -> HashMap<String, impl Serialize> {
+            todo!()
+        }
     }
 
     impl Provider for TokenX {
@@ -243,6 +267,10 @@ pub mod identity_provider {
         }
 
         fn token_endpoint(&self) -> String {
+            todo!()
+        }
+
+        fn introspect(&self, token: String) -> HashMap<String, impl Serialize> {
             todo!()
         }
     }
@@ -282,6 +310,10 @@ pub mod identity_provider {
 
         fn token_endpoint(&self) -> String {
             self.0.maskinporten_token_endpoint.to_string()
+        }
+
+        fn introspect(&self, token: String) -> HashMap<String, impl Serialize> {
+
         }
     }
 
