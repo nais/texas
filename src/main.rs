@@ -1,27 +1,27 @@
-use axum::extract::State;
-use axum::http::StatusCode;
 use axum::routing::post;
-use axum::{Json, Router};
-use axum::response::{IntoResponse, Response};
+use axum::Router;
 use clap::{Parser};
 use dotenv::dotenv;
-use log::{error, info, LevelFilter};
-use serde::{Deserialize, Serialize};
+use log::{info, LevelFilter};
+use crate::config::Config;
 
+pub mod config {
+    use clap::Parser;
 
-#[derive(Parser, Debug, Clone)]
-#[command(version, about, long_about = None)]
-struct Config {
-    #[arg(short, long, env, default_value = "127.0.0.1:3000")]
-    bind_addr: String,
-    #[arg(env)]
-    maskinporten_client_id: String,
-    #[arg(env)]
-    maskinporten_client_jwk: String,
-    #[arg(env)]
-    maskinporten_issuer: String,
-    #[arg(env)]
-    maskinporten_token_endpoint: String,
+    #[derive(Parser, Debug, Clone)]
+    #[command(version, about, long_about = None)]
+    pub struct Config {
+        #[arg(short, long, env, default_value = "127.0.0.1:3000")]
+        pub bind_addr: String,
+        #[arg(env)]
+        pub maskinporten_client_id: String,
+        #[arg(env)]
+        pub maskinporten_client_jwk: String,
+        #[arg(env)]
+        pub maskinporten_issuer: String,
+        #[arg(env)]
+        pub maskinporten_token_endpoint: String,
+    }
 }
 
 fn print_texas_logo() {
@@ -52,7 +52,7 @@ async fn main() {
     let cfg = Config::parse();
 
     let app = Router::new()
-        .route("/token", post(token)).with_state(cfg.clone());
+        .route("/token", post(handlers::token)).with_state(cfg.clone());
 
     let listener = tokio::net::TcpListener::bind(cfg.bind_addr).await.unwrap();
 
@@ -61,84 +61,196 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-enum Error {
-    Maskinporten(reqwest::Error),
-    JSON,
-}
+pub mod handlers {
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use axum::{Json};
+    use axum::response::{IntoResponse, Response};
+    use log::{error};
+    use thiserror::Error;
+    use crate::config::Config;
+    use crate::idprovider::*;
+    use crate::types;
+    use crate::types::{IdentityProvider, TokenRequest, TokenResponse};
 
-impl IntoResponse for Error {
-    fn into_response(self) -> Response {
-        match self {
-            Error::Maskinporten(m) => {
-                (m.status().unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), m.to_string())
-            }
-            Error::JSON => {
-                (StatusCode::BAD_GATEWAY, "could not deserialize json".to_string())
-            }
-        }.into_response()
+    #[derive(Debug, Error)]
+    pub enum ApiError {
+        #[error("identity provider error: {0}")]
+        UpstreamRequest(reqwest::Error),
+
+        #[error("upstream error")]
+        Upstream(types::ErrorResponse),
+
+        #[error("invalid JSON in token response: {0}")]
+        JSON(reqwest::Error),
+    }
+
+    impl IntoResponse for ApiError {
+        fn into_response(self) -> Response {
+            match &self {
+                ApiError::UpstreamRequest(err) => {
+                    (err.status().unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), self.to_string())
+                }
+                ApiError::JSON(_) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+                }
+                ApiError::Upstream(_err) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+                }
+            }.into_response()
+        }
+    }
+
+    pub async fn token(State(cfg): State<Config>, Json(request): Json<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
+        let provider: Box<dyn Idprovider + Send> = match request.identity_provider {
+            IdentityProvider::EntraID => Box::new(EntraID(cfg)),
+            IdentityProvider::TokenX => Box::new(TokenX(cfg)),
+            IdentityProvider::Maskinporten => Box::new(Maskinporten(cfg)),
+        };
+
+        let params = provider.oauth_request();
+
+        let client = reqwest::Client::new();
+        let request_builder = client.post(provider.oauth_endpoint())
+            .header("accept", "application/json")
+            .form(&params);
+
+        let response = request_builder
+            .send()
+            .await
+            .map_err(ApiError::UpstreamRequest)?
+            ;
+
+        if response.status() >= StatusCode::BAD_REQUEST {
+            let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
+            return Err(ApiError::Upstream(err));
+        }
+
+        let res: TokenResponse = response
+            .json().await
+            .inspect_err(|err| {
+                error!("Maskinporten returned invalid JSON: {:?}", err)
+            })
+            .map_err(ApiError::JSON)?
+            ;
+
+        Ok((StatusCode::OK, Json(res)))
     }
 }
 
-async fn token(State(cfg): State<Config>, Json(_payload): Json<TokenRequest>) -> Result<impl IntoResponse, Error> {
-    let params = ClientTokenRequest {
-        grant_type: "client_credentials".to_string(),
-        client_id: cfg.maskinporten_client_id,
-        client_secret: cfg.maskinporten_client_jwk,
-    };
+pub mod types {
+    use serde::{Deserialize, Serialize};
 
-    let client = reqwest::Client::new();
-    let res: TokenResponse = client.post(cfg.maskinporten_token_endpoint)
-        .header("accept", "application/json")
-        .form(&params)
-        .send()
-        .await
-        .map_err(Error::Maskinporten)?
-        .json().await
-        .inspect_err(|err| {
-            error!("Maskinporten returned invalid JSON: {:?}", err)
-        })
-        .map_err(|_| Error::JSON)?
-        ;
+    /// This is an upstream RFCXXXX token response.
+    #[derive(Serialize, Deserialize)]
+    pub struct TokenResponse {
+        pub access_token: String,
+        pub token_type: TokenType,
+        #[serde(rename = "expires_in")]
+        pub expires_in_seconds: usize,
+    }
 
-    Ok((StatusCode::OK, Json(res)))
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct ErrorResponse {
+        pub error: String,
+        #[serde(rename = "error_description")]
+        pub description: String,
+    }
+
+    /// This is the token request sent to our identity provider.
+    #[derive(Serialize)]
+    pub struct ClientTokenRequest {
+        pub grant_type: String,
+        pub client_id: String,
+        pub client_secret: String,
+    }
+
+    /// For forwards API compatibility. Token type is always Bearer,
+    /// but this might change in the future.
+    #[derive(Deserialize, Serialize)]
+    pub enum TokenType {
+        Bearer
+    }
+
+    /// This is a token request that comes from the application we are serving.
+    #[derive(Deserialize, Serialize)]
+    pub struct TokenRequest {
+        pub target: String, // typically <cluster>:<namespace>:<app>
+        pub identity_provider: IdentityProvider,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub user_token: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub force: Option<bool>,
+    }
+
+    #[derive(Deserialize, Serialize)]
+    pub enum IdentityProvider {
+        #[serde(rename = "entra")]
+        EntraID,
+        #[serde(rename = "tokenx")]
+        TokenX,
+        #[serde(rename = "maskinporten")]
+        Maskinporten,
+    }
 }
 
-#[derive(Serialize, Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    token_type: TokenType,
-    #[serde(rename = "expires_in")]
-    expires_in_seconds: usize,
-}
+pub mod idprovider {
+    use crate::config::Config;
+    use crate::types::ClientTokenRequest;
 
-#[derive(Serialize)]
-struct ClientTokenRequest {
-    grant_type: String,
-    client_id: String,
-    client_secret: String,
-}
+    pub trait Idprovider {
+        fn oauth_request(&self) -> ClientTokenRequest;
+        fn oauth_endpoint(&self) -> String;
+    }
 
-#[derive(Deserialize, Serialize)]
-enum TokenType {
-    Bearer
-}
+    #[derive(Clone, Debug)]
+    pub struct Maskinporten(pub Config);
 
-#[derive(Deserialize, Serialize)]
-struct TokenRequest {
-    target: String, // typically <cluster>:<namespace>:<app>
-    identity_provider: IdentityProvider,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    user_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    force: Option<bool>,
-}
+    #[derive(Clone, Debug)]
+    pub struct EntraID(pub Config);
 
-#[derive(Deserialize, Serialize)]
-enum IdentityProvider {
-    #[serde(rename = "entra")]
-    EntraID,
-    #[serde(rename = "tokenx")]
-    TokenX,
-    #[serde(rename = "maskinporten")]
-    Maskinporten,
+    #[derive(Clone, Debug)]
+    pub struct TokenX(pub Config);
+
+    impl Idprovider for EntraID {
+        fn oauth_request(&self) -> ClientTokenRequest {
+            ClientTokenRequest {
+                grant_type: "client_credentials".to_string(), // FIXME: urn:ietf:params:oauth:grant-type:jwt-bearer for OBO
+                client_id: "".to_string(),
+                client_secret: "".to_string(),
+            }
+        }
+
+        fn oauth_endpoint(&self) -> String {
+            todo!()
+        }
+    }
+
+    impl Idprovider for TokenX {
+        fn oauth_request(&self) -> ClientTokenRequest {
+            ClientTokenRequest {
+                grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
+                client_id: "".to_string(),
+                client_secret: "".to_string(),
+            }
+        }
+
+        fn oauth_endpoint(&self) -> String {
+            todo!()
+        }
+    }
+
+    impl Idprovider for Maskinporten {
+        fn oauth_request(&self) -> ClientTokenRequest {
+            ClientTokenRequest {
+                grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
+                client_id: self.0.maskinporten_client_id.to_string(),
+                client_secret: self.0.maskinporten_client_jwk.to_string(),
+            }
+        }
+
+        fn oauth_endpoint(&self) -> String {
+            self.0.maskinporten_token_endpoint.to_string()
+        }
+    }
 }
