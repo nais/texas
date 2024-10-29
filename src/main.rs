@@ -1,9 +1,9 @@
+use crate::config::Config;
 use axum::routing::post;
 use axum::Router;
-use clap::{Parser};
+use clap::Parser;
 use dotenv::dotenv;
 use log::{info, LevelFilter};
-use crate::config::Config;
 
 pub mod config {
     use clap::Parser;
@@ -63,17 +63,20 @@ async fn main() {
 }
 
 pub mod handlers {
-    use axum::extract::State;
-    use axum::http::StatusCode;
-    use axum::{Json};
-    use axum::response::{IntoResponse, Response};
-    use log::{error};
-    use thiserror::Error;
-    use jsonwebtoken as jwt;
     use crate::config::Config;
     use crate::identity_provider::*;
     use crate::types;
     use crate::types::{IdentityProvider, IntrospectRequest, TokenRequest, TokenResponse};
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use axum::response::{IntoResponse, Response};
+    use axum::Json;
+    use jsonwebtoken as jwt;
+    use jsonwebtoken::Algorithm::RS512;
+    use jsonwebtoken::DecodingKey;
+    use log::error;
+    use std::collections::HashMap;
+    use thiserror::Error;
 
     #[derive(Debug, Error)]
     pub enum ApiError {
@@ -103,11 +106,12 @@ pub mod handlers {
         }
     }
 
+    // TODO: create providers outside of this, possibly use State to store them
     pub async fn token(State(cfg): State<Config>, Json(request): Json<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
         let provider: Box<dyn Provider + Send> = match request.identity_provider {
             IdentityProvider::EntraID => Box::new(EntraID(cfg)),
             IdentityProvider::TokenX => Box::new(TokenX(cfg)),
-            IdentityProvider::Maskinporten => Box::new(Maskinporten(cfg)),
+            IdentityProvider::Maskinporten => Box::new(Maskinporten::new(cfg)),
         };
 
         let params = provider.token_request(request.target);
@@ -139,20 +143,34 @@ pub mod handlers {
         Ok((StatusCode::OK, Json(res)))
     }
 
-    pub async fn introspect(State(cfg): State<Config>, Json(request): Json<IntrospectRequest>) -> Result<impl IntoResponse, ApiError> {
-        let token_issuer = jwt::
+    pub async fn introspection(State(cfg): State<Config>, Json(request): Json<IntrospectRequest>) -> Result<impl IntoResponse, ApiError> {
+        // Need to decode the token to get the issuer before we actually validate it.
+        let mut validation = jwt::Validation::new(RS512);
+        validation.validate_exp = false;
+        validation.insecure_disable_signature_validation();
+        let key = DecodingKey::from_secret(&[]);
+        let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).unwrap();
+        let issuer = token_data.claims.iss;
 
-        let provider: Box<dyn Provider + Send> = match token_issuer {
-            IdentityProvider::EntraID => Box::new(EntraID(cfg)),
-            IdentityProvider::TokenX => Box::new(TokenX(cfg)),
-            IdentityProvider::Maskinporten => Box::new(Maskinporten(cfg)),
+        let provider = match issuer {
+            s if s == cfg.maskinporten_issuer => Box::new(Maskinporten::new(cfg)),
+            _ => panic!("Unknown issuer: {}", issuer),
         };
+
+        let claims = provider.introspect(request.token);
+
+        Ok((StatusCode::OK, Json(claims)))
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Claims {
+        iss: String,
     }
 }
 
 pub mod types {
-    use std::fmt::{Display, Formatter};
     use serde::{Deserialize, Serialize};
+    use std::fmt::{Display, Formatter};
 
     /// This is an upstream RFCXXXX token response.
     #[derive(Serialize, Deserialize)]
@@ -219,21 +237,25 @@ pub mod types {
 }
 
 pub mod identity_provider {
-    use std::collections::HashMap;
-    use jsonwebkey as jwk;
-    use jsonwebtoken as jwt;
-    use serde::Serialize;
     use crate::config::Config;
     use crate::types::ClientTokenRequest;
+    use jsonwebkey as jwk;
+    use jsonwebtoken as jwt;
+    use serde_json::Value;
+    use std::collections::HashMap;
 
     pub trait Provider {
         fn token_request(&self, target: String) -> ClientTokenRequest;
         fn token_endpoint(&self) -> String;
-        fn introspect(&self, token: String) -> HashMap<String, impl Serialize>;
+        fn introspect(&self, token: String) -> HashMap<String, Value>;
     }
 
     #[derive(Clone, Debug)]
-    pub struct Maskinporten(pub Config);
+    pub struct Maskinporten{
+        pub cfg:Config,
+        jwk: jwk::JsonWebKey,
+    }
+
 
     #[derive(Clone, Debug)]
     pub struct EntraID(pub Config);
@@ -253,7 +275,7 @@ pub mod identity_provider {
             todo!()
         }
 
-        fn introspect(&self, token: String) -> HashMap<String, impl Serialize> {
+        fn introspect(&self, token: String) -> HashMap<String, Value> {
             todo!()
         }
     }
@@ -270,14 +292,13 @@ pub mod identity_provider {
             todo!()
         }
 
-        fn introspect(&self, token: String) -> HashMap<String, impl Serialize> {
+        fn introspect(&self, token: String) -> HashMap<String, Value> {
             todo!()
         }
     }
 
     impl Provider for Maskinporten {
         fn token_request(&self, target: String) -> ClientTokenRequest {
-            let the_jwk: jwk::JsonWebKey = self.0.maskinporten_client_jwk.parse().unwrap();
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
             let jti = uuid::Uuid::new_v4();
 
@@ -286,13 +307,13 @@ pub mod identity_provider {
                 iat: now as usize,
                 jti: jti.to_string(),
                 scope: target.to_string(),
-                iss: self.0.maskinporten_client_id.to_string(),
-                aud: self.0.maskinporten_issuer.to_string(),
+                iss: self.cfg.maskinporten_client_id.to_string(),
+                aud: self.cfg.maskinporten_issuer.to_string(),
             };
 
-            let encoding_key: jwt::EncodingKey = the_jwk.key.to_encoding_key();
-            let alg: jwt::Algorithm = the_jwk.algorithm.unwrap().into();
-            let kid: String = the_jwk.key_id.unwrap();
+            let encoding_key: jwt::EncodingKey = self.jwk.key.to_encoding_key();
+            let alg: jwt::Algorithm = self.jwk.algorithm.unwrap().into();
+            let kid: String = self.jwk.key_id.clone().unwrap();
             let mut header = jwt::Header::new(alg);
             header.kid = Some(kid);
 
@@ -309,11 +330,25 @@ pub mod identity_provider {
         }
 
         fn token_endpoint(&self) -> String {
-            self.0.maskinporten_token_endpoint.to_string()
+            self.cfg.maskinporten_token_endpoint.to_string()
         }
 
-        fn introspect(&self, token: String) -> HashMap<String, impl Serialize> {
+        fn introspect(&self, token: String) -> HashMap<String, Value> {
+            let alg: jwt::Algorithm = self.jwk.algorithm.unwrap().into();
+            // TODO: ensure all the things are properly validated
+            let validation = jwt::Validation::new(alg);
+            // TODO: use the jwks from the id provider and not the private jwk to validate
+            jwt::decode::<HashMap<String, Value>>(&token, &self.jwk.key.to_decoding_key(), &validation).unwrap().claims
+        }
+    }
 
+    impl Maskinporten {
+        pub(crate) fn new(cfg: Config) -> Self {
+            let the_jwk: jwk::JsonWebKey = cfg.maskinporten_client_jwk.parse().unwrap();
+            Self {
+                cfg,
+                jwk: the_jwk,
+            }
         }
     }
 
