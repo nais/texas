@@ -12,13 +12,13 @@ pub trait Provider<T: Serialize> {
     fn introspect(&mut self, token: String) -> impl std::future::Future<Output=HashMap<String, Value>> + Send;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Maskinporten {
     pub cfg: Config,
-    private_jwk: jwk::JsonWebKey,
+    private_jwk: jwt::EncodingKey,
+    client_assertion_header: jwt::Header,
     upstream_jwks: jwks::Jwks,
 }
-
 
 #[derive(Clone, Debug)]
 pub struct EntraID(pub Config);
@@ -48,9 +48,7 @@ pub struct TokenXTokenRequest {}
 
 impl Provider<TokenXTokenRequest> for TokenX {
     fn token_request(&self, _target: String) -> TokenXTokenRequest {
-        TokenXTokenRequest {
-
-        }
+        TokenXTokenRequest {}
     }
 
     fn token_endpoint(&self) -> String {
@@ -82,16 +80,10 @@ impl Provider<MaskinportenTokenRequest> for Maskinporten {
             aud: self.cfg.maskinporten_issuer.to_string(),
         };
 
-        let encoding_key: jwt::EncodingKey = self.private_jwk.key.to_encoding_key();
-        let alg: jwt::Algorithm = self.private_jwk.algorithm.unwrap().into();
-        let kid: String = self.private_jwk.key_id.clone().unwrap();
-        let mut header = jwt::Header::new(alg);
-        header.kid = Some(kid);
-
         let token = jwt::encode(
-            &header,
+            &self.client_assertion_header,
             &claims,
-            &encoding_key,
+            &self.private_jwk,
         ).unwrap();
 
         MaskinportenTokenRequest {
@@ -121,11 +113,18 @@ impl Provider<MaskinportenTokenRequest> for Maskinporten {
 
 impl Maskinporten {
     pub fn new(cfg: Config, upstream_jwks: jwks::Jwks) -> Self {
-        let the_jwk: jwk::JsonWebKey = cfg.maskinporten_client_jwk.parse().unwrap();
+        let client_private_jwk: jwk::JsonWebKey = cfg.maskinporten_client_jwk.parse().unwrap();
+        let alg: jwt::Algorithm = client_private_jwk.algorithm.unwrap().into();
+        let kid: String = client_private_jwk.key_id.clone().unwrap();
+
+        let mut header = jwt::Header::new(alg);
+        header.kid = Some(kid);
+
         Self {
             cfg,
             upstream_jwks,
-            private_jwk: the_jwk,
+            private_jwk: client_private_jwk.key.to_encoding_key(),
+            client_assertion_header: header,
         }
     }
 }
