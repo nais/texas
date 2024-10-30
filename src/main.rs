@@ -60,7 +60,7 @@ async fn main() {
 
     let maskinporten = identity_provider::Maskinporten::new(
         cfg.clone(),
-        jwks::Jwks::new_from_jwks_endpoint(&cfg.maskinporten_jwks_uri).await.unwrap(),
+        jwks::Jwks::new(&cfg.maskinporten_issuer, &cfg.maskinporten_jwks_uri).await.unwrap(),
     );
 
     let state = handlers::HandlerState {
@@ -198,11 +198,10 @@ pub mod handlers {
         validation.insecure_disable_signature_validation();
         let key = DecodingKey::from_secret(&[]);
         let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).map_err(ApiError::Validate)?;
-        let issuer = token_data.claims.iss;
 
-        let claims = match issuer {
+        let claims = match token_data.claims.iss {
             s if s == state.cfg.maskinporten_issuer => state.maskinporten.write().await.introspect(request.token).await,
-            _ => panic!("Unknown issuer: {}", issuer),
+            _ => panic!("Unknown issuer: {}", token_data.claims.iss),
         };
 
         Ok((StatusCode::OK, Json(claims)))

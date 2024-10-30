@@ -1,13 +1,14 @@
-use std::collections::HashMap;
+use crate::jwks::Error::{InvalidToken, KeyNotInJWKS};
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use serde::Deserialize;
 use serde_json::Value;
-use crate::jwks::Error::{InvalidToken, KeyNotInJWKS};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct Jwks {
     endpoint: String,
+    issuer: String,
     keys: HashMap<String, jwk::JsonWebKey>,
 }
 
@@ -22,7 +23,7 @@ pub enum Error {
 }
 
 impl Jwks {
-    pub async fn new_from_jwks_endpoint(endpoint: &str) -> Result<Jwks, Error> {
+    pub async fn new(issuer: &str, endpoint: &str) -> Result<Jwks, Error> {
         #[derive(Deserialize)]
         struct Response {
             keys: Vec<jwk::JsonWebKey>,
@@ -47,25 +48,28 @@ impl Jwks {
         Ok(Self {
             keys,
             endpoint: endpoint.to_string(),
+            issuer: issuer.to_string(),
         })
     }
 
     /// Pull a new version of the JWKS from the original endpoint.
     pub async fn refresh(&mut self) -> Result<(), Error> {
-        let new_jwks = Self::new_from_jwks_endpoint(&self.endpoint).await?;
+        let new_jwks = Self::new(&self.issuer, &self.endpoint).await?;
         self.keys = new_jwks.keys;
         Ok(())
     }
 
     /// Check a JWT against a JWKS.
     /// Returns the JWT's claims on success.
-    // TODO: ensure all the things are properly validated
     pub async fn validate(
         &mut self,
         token: &str,
     ) -> Result<HashMap<String, Value>, Error> {
         let alg = jwt::Algorithm::RS256;
-        let validation = jwt::Validation::new(alg);
+        let mut validation = jwt::Validation::new(alg);
+        validation.set_required_spec_claims(&["iss", "exp", "iat"]);
+        validation.set_issuer(&[self.issuer.clone()]);
+        validation.validate_nbf = true;
 
         let key_id = jwt::decode_header(&token)
             .map_err(Error::InvalidTokenHeader)?
