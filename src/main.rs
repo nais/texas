@@ -1,9 +1,10 @@
 pub mod identity_provider;
 pub mod jwks;
 
+use std::sync::Arc;
 use crate::config::Config;
 use axum::routing::post;
-use axum::Router;
+use axum::{handler, Router};
 use clap::Parser;
 use dotenv::dotenv;
 use log::{info, LevelFilter};
@@ -56,9 +57,19 @@ async fn main() {
 
     let cfg = Config::parse();
 
+    let maskinporten = identity_provider::Maskinporten::new(
+        cfg.clone(),
+        jwks::Jwks::new_from_jwks_endpoint(&cfg.maskinporten_jwks_uri).await.unwrap(),
+    );
+
+    let state = handlers::HandlerState {
+        cfg: cfg.clone(),
+        maskinporten: Arc::new(maskinporten),
+    };
+
     let app = Router::new()
-        .route("/token", post(handlers::token)).with_state(cfg.clone())
-        .route("/introspection", post(handlers::introspection).with_state(cfg.clone()));
+        .route("/token", post(handlers::token)).with_state(state.clone())
+        .route("/introspection", post(handlers::introspection).with_state(state.clone()));
 
     let listener = tokio::net::TcpListener::bind(cfg.bind_addr).await.unwrap();
 
@@ -68,6 +79,7 @@ async fn main() {
 }
 
 pub mod handlers {
+    use std::sync::Arc;
     use crate::config::Config;
     use crate::identity_provider::*;
     use crate::types;
@@ -93,6 +105,9 @@ pub mod handlers {
 
         #[error("invalid JSON in token response: {0}")]
         JSON(reqwest::Error),
+
+        #[error("invalid token: {0}")]
+        Validate(jwt::errors::Error),
     }
 
     impl IntoResponse for ApiError {
@@ -107,18 +122,26 @@ pub mod handlers {
                 ApiError::Upstream(_err) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
                 }
+                ApiError::Validate(_) => {
+                    (StatusCode::BAD_REQUEST, self.to_string())
+                }
             }.into_response()
         }
     }
 
-    // TODO: create providers outside of this, possibly use State to store them
-    pub async fn token(State(cfg): State<Config>, Json(request): Json<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
-        let key_set = Jwks::new_from_jwks_endpoint(&cfg.maskinporten_jwks_uri).await.unwrap();
+    #[derive(Clone)]
+    pub struct HandlerState {
+        pub cfg: Config,
+        pub maskinporten: Arc<Maskinporten>,
+        // TODO: other providers
+    }
 
-        let provider: Box<dyn Provider + Send> = match request.identity_provider {
-            IdentityProvider::EntraID => Box::new(EntraID(cfg)),
-            IdentityProvider::TokenX => Box::new(TokenX(cfg)),
-            IdentityProvider::Maskinporten => Box::new(Maskinporten::new(cfg, key_set)),
+    #[axum::debug_handler]
+    pub async fn token(State(state): State<HandlerState>, Json(request): Json<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
+        let provider: Arc<dyn Provider + Send + Sync> = match request.identity_provider {
+            IdentityProvider::EntraID => Arc::new(EntraID(state.cfg)),
+            IdentityProvider::TokenX => Arc::new(TokenX(state.cfg)),
+            IdentityProvider::Maskinporten => state.maskinporten,
         };
 
         let params = provider.token_request(request.target);
@@ -150,19 +173,17 @@ pub mod handlers {
         Ok((StatusCode::OK, Json(res)))
     }
 
-    pub async fn introspection(State(cfg): State<Config>, Json(request): Json<IntrospectRequest>) -> Result<impl IntoResponse, ApiError> {
+    pub async fn introspection(State(state): State<HandlerState>, Json(request): Json<IntrospectRequest>) -> Result<impl IntoResponse, ApiError> {
         // Need to decode the token to get the issuer before we actually validate it.
         let mut validation = jwt::Validation::new(RS512);
         validation.validate_exp = false;
         validation.insecure_disable_signature_validation();
         let key = DecodingKey::from_secret(&[]);
-        let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).unwrap();
+        let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).map_err(ApiError::Validate)?;
         let issuer = token_data.claims.iss;
 
-        let key_set = Jwks::new_from_jwks_endpoint(&cfg.maskinporten_jwks_uri).await.unwrap();
-
         let provider = match issuer {
-            s if s == cfg.maskinporten_issuer => Box::new(Maskinporten::new(cfg, key_set)),
+            s if s == state.cfg.maskinporten_issuer => state.maskinporten,
             _ => panic!("Unknown issuer: {}", issuer),
         };
 
