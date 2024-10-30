@@ -1,15 +1,16 @@
 use crate::config::Config;
+use crate::jwks;
 use crate::types::ClientTokenRequest;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use crate::jwks;
 
-pub trait Provider {
-    fn token_request(&self, target: String) -> ClientTokenRequest;
+pub trait Provider<T: Serialize> {
+    fn token_request(&self, target: String) -> T;
     fn token_endpoint(&self) -> String;
-    fn introspect(&mut self, token: String) -> impl std::future::Future<Output = HashMap<String, Value>> + Send;
+    fn introspect(&mut self, token: String) -> impl std::future::Future<Output=HashMap<String, Value>> + Send;
 }
 
 #[derive(Clone, Debug)]
@@ -26,12 +27,30 @@ pub struct EntraID(pub Config);
 #[derive(Clone, Debug)]
 pub struct TokenX(pub Config);
 
-impl Provider for EntraID {
-    fn token_request(&self, _target: String) -> ClientTokenRequest {
-        ClientTokenRequest {
-            grant_type: "client_credentials".to_string(), // FIXME: urn:ietf:params:oauth:grant-type:jwt-bearer for OBO
-            client_id: todo!(),
-            assertion: todo!(),
+#[derive(Serialize)]
+pub struct EntraIDTokenRequest {}
+
+impl Provider<EntraIDTokenRequest> for EntraID {
+    fn token_request(&self, _target: String) -> EntraIDTokenRequest {
+        EntraIDTokenRequest {}
+    }
+
+    fn token_endpoint(&self) -> String {
+        todo!()
+    }
+
+    async fn introspect(&mut self, _token: String) -> HashMap<String, Value> {
+        todo!()
+    }
+}
+
+#[derive(Serialize)]
+pub struct TokenXTokenRequest {}
+
+impl Provider<TokenXTokenRequest> for TokenX {
+    fn token_request(&self, _target: String) -> TokenXTokenRequest {
+        TokenXTokenRequest {
+
         }
     }
 
@@ -44,26 +63,14 @@ impl Provider for EntraID {
     }
 }
 
-impl Provider for TokenX {
-    fn token_request(&self, _target: String) -> ClientTokenRequest {
-        ClientTokenRequest {
-            grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
-            client_id: todo!(),
-            assertion: todo!(),
-        }
-    }
-
-    fn token_endpoint(&self) -> String {
-        todo!()
-    }
-
-    async fn introspect(&mut self, _token: String) -> HashMap<String, Value> {
-        todo!()
-    }
+#[derive(Serialize)]
+pub struct MaskinportenTokenRequest {
+    grant_type: String,
+    assertion: String,
 }
 
-impl Provider for Maskinporten {
-    fn token_request(&self, target: String) -> ClientTokenRequest {
+impl Provider<MaskinportenTokenRequest> for Maskinporten {
+    fn token_request(&self, target: String) -> MaskinportenTokenRequest {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         let jti = uuid::Uuid::new_v4();
 
@@ -88,10 +95,9 @@ impl Provider for Maskinporten {
             &encoding_key,
         ).unwrap();
 
-        ClientTokenRequest {
+        MaskinportenTokenRequest {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
-            client_id: self.cfg.maskinporten_client_id.clone(),
-            assertion: token, // Use JWK to create an assertion
+            assertion: token,
         }
     }
 

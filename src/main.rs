@@ -93,6 +93,7 @@ pub mod handlers {
     use jsonwebtoken::Algorithm::RS512;
     use jsonwebtoken::DecodingKey;
     use log::error;
+    use serde::Serialize;
     use thiserror::Error;
     use tokio::sync::{RwLock};
 
@@ -137,16 +138,32 @@ pub mod handlers {
         // TODO: other providers
     }
 
+    impl HandlerState {
+        async fn token_request(&self, identity_provider: &IdentityProvider, target: String ) -> Box<dyn Serialize> {
+            match identity_provider {
+                IdentityProvider::EntraID => todo!(),
+                IdentityProvider::TokenX =>  todo!(),
+                IdentityProvider::Maskinporten => {
+                    Box::new(self.maskinporten.read().await.token_request(target))
+                },
+            }
+        }
+
+        async fn token_endpoint(&self, identity_provider: &IdentityProvider) -> String {
+            match identity_provider {
+                IdentityProvider::EntraID => todo!(),
+                IdentityProvider::TokenX =>  todo!(),
+                IdentityProvider::Maskinporten => {
+                    self.maskinporten.read().await.token_endpoint()
+                },
+            }
+        }
+    }
+
     #[axum::debug_handler]
     pub async fn token(State(state): State<HandlerState>, Json(request): Json<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
-        let (endpoint, params) = match request.identity_provider {
-            IdentityProvider::EntraID => (EntraID(state.cfg.clone()).token_endpoint(), EntraID(state.cfg).token_request(request.target)),
-            IdentityProvider::TokenX => (TokenX(state.cfg.clone()).token_endpoint(), TokenX(state.cfg).token_request(request.target)),
-            IdentityProvider::Maskinporten => {
-                let maskinporten = state.maskinporten.read().await;
-                (maskinporten.token_endpoint(), maskinporten.token_request(request.target))
-            },
-        };
+        let endpoint = state.token_endpoint(&request.identity_provider).await;
+        let params = state.token_request(&request.identity_provider, request.target).await;
 
         let client = reqwest::Client::new();
         let request_builder = client.post(endpoint)
@@ -228,7 +245,6 @@ pub mod types {
     /// TODO: hard coded parameters that only works with Maskinporten for now.
     #[derive(Serialize)]
     pub struct ClientTokenRequest {
-        pub client_id: String,
         pub grant_type: String,
         pub assertion: String,
     }
