@@ -4,10 +4,11 @@ pub mod jwks;
 use std::sync::Arc;
 use crate::config::Config;
 use axum::routing::post;
-use axum::{handler, Router};
+use axum::{Router};
 use clap::Parser;
 use dotenv::dotenv;
 use log::{info, LevelFilter};
+use tokio::sync::RwLock;
 
 pub mod config {
     use clap::Parser;
@@ -64,7 +65,7 @@ async fn main() {
 
     let state = handlers::HandlerState {
         cfg: cfg.clone(),
-        maskinporten: Arc::new(maskinporten),
+        maskinporten: Arc::new(RwLock::new(maskinporten)),
     };
 
     let app = Router::new()
@@ -93,7 +94,7 @@ pub mod handlers {
     use jsonwebtoken::DecodingKey;
     use log::error;
     use thiserror::Error;
-    use crate::jwks::Jwks;
+    use tokio::sync::{RwLock};
 
     #[derive(Debug, Error)]
     pub enum ApiError {
@@ -132,22 +133,23 @@ pub mod handlers {
     #[derive(Clone)]
     pub struct HandlerState {
         pub cfg: Config,
-        pub maskinporten: Arc<Maskinporten>,
+        pub maskinporten: Arc<RwLock<Maskinporten>>,
         // TODO: other providers
     }
 
     #[axum::debug_handler]
     pub async fn token(State(state): State<HandlerState>, Json(request): Json<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
-        let provider: Arc<dyn Provider + Send + Sync> = match request.identity_provider {
-            IdentityProvider::EntraID => Arc::new(EntraID(state.cfg)),
-            IdentityProvider::TokenX => Arc::new(TokenX(state.cfg)),
-            IdentityProvider::Maskinporten => state.maskinporten,
+        let (endpoint, params) = match request.identity_provider {
+            IdentityProvider::EntraID => (EntraID(state.cfg.clone()).token_endpoint(), EntraID(state.cfg).token_request(request.target)),
+            IdentityProvider::TokenX => (TokenX(state.cfg.clone()).token_endpoint(), TokenX(state.cfg).token_request(request.target)),
+            IdentityProvider::Maskinporten => {
+                let maskinporten = state.maskinporten.read().await;
+                (maskinporten.token_endpoint(), maskinporten.token_request(request.target))
+            },
         };
 
-        let params = provider.token_request(request.target);
-
         let client = reqwest::Client::new();
-        let request_builder = client.post(provider.token_endpoint())
+        let request_builder = client.post(endpoint)
             .header("accept", "application/json")
             .form(&params);
 
@@ -182,12 +184,10 @@ pub mod handlers {
         let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).map_err(ApiError::Validate)?;
         let issuer = token_data.claims.iss;
 
-        let provider = match issuer {
-            s if s == state.cfg.maskinporten_issuer => state.maskinporten,
+        let claims = match issuer {
+            s if s == state.cfg.maskinporten_issuer => state.maskinporten.write().await.introspect(request.token).await,
             _ => panic!("Unknown issuer: {}", issuer),
         };
-
-        let claims = provider.introspect(request.token);
 
         Ok((StatusCode::OK, Json(claims)))
     }

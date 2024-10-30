@@ -50,6 +50,7 @@ impl Jwks {
         })
     }
 
+    /// Pull a new version of the JWKS from the original endpoint.
     pub async fn refresh(&mut self) -> Result<(), Error> {
         let new_jwks = Self::new_from_jwks_endpoint(&self.endpoint).await?;
         self.keys = new_jwks.keys;
@@ -59,8 +60,8 @@ impl Jwks {
     /// Check a JWT against a JWKS.
     /// Returns the JWT's claims on success.
     // TODO: ensure all the things are properly validated
-    pub fn validate(
-        &self,
+    pub async fn validate(
+        &mut self,
         token: &str,
     ) -> Result<HashMap<String, Value>, Error> {
         let alg = jwt::Algorithm::RS256;
@@ -71,7 +72,14 @@ impl Jwks {
             .kid.ok_or(Error::MissingKeyID)?
             ;
 
-        let signing_key = self.keys.get(&key_id).ok_or(KeyNotInJWKS)?;
+        // Refresh key store if needed before validating.
+        let signing_key = match self.keys.get(&key_id) {
+            None => {
+                self.refresh().await?;
+                self.keys.get(&key_id).ok_or(KeyNotInJWKS)?
+            }
+            Some(key) => key,
+        };
 
         Ok(jwt::decode::<HashMap<String, Value>>(&token, &signing_key.key.to_decoding_key(), &validation)
             .map_err(InvalidToken)?

@@ -9,7 +9,7 @@ use crate::jwks;
 pub trait Provider {
     fn token_request(&self, target: String) -> ClientTokenRequest;
     fn token_endpoint(&self) -> String;
-    fn introspect(&self, token: String) -> HashMap<String, Value>;
+    fn introspect(&mut self, token: String) -> impl std::future::Future<Output = HashMap<String, Value>> + Send;
 }
 
 #[derive(Clone, Debug)]
@@ -39,7 +39,7 @@ impl Provider for EntraID {
         todo!()
     }
 
-    fn introspect(&self, _token: String) -> HashMap<String, Value> {
+    async fn introspect(&mut self, _token: String) -> HashMap<String, Value> {
         todo!()
     }
 }
@@ -57,7 +57,7 @@ impl Provider for TokenX {
         todo!()
     }
 
-    fn introspect(&self, _token: String) -> HashMap<String, Value> {
+    async fn introspect(&mut self, _token: String) -> HashMap<String, Value> {
         todo!()
     }
 }
@@ -99,8 +99,8 @@ impl Provider for Maskinporten {
         self.cfg.maskinporten_token_endpoint.to_string()
     }
 
-    fn introspect(&self, token: String) -> HashMap<String, Value> {
-        self.upstream_jwks.validate(&token)
+    async fn introspect(&mut self, token: String) -> HashMap<String, Value> {
+        self.upstream_jwks.validate(&token).await
             .map(|mut hashmap| {
                 hashmap.insert("active".to_string(), Value::Bool(true));
                 hashmap
