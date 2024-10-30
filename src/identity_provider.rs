@@ -1,6 +1,5 @@
 use crate::config::Config;
 use crate::jwks;
-use crate::types::ClientTokenRequest;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use serde::Serialize;

@@ -93,7 +93,6 @@ pub mod handlers {
     use jsonwebtoken::Algorithm::RS512;
     use jsonwebtoken::DecodingKey;
     use log::error;
-    use serde::Serialize;
     use thiserror::Error;
     use tokio::sync::{RwLock};
 
@@ -139,7 +138,7 @@ pub mod handlers {
     }
 
     impl HandlerState {
-        async fn token_request(&self, identity_provider: &IdentityProvider, target: String ) -> Box<dyn Serialize> {
+        async fn token_request(&self, identity_provider: &IdentityProvider, target: String ) -> Box<dyn erased_serde::Serialize + Send> {
             match identity_provider {
                 IdentityProvider::EntraID => todo!(),
                 IdentityProvider::TokenX =>  todo!(),
