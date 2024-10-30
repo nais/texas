@@ -18,6 +18,8 @@ pub mod config {
         #[arg(env)]
         pub maskinporten_client_jwk: String,
         #[arg(env)]
+        pub maskinporten_jwks_uri: String,
+        #[arg(env)]
         pub maskinporten_issuer: String,
         #[arg(env)]
         pub maskinporten_token_endpoint: String,
@@ -75,8 +77,8 @@ pub mod handlers {
     use jsonwebtoken::Algorithm::RS512;
     use jsonwebtoken::DecodingKey;
     use log::error;
-    use std::collections::HashMap;
     use thiserror::Error;
+    use crate::jwks::Jwks;
 
     #[derive(Debug, Error)]
     pub enum ApiError {
@@ -108,10 +110,12 @@ pub mod handlers {
 
     // TODO: create providers outside of this, possibly use State to store them
     pub async fn token(State(cfg): State<Config>, Json(request): Json<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
+        let key_set = Jwks::new_from_jwks_endpoint(&cfg.maskinporten_jwks_uri).await.unwrap();
+
         let provider: Box<dyn Provider + Send> = match request.identity_provider {
             IdentityProvider::EntraID => Box::new(EntraID(cfg)),
             IdentityProvider::TokenX => Box::new(TokenX(cfg)),
-            IdentityProvider::Maskinporten => Box::new(Maskinporten::new(cfg)),
+            IdentityProvider::Maskinporten => Box::new(Maskinporten::new(cfg, key_set)),
         };
 
         let params = provider.token_request(request.target);
@@ -152,8 +156,10 @@ pub mod handlers {
         let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).unwrap();
         let issuer = token_data.claims.iss;
 
+        let key_set = Jwks::new_from_jwks_endpoint(&cfg.maskinporten_jwks_uri).await.unwrap();
+
         let provider = match issuer {
-            s if s == cfg.maskinporten_issuer => Box::new(Maskinporten::new(cfg)),
+            s if s == cfg.maskinporten_issuer => Box::new(Maskinporten::new(cfg, key_set)),
             _ => panic!("Unknown issuer: {}", issuer),
         };
 
@@ -198,6 +204,7 @@ pub mod types {
     /// TODO: hard coded parameters that only works with Maskinporten for now.
     #[derive(Serialize)]
     pub struct ClientTokenRequest {
+        pub client_id: String,
         pub grant_type: String,
         pub assertion: String,
     }
@@ -236,6 +243,90 @@ pub mod types {
     }
 }
 
+pub mod jwks {
+    use std::collections::HashMap;
+    use jsonwebkey as jwk;
+    use jsonwebtoken as jwt;
+    use serde::Deserialize;
+    use serde_json::Value;
+    use crate::jwks::Error::{InvalidToken, KeyNotInJWKS};
+
+    #[derive(Clone, Debug)]
+    pub struct Jwks {
+        endpoint: String,
+        keys: HashMap<String, jwk::JsonWebKey>,
+    }
+
+    #[derive(Debug)]
+    pub enum Error {
+        Fetch(reqwest::Error),
+        JsonDecode(reqwest::Error),
+        MissingKeyID,
+        InvalidTokenHeader(jwt::errors::Error),
+        KeyNotInJWKS,
+        InvalidToken(jwt::errors::Error),
+    }
+
+    impl Jwks {
+        pub async fn new_from_jwks_endpoint(endpoint: &str) -> Result<Jwks, Error> {
+            #[derive(Deserialize)]
+            struct Response {
+                keys: Vec<jwk::JsonWebKey>,
+            }
+
+            let client = reqwest::Client::new();
+            let request_builder = client.get(endpoint)
+                .header("accept", "application/json");
+
+            let response: Response = request_builder
+                .send().await
+                .map_err(Error::Fetch)?
+                .json().await
+                .map_err(Error::JsonDecode)?
+                ;
+
+            let mut keys: HashMap<String, jwk::JsonWebKey> = HashMap::new();
+            for key in response.keys {
+                keys.insert(key.key_id.clone().ok_or(Error::MissingKeyID)?, key);
+            }
+
+            Ok(Self {
+                keys,
+                endpoint: endpoint.to_string(),
+            })
+        }
+
+        pub async fn refresh(&mut self) -> Result<(), Error> {
+            let new_jwks = Self::new_from_jwks_endpoint(&self.endpoint).await?;
+            self.keys = new_jwks.keys;
+            Ok(())
+        }
+
+        /// Check a JWT against a JWKS.
+        /// Returns the JWT's claims on success.
+        // TODO: ensure all the things are properly validated
+        pub fn validate(
+            &self,
+            token: &str,
+        ) -> Result<HashMap<String, Value>, Error> {
+            let alg = jwt::Algorithm::RS256;
+            let validation = jwt::Validation::new(alg);
+
+            let key_id = jwt::decode_header(&token)
+                .map_err(Error::InvalidTokenHeader)?
+                .kid.ok_or(Error::MissingKeyID)?
+                ;
+
+            let signing_key = self.keys.get(&key_id).ok_or(KeyNotInJWKS)?;
+
+            Ok(jwt::decode::<HashMap<String, Value>>(&token, &signing_key.key.to_decoding_key(), &validation)
+                .map_err(InvalidToken)?
+                .claims
+            )
+        }
+    }
+}
+
 pub mod identity_provider {
     use crate::config::Config;
     use crate::types::ClientTokenRequest;
@@ -251,9 +342,10 @@ pub mod identity_provider {
     }
 
     #[derive(Clone, Debug)]
-    pub struct Maskinporten{
-        pub cfg:Config,
-        jwk: jwk::JsonWebKey,
+    pub struct Maskinporten {
+        pub cfg: Config,
+        private_jwk: jwk::JsonWebKey,
+        upstream_jwks: crate::jwks::Jwks,
     }
 
 
@@ -264,9 +356,10 @@ pub mod identity_provider {
     pub struct TokenX(pub Config);
 
     impl Provider for EntraID {
-        fn token_request(&self, target: String) -> ClientTokenRequest {
+        fn token_request(&self, _target: String) -> ClientTokenRequest {
             ClientTokenRequest {
                 grant_type: "client_credentials".to_string(), // FIXME: urn:ietf:params:oauth:grant-type:jwt-bearer for OBO
+                client_id: todo!(),
                 assertion: todo!(),
             }
         }
@@ -275,15 +368,16 @@ pub mod identity_provider {
             todo!()
         }
 
-        fn introspect(&self, token: String) -> HashMap<String, Value> {
+        fn introspect(&self, _token: String) -> HashMap<String, Value> {
             todo!()
         }
     }
 
     impl Provider for TokenX {
-        fn token_request(&self, target: String) -> ClientTokenRequest {
+        fn token_request(&self, _target: String) -> ClientTokenRequest {
             ClientTokenRequest {
                 grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
+                client_id: todo!(),
                 assertion: todo!(),
             }
         }
@@ -292,7 +386,7 @@ pub mod identity_provider {
             todo!()
         }
 
-        fn introspect(&self, token: String) -> HashMap<String, Value> {
+        fn introspect(&self, _token: String) -> HashMap<String, Value> {
             todo!()
         }
     }
@@ -311,9 +405,9 @@ pub mod identity_provider {
                 aud: self.cfg.maskinporten_issuer.to_string(),
             };
 
-            let encoding_key: jwt::EncodingKey = self.jwk.key.to_encoding_key();
-            let alg: jwt::Algorithm = self.jwk.algorithm.unwrap().into();
-            let kid: String = self.jwk.key_id.clone().unwrap();
+            let encoding_key: jwt::EncodingKey = self.private_jwk.key.to_encoding_key();
+            let alg: jwt::Algorithm = self.private_jwk.algorithm.unwrap().into();
+            let kid: String = self.private_jwk.key_id.clone().unwrap();
             let mut header = jwt::Header::new(alg);
             header.kid = Some(kid);
 
@@ -325,6 +419,7 @@ pub mod identity_provider {
 
             ClientTokenRequest {
                 grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
+                client_id: self.cfg.maskinporten_client_id.clone(),
                 assertion: token, // Use JWK to create an assertion
             }
         }
@@ -334,20 +429,27 @@ pub mod identity_provider {
         }
 
         fn introspect(&self, token: String) -> HashMap<String, Value> {
-            let alg: jwt::Algorithm = self.jwk.algorithm.unwrap().into();
-            // TODO: ensure all the things are properly validated
-            let validation = jwt::Validation::new(alg);
-            // TODO: use the jwks from the id provider and not the private jwk to validate
-            jwt::decode::<HashMap<String, Value>>(&token, &self.jwk.key.to_decoding_key(), &validation).unwrap().claims
+            self.upstream_jwks.validate(&token)
+                .map(|mut hashmap| {
+                    hashmap.insert("active".to_string(), Value::Bool(true));
+                    hashmap
+                })
+                .unwrap_or_else(|err| {
+                    HashMap::from([
+                        ("active".to_string(), Value::Bool(false)),
+                        ("error".to_string(), Value::String(format!("{:?}", err)))
+                    ])
+                })
         }
     }
 
     impl Maskinporten {
-        pub(crate) fn new(cfg: Config) -> Self {
+        pub(crate) fn new(cfg: Config, upstream_jwks: crate::jwks::Jwks) -> Self {
             let the_jwk: jwk::JsonWebKey = cfg.maskinporten_client_jwk.parse().unwrap();
             Self {
                 cfg,
-                jwk: the_jwk,
+                upstream_jwks,
+                private_jwk: the_jwk,
             }
         }
     }
