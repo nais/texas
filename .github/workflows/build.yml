@@ -1,0 +1,30 @@
+name: Build and push texas
+on: [push]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  GOOGLE_REGISTRY: europe-north1-docker.pkg.dev
+  GITHUB_REGISTRY: ghcr.io
+jobs:
+  build:
+    name: Publish to Google and GitHub registries
+    if: github.ref == 'refs/heads/master'
+    permissions:
+      contents: "read"
+      id-token: "write"
+      packages: "write"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: nais/platform-build-push-sign@main
+        id: build_push_sign
+        with:
+          name: texas
+          dockerfile: Dockerfile
+          google_service_account: gh-texas
+          multi-platform: true
+          push: true
+          push_ghcr: true
+          workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
