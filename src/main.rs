@@ -17,7 +17,7 @@ pub mod config {
     #[command(version, about, long_about = None)]
     pub struct Config {
         #[arg(short, long, env, default_value = "127.0.0.1:3000")]
-        pub bind_addr: String,
+        pub bind_address: String,
         #[arg(env)]
         pub maskinporten_client_id: String,
         #[arg(env)]
@@ -72,7 +72,7 @@ async fn main() {
         .route("/token", post(handlers::token)).with_state(state.clone())
         .route("/introspection", post(handlers::introspection).with_state(state.clone()));
 
-    let listener = tokio::net::TcpListener::bind(cfg.bind_addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(cfg.bind_address).await.unwrap();
 
     info!("Serving on {:?}", listener.local_addr().unwrap());
 
