@@ -26,4 +26,5 @@ jobs:
           google_service_account: gh-texas
           push: true
           push_ghcr: true
+          multi-platform: 'true'
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
