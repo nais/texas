@@ -9,7 +9,10 @@ use std::collections::HashMap;
 pub trait Provider<T: Serialize> {
     fn token_request(&self, target: String) -> T;
     fn token_endpoint(&self) -> String;
-    fn introspect(&mut self, token: String) -> impl std::future::Future<Output=HashMap<String, Value>> + Send;
+    fn introspect(
+        &mut self,
+        token: String,
+    ) -> impl std::future::Future<Output = HashMap<String, Value>> + Send;
 }
 
 #[derive(Clone)]
@@ -68,7 +71,10 @@ pub struct MaskinportenTokenRequest {
 
 impl Provider<MaskinportenTokenRequest> for Maskinporten {
     fn token_request(&self, target: String) -> MaskinportenTokenRequest {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let jti = uuid::Uuid::new_v4();
 
         let claims = AssertionClaims {
@@ -80,11 +86,7 @@ impl Provider<MaskinportenTokenRequest> for Maskinporten {
             aud: self.cfg.maskinporten_issuer.to_string(),
         };
 
-        let token = jwt::encode(
-            &self.client_assertion_header,
-            &claims,
-            &self.private_jwk,
-        ).unwrap();
+        let token = jwt::encode(&self.client_assertion_header, &claims, &self.private_jwk).unwrap();
 
         MaskinportenTokenRequest {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
@@ -97,7 +99,9 @@ impl Provider<MaskinportenTokenRequest> for Maskinporten {
     }
 
     async fn introspect(&mut self, token: String) -> HashMap<String, Value> {
-        self.upstream_jwks.validate(&token).await
+        self.upstream_jwks
+            .validate(&token)
+            .await
             .map(|mut hashmap| {
                 hashmap.insert("active".to_string(), Value::Bool(true));
                 hashmap
@@ -105,7 +109,7 @@ impl Provider<MaskinportenTokenRequest> for Maskinporten {
             .unwrap_or_else(|err| {
                 HashMap::from([
                     ("active".to_string(), Value::Bool(false)),
-                    ("error".to_string(), Value::String(format!("{:?}", err)))
+                    ("error".to_string(), Value::String(format!("{:?}", err))),
                 ])
             })
     }

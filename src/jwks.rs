@@ -30,15 +30,15 @@ impl Jwks {
         }
 
         let client = reqwest::Client::new();
-        let request_builder = client.get(endpoint)
-            .header("accept", "application/json");
+        let request_builder = client.get(endpoint).header("accept", "application/json");
 
         let response: Response = request_builder
-            .send().await
+            .send()
+            .await
             .map_err(Error::Fetch)?
-            .json().await
-            .map_err(Error::JsonDecode)?
-            ;
+            .json()
+            .await
+            .map_err(Error::JsonDecode)?;
 
         let mut keys: HashMap<String, jwk::JsonWebKey> = HashMap::new();
         for key in response.keys {
@@ -61,10 +61,7 @@ impl Jwks {
 
     /// Check a JWT against a JWKS.
     /// Returns the JWT's claims on success.
-    pub async fn validate(
-        &mut self,
-        token: &str,
-    ) -> Result<HashMap<String, Value>, Error> {
+    pub async fn validate(&mut self, token: &str) -> Result<HashMap<String, Value>, Error> {
         let alg = jwt::Algorithm::RS256;
         let mut validation = jwt::Validation::new(alg);
         validation.set_required_spec_claims(&["iss", "exp", "iat"]);
@@ -73,8 +70,8 @@ impl Jwks {
 
         let key_id = jwt::decode_header(token)
             .map_err(Error::InvalidTokenHeader)?
-            .kid.ok_or(Error::MissingKeyID)?
-            ;
+            .kid
+            .ok_or(Error::MissingKeyID)?;
 
         // Refresh key store if needed before validating.
         let signing_key = match self.keys.get(&key_id) {
@@ -85,9 +82,12 @@ impl Jwks {
             Some(key) => key,
         };
 
-        Ok(jwt::decode::<HashMap<String, Value>>(token, &signing_key.key.to_decoding_key(), &validation)
-            .map_err(InvalidToken)?
-            .claims
+        Ok(jwt::decode::<HashMap<String, Value>>(
+            token,
+            &signing_key.key.to_decoding_key(),
+            &validation,
         )
+        .map_err(InvalidToken)?
+        .claims)
     }
 }

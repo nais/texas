@@ -6,6 +6,7 @@ use crate::identity_provider::*;
 use crate::types;
 use crate::types::{IdentityProvider, IntrospectRequest, TokenRequest, TokenResponse};
 use axum::extract::State;
+use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -14,25 +15,29 @@ use jsonwebtoken::Algorithm::RS512;
 use jsonwebtoken::DecodingKey;
 use log::error;
 use std::sync::Arc;
-use axum::http::header::CONTENT_TYPE;
 use thiserror::Error;
 use tokio::sync::RwLock;
 
 #[axum::debug_handler]
-pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
+pub async fn token(
+    State(state): State<HandlerState>,
+    JsonOrForm(request): JsonOrForm<TokenRequest>,
+) -> Result<impl IntoResponse, ApiError> {
     let endpoint = state.token_endpoint(&request.identity_provider).await;
-    let params = state.token_request(&request.identity_provider, request.target).await;
+    let params = state
+        .token_request(&request.identity_provider, request.target)
+        .await;
 
     let client = reqwest::Client::new();
-    let request_builder = client.post(endpoint)
+    let request_builder = client
+        .post(endpoint)
         .header("accept", "application/json")
         .form(&params);
 
     let response = request_builder
         .send()
         .await
-        .map_err(ApiError::UpstreamRequest)?
-        ;
+        .map_err(ApiError::UpstreamRequest)?;
 
     if response.status() >= StatusCode::BAD_REQUEST {
         let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
@@ -40,26 +45,35 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
     }
 
     let res: TokenResponse = response
-        .json().await
-        .inspect_err(|err| {
-            error!("Identity provider returned invalid JSON: {:?}", err)
-        })
-        .map_err(ApiError::JSON)?
-        ;
+        .json()
+        .await
+        .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
+        .map_err(ApiError::JSON)?;
 
     Ok((StatusCode::OK, Json(res)))
 }
 
-pub async fn introspection(State(state): State<HandlerState>, Json(request): Json<IntrospectRequest>) -> Result<impl IntoResponse, ApiError> {
+pub async fn introspection(
+    State(state): State<HandlerState>,
+    Json(request): Json<IntrospectRequest>,
+) -> Result<impl IntoResponse, ApiError> {
     // Need to decode the token to get the issuer before we actually validate it.
     let mut validation = jwt::Validation::new(RS512);
     validation.validate_exp = false;
     validation.insecure_disable_signature_validation();
     let key = DecodingKey::from_secret(&[]);
-    let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).map_err(ApiError::Validate)?;
+    let token_data =
+        jwt::decode::<Claims>(&request.token, &key, &validation).map_err(ApiError::Validate)?;
 
     let claims = match token_data.claims.iss {
-        s if s == state.cfg.maskinporten_issuer => state.maskinporten.write().await.introspect(request.token).await,
+        s if s == state.cfg.maskinporten_issuer => {
+            state
+                .maskinporten
+                .write()
+                .await
+                .introspect(request.token)
+                .await
+        }
         _ => panic!("Unknown issuer: {}", token_data.claims.iss),
     };
 
@@ -74,7 +88,11 @@ pub struct HandlerState {
 }
 
 impl HandlerState {
-    async fn token_request(&self, identity_provider: &IdentityProvider, target: String) -> Box<dyn erased_serde::Serialize + Send> {
+    async fn token_request(
+        &self,
+        identity_provider: &IdentityProvider,
+        target: String,
+    ) -> Box<dyn erased_serde::Serialize + Send> {
         match identity_provider {
             IdentityProvider::EntraID => todo!(),
             IdentityProvider::TokenX => todo!(),
@@ -88,9 +106,7 @@ impl HandlerState {
         match identity_provider {
             IdentityProvider::EntraID => todo!(),
             IdentityProvider::TokenX => todo!(),
-            IdentityProvider::Maskinporten => {
-                self.maskinporten.read().await.token_endpoint()
-            }
+            IdentityProvider::Maskinporten => self.maskinporten.read().await.token_endpoint(),
         }
     }
 }
@@ -113,19 +129,15 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         match &self {
-            ApiError::UpstreamRequest(err) => {
-                (err.status().unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), self.to_string())
-            }
-            ApiError::JSON(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
-            }
-            ApiError::Upstream(_err) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
-            }
-            ApiError::Validate(_) => {
-                (StatusCode::BAD_REQUEST, self.to_string())
-            }
-        }.into_response()
+            ApiError::UpstreamRequest(err) => (
+                err.status().unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                self.to_string(),
+            ),
+            ApiError::JSON(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ApiError::Upstream(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ApiError::Validate(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+        }
+        .into_response()
     }
 }
 

@@ -35,7 +35,7 @@ pub struct ClientTokenRequest {
 /// but this might change in the future.
 #[derive(Deserialize, Serialize)]
 pub enum TokenType {
-    Bearer
+    Bearer,
 }
 
 /// This is a token request that comes from the application we are serving.

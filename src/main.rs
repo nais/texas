@@ -1,15 +1,15 @@
+pub mod handlers;
 pub mod identity_provider;
 pub mod jwks;
-pub mod handlers;
 pub mod types;
 
-use std::sync::Arc;
 use crate::config::Config;
 use axum::routing::post;
-use axum::{Router};
+use axum::Router;
 use clap::Parser;
 use dotenv::dotenv;
 use log::{info, LevelFilter};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub mod config {
@@ -52,7 +52,9 @@ fn print_texas_logo() {
 
 #[tokio::main]
 async fn main() {
-    env_logger::builder().filter_level(LevelFilter::Debug).init();
+    env_logger::builder()
+        .filter_level(LevelFilter::Debug)
+        .init();
 
     print_texas_logo();
 
@@ -62,7 +64,9 @@ async fn main() {
 
     let maskinporten = identity_provider::Maskinporten::new(
         cfg.clone(),
-        jwks::Jwks::new(&cfg.maskinporten_issuer, &cfg.maskinporten_jwks_uri).await.unwrap(),
+        jwks::Jwks::new(&cfg.maskinporten_issuer, &cfg.maskinporten_jwks_uri)
+            .await
+            .unwrap(),
     );
 
     let state = handlers::HandlerState {
@@ -71,14 +75,18 @@ async fn main() {
     };
 
     let app = Router::new()
-        .route("/token", post(handlers::token)).with_state(state.clone())
-        .route("/introspection", post(handlers::introspection).with_state(state.clone()));
+        .route("/token", post(handlers::token))
+        .with_state(state.clone())
+        .route(
+            "/introspection",
+            post(handlers::introspection).with_state(state.clone()),
+        );
 
-    let listener = tokio::net::TcpListener::bind(cfg.bind_address).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(cfg.bind_address)
+        .await
+        .unwrap();
 
     info!("Serving on {:?}", listener.local_addr().unwrap());
 
     axum::serve(listener, app).await.unwrap();
 }
-
-
