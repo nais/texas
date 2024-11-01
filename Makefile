@@ -5,3 +5,6 @@ all:
 
 setup:
 	[ ! -f .env ] && cp -v .env.example .env
+
+check:
+	cargo clippy
