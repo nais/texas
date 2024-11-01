@@ -1,4 +1,4 @@
-.PHONY: all setup
+.PHONY: all setup check
 
 all:
 	cargo build --release
@@ -8,3 +8,5 @@ setup:
 
 check:
 	cargo clippy
+	cargo test
+
