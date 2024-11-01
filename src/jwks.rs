@@ -71,7 +71,7 @@ impl Jwks {
         validation.set_issuer(&[self.issuer.clone()]);
         validation.validate_nbf = true;
 
-        let key_id = jwt::decode_header(&token)
+        let key_id = jwt::decode_header(token)
             .map_err(Error::InvalidTokenHeader)?
             .kid.ok_or(Error::MissingKeyID)?
             ;
@@ -85,7 +85,7 @@ impl Jwks {
             Some(key) => key,
         };
 
-        Ok(jwt::decode::<HashMap<String, Value>>(&token, &signing_key.key.to_decoding_key(), &validation)
+        Ok(jwt::decode::<HashMap<String, Value>>(token, &signing_key.key.to_decoding_key(), &validation)
             .map_err(InvalidToken)?
             .claims
         )
