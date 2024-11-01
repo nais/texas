@@ -25,7 +25,11 @@ pub async fn token(
 ) -> Result<impl IntoResponse, ApiError> {
     let endpoint = state.token_endpoint(&request.identity_provider).await;
     let params = state
-        .token_request(&request.identity_provider, request.target)
+        .token_request(
+            &request.identity_provider,
+            request.target,
+            request.user_token,
+        )
         .await;
 
     let client = reqwest::Client::new();
@@ -84,6 +88,7 @@ pub async fn introspection(
 pub struct HandlerState {
     pub cfg: Config,
     pub maskinporten: Arc<RwLock<Maskinporten>>,
+    pub azure_ad: Arc<RwLock<AzureAD>>,
     // TODO: other providers
 }
 
@@ -92,9 +97,16 @@ impl HandlerState {
         &self,
         identity_provider: &IdentityProvider,
         target: String,
+        user_token: Option<String>,
     ) -> Box<dyn erased_serde::Serialize + Send> {
         match identity_provider {
-            IdentityProvider::EntraID => todo!(),
+            IdentityProvider::AzureAD => {
+                if let Some(x) = user_token {
+                    Box::new(self.azure_ad.read().await.on_behalf_of_request(target, x))
+                } else {
+                    Box::new(self.azure_ad.read().await.token_request(target))
+                }
+            }
             IdentityProvider::TokenX => todo!(),
             IdentityProvider::Maskinporten => {
                 Box::new(self.maskinporten.read().await.token_request(target))
@@ -104,7 +116,7 @@ impl HandlerState {
 
     async fn token_endpoint(&self, identity_provider: &IdentityProvider) -> String {
         match identity_provider {
-            IdentityProvider::EntraID => todo!(),
+            IdentityProvider::AzureAD => self.azure_ad.read().await.token_endpoint(),
             IdentityProvider::TokenX => todo!(),
             IdentityProvider::Maskinporten => self.maskinporten.read().await.token_endpoint(),
         }

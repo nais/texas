@@ -56,8 +56,8 @@ pub struct IntrospectRequest {
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum IdentityProvider {
-    #[serde(rename = "entra")]
-    EntraID,
+    #[serde(rename = "azuread")]
+    AzureAD,
     #[serde(rename = "tokenx")]
     TokenX,
     #[serde(rename = "maskinporten")]

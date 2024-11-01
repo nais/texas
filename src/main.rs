@@ -30,6 +30,16 @@ pub mod config {
         pub maskinporten_issuer: String,
         #[arg(env)]
         pub maskinporten_token_endpoint: String,
+        #[arg(env)]
+        pub azure_ad_client_id: String,
+        #[arg(env)]
+        pub azure_ad_client_jwk: String,
+        #[arg(env)]
+        pub azure_ad_jwks_uri: String,
+        #[arg(env)]
+        pub azure_ad_issuer: String,
+        #[arg(env)]
+        pub azure_ad_token_endpoint: String,
     }
 }
 
@@ -69,9 +79,17 @@ async fn main() {
             .unwrap(),
     );
 
+    let azure_ad = identity_provider::AzureAD::new(
+        cfg.clone(),
+        jwks::Jwks::new(&cfg.azure_ad_issuer, &cfg.azure_ad_jwks_uri)
+            .await
+            .unwrap(),
+    );
+
     let state = handlers::HandlerState {
         cfg: cfg.clone(),
         maskinporten: Arc::new(RwLock::new(maskinporten)),
+        azure_ad: Arc::new(RwLock::new(azure_ad)),
     };
 
     let app = Router::new()
