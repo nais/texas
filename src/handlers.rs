@@ -57,7 +57,7 @@ pub async fn token(
     Ok((StatusCode::OK, Json(res)))
 }
 
-pub async fn introspection(
+pub async fn introspect(
     State(state): State<HandlerState>,
     Json(request): Json<IntrospectRequest>,
 ) -> Result<impl IntoResponse, ApiError> {

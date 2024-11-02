@@ -5,7 +5,7 @@ user_token=$(echo ${user_token_response} | jq -r .access_token)
 response=$(curl -s -X POST http://localhost:3000/token -H "content-type: application/json" -d '{"target": "my-target", "identity_provider": "azuread", "user_token": "'${user_token}'"}')
 token=$(echo ${response} | jq -r .access_token)
 
-#validation=$(curl -s -X POST http://localhost:3000/introspection -H "content-type: application/json" -d "{\"token\": \"${token}\"}")
+#validation=$(curl -s -X POST http://localhost:3000/introspect -H "content-type: application/json" -d "{\"token\": \"${token}\"}")
 
 echo
 echo "JWT:"
