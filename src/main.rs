@@ -93,12 +93,12 @@ async fn main() {
     };
 
     let app = Router::new()
-        .with_state(state.clone())
         .route("/token", post(handlers::token))
         .route(
             "/introspect",
             post(handlers::introspect),
-        );
+        )
+        .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(cfg.bind_address)
         .await
