@@ -30,15 +30,15 @@ pub mod config {
         pub maskinporten_issuer: String,
         #[arg(env)]
         pub maskinporten_token_endpoint: String,
-        #[arg(env)]
+        #[arg(env = "AZURE_APP_CLIENT_ID")]
         pub azure_ad_client_id: String,
-        #[arg(env)]
+        #[arg(env = "AZURE_APP_CLIENT_JWK")]
         pub azure_ad_client_jwk: String,
-        #[arg(env)]
+        #[arg(env = "AZURE_OPENID_CONFIG_JWKS_URI")]
         pub azure_ad_jwks_uri: String,
-        #[arg(env)]
+        #[arg(env = "AZURE_OPENID_CONFIG_ISSUER")]
         pub azure_ad_issuer: String,
-        #[arg(env)]
+        #[arg(env = "AZURE_OPENID_CONFIG_TOKEN_ENDPOINT")]
         pub azure_ad_token_endpoint: String,
     }
 }
