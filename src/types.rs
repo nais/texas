@@ -23,14 +23,6 @@ impl Display for ErrorResponse {
     }
 }
 
-/// This is the token request sent to our identity provider.
-/// TODO: hard coded parameters that only works with Maskinporten for now.
-#[derive(Serialize)]
-pub struct ClientTokenRequest {
-    pub grant_type: String,
-    pub assertion: String,
-}
-
 /// For forwards API compatibility. Token type is always Bearer,
 /// but this might change in the future.
 #[derive(Deserialize, Serialize)]
@@ -44,9 +36,15 @@ pub struct TokenRequest {
     pub target: String, // typically <cluster>:<namespace>:<app>
     pub identity_provider: IdentityProvider,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
+}
+
+/// This is a token exchange request that comes from the application we are serving.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TokenExchangeRequest {
+    pub target: String,
+    pub identity_provider: IdentityProvider,
+    pub user_token: String,
 }
 
 #[derive(Deserialize)]

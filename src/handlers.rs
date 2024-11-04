@@ -4,7 +4,7 @@ use axum::{async_trait, Form, RequestExt};
 use crate::config::Config;
 use crate::identity_provider::*;
 use crate::types;
-use crate::types::{IdentityProvider, IntrospectRequest, TokenRequest};
+use crate::types::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest};
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
@@ -24,15 +24,21 @@ pub async fn token(
     JsonOrForm(request): JsonOrForm<TokenRequest>,
 ) -> impl IntoResponse {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => {
-            if request.user_token.is_some() {
-                state.azure_ad_obo.read().await.get_token(state.clone(), request).await.into_response()
-            } else {
-                state.azure_ad_cc.read().await.get_token(state.clone(), request).await.into_response()
-            }
-        },
-        IdentityProvider::TokenX => state.token_x.read().await.get_token(state.clone(), request).await.into_response(),
+        IdentityProvider::AzureAD => state.azure_ad_cc.read().await.get_token(state.clone(), request).await.into_response(),
         IdentityProvider::Maskinporten => state.maskinporten.read().await.get_token(state.clone(), request).await.into_response(),
+        IdentityProvider::TokenX => (StatusCode::BAD_REQUEST, "TokenX does not support machine-to-machine tokens".to_string()).into_response(),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn token_exchange(
+    State(state): State<HandlerState>,
+    JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
+) -> impl IntoResponse {
+    match &request.identity_provider {
+        IdentityProvider::AzureAD => state.azure_ad_obo.read().await.exchange_token(state.clone(), request.into()).await.into_response(),
+        IdentityProvider::Maskinporten => (StatusCode::BAD_REQUEST, "Maskinporten does not support token exchange".to_string()).into_response(),
+        IdentityProvider::TokenX => state.token_x.read().await.exchange_token(state.clone(), request.into()).await.into_response(),
     }
 }
 

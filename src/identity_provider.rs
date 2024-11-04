@@ -10,7 +10,7 @@ use axum::response::IntoResponse;
 use log::error;
 use reqwest::StatusCode;
 use crate::handlers::{ApiError, HandlerState};
-use crate::types::{IdentityProvider, TokenRequest, TokenResponse};
+use crate::types::{IdentityProvider, TokenExchangeRequest, TokenRequest, TokenResponse};
 
 pub trait TokenRequestFactory {
     fn token_request(config: TokenRequestConfig) -> Option<Self>
@@ -188,7 +188,48 @@ where
             target: request.target,
             assertion,
             client_id: Some(self.client_id.clone()),
-            user_token: request.user_token,
+            user_token: None,
+        }).unwrap();
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(self.token_endpoint.clone())
+            .header("accept", "application/json")
+            .form(&params)
+            .send()
+            .await
+            .map_err(ApiError::UpstreamRequest)?;
+
+        if response.status() >= StatusCode::BAD_REQUEST {
+            let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
+            return Err(ApiError::Upstream(err));
+        }
+
+        let res: TokenResponse = response
+            .json()
+            .await
+            .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
+            .map_err(ApiError::JSON)?;
+
+        Ok((StatusCode::OK, Json(res)))
+    }
+
+    pub async fn exchange_token(
+        &self,
+        _state: HandlerState,
+        request: TokenExchangeRequest,
+    ) -> Result<impl IntoResponse, ApiError> {
+        let assertion = match request.identity_provider {
+            IdentityProvider::AzureAD => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
+            IdentityProvider::TokenX => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
+            IdentityProvider::Maskinporten => self.create_assertion(AssertionClaimType::WithScope(request.target.clone())).unwrap()
+        };
+
+        let params = T::token_request(TokenRequestConfig {
+            target: request.target,
+            assertion,
+            client_id: Some(self.client_id.clone()),
+            user_token: Some(request.user_token),
         }).unwrap();
 
         let client = reqwest::Client::new();

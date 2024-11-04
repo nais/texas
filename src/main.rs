@@ -137,6 +137,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/token", post(handlers::token))
+        .route("/token_exchange", post(handlers::token_exchange))
         .route(
             "/introspect",
             post(handlers::introspect),
