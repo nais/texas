@@ -53,7 +53,12 @@ pub async fn introspect(
                 .introspect(request.token)
                 .await
         }
-        Some(IdentityProvider::AzureAD) => panic!("not implemented"),
+        Some(IdentityProvider::AzureAD) => state
+            .azure_ad
+            .write()
+            .await
+            .introspect(request.token)
+            .await,
         Some(IdentityProvider::TokenX) => panic!("not implemented"),
         None => panic!("Unknown issuer: {}", token_data.claims.iss),
     };
@@ -70,6 +75,7 @@ impl Claims {
     pub fn identity_provider(&self, cfg: Config) -> Option<IdentityProvider> {
         match &self.iss {
             s if s == &cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
+            s if s == &cfg.azure_ad_issuer => Some(IdentityProvider::AzureAD),
             _ => None,
         }
     }
