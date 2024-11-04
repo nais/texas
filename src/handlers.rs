@@ -17,6 +17,7 @@ use log::error;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
+use crate::claims::{ClientAssertion, JWTBearerAssertion};
 
 #[axum::debug_handler]
 pub async fn token(
@@ -100,10 +101,10 @@ impl Claims {
 #[derive(Clone)]
 pub struct HandlerState {
     pub cfg: Config,
-    pub maskinporten: Arc<RwLock<Provider<MaskinportenTokenRequest, JWTBearerAssertionClaims>>>,
-    pub azure_ad_obo: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest, ClientAssertionClaims>>>,
-    pub azure_ad_cc: Arc<RwLock<Provider<AzureADClientCredentialsTokenRequest, ClientAssertionClaims>>>,
-    pub token_x: Arc<RwLock<Provider<TokenXTokenRequest, ClientAssertionClaims>>>,
+    pub maskinporten: Arc<RwLock<Provider<MaskinportenTokenRequest, JWTBearerAssertion>>>,
+    pub azure_ad_obo: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest, ClientAssertion>>>,
+    pub azure_ad_cc: Arc<RwLock<Provider<AzureADClientCredentialsTokenRequest, ClientAssertion>>>,
+    pub token_x: Arc<RwLock<Provider<TokenXTokenRequest, ClientAssertion>>>,
 }
 
 #[derive(Debug, Error)]

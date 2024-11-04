@@ -9,6 +9,7 @@ use axum::Json;
 use axum::response::IntoResponse;
 use log::error;
 use reqwest::StatusCode;
+use crate::claims::{serialize, Assertion};
 use crate::handlers::{ApiError};
 use crate::types::{TokenExchangeRequest, TokenRequest, TokenResponse};
 
@@ -128,7 +129,7 @@ impl TokenRequestFactory for TokenXTokenRequest {
 impl<T, U> Provider<T, U>
 where
     T: Serialize + TokenRequestFactory,
-    U: Serialize + ClientAssertion,
+    U: Serialize + Assertion,
 {
     pub fn new(
         issuer: String,
@@ -199,7 +200,7 @@ where
 
     fn create_assertion(&self, target: String) -> String {
         let assertion = U::new(self.token_endpoint.clone(), self.client_id.clone(), target);
-        serialize_claims(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
+        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
     }
 
     pub async fn get_token(
@@ -226,80 +227,5 @@ where
             user_token: Some(request.user_token),
         };
         self.get_token_with_config(token_request).await
-    }
-}
-
-pub trait ClientAssertion {
-    fn new(token_endpoint: String, client_id: String, target: String) -> Self;
-}
-
-#[derive(Serialize)]
-pub struct ClientAssertionClaims {
-    exp: usize,
-    iat: usize,
-    nbf: usize,
-    jti: String,
-    sub: String,
-    iss: String,
-    aud: String,
-}
-
-#[derive(Serialize)]
-pub struct JWTBearerAssertionClaims {
-    exp: usize,
-    iat: usize,
-    nbf: usize,
-    jti: String,
-    scope: String,
-    iss: String,
-    aud: String,
-}
-
-fn epoch_now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
-
-fn serialize_claims<T: Serialize>(
-    claims: T,
-    client_assertion_header: &jwt::Header,
-    key: &jwt::EncodingKey,
-) -> Result<String, jsonwebtoken::errors::Error> {
-    jwt::encode(client_assertion_header, &claims, key)
-}
-
-impl ClientAssertion for JWTBearerAssertionClaims {
-    fn new(token_endpoint: String, client_id: String, target: String) -> Self {
-        let now = epoch_now_secs();
-        let jti = uuid::Uuid::new_v4();
-
-        Self {
-            exp: (now + 30) as usize,
-            iat: now as usize,
-            nbf: now as usize,
-            jti: jti.to_string(),
-            iss: client_id, // issuer of the token is the client itself
-            aud: token_endpoint, // audience of the token is the issuer
-            scope: target,
-        }
-    }
-}
-
-impl ClientAssertion for ClientAssertionClaims {
-    fn new(token_endpoint: String, client_id: String, _target: String) -> Self {
-        let now = epoch_now_secs();
-        let jti = uuid::Uuid::new_v4();
-
-        Self {
-            exp: (now + 30) as usize,
-            iat: now as usize,
-            nbf: now as usize,
-            jti: jti.to_string(),
-            iss: client_id.clone(), // issuer of the token is the client itself
-            aud: token_endpoint, // audience of the token is the issuer
-            sub: client_id,
-        }
     }
 }
