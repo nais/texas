@@ -12,7 +12,7 @@ use log::{info, LevelFilter};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use identity_provider::Provider;
-use crate::identity_provider::{AzureADOnBehalfOfTokenRequest, MaskinportenTokenRequest, TokenXTokenRequest};
+use crate::identity_provider::{AzureADClientCredentialsTokenRequest, AzureADOnBehalfOfTokenRequest, MaskinportenTokenRequest, TokenXTokenRequest};
 
 pub mod config {
     use clap::Parser;
@@ -97,7 +97,17 @@ async fn main() {
             .unwrap(),
     ).unwrap();
 
-    let azure_ad: Provider<AzureADOnBehalfOfTokenRequest> = Provider::new(
+    let azure_ad_obo: Provider<AzureADOnBehalfOfTokenRequest> = Provider::new(
+        cfg.azure_ad_issuer.clone(),
+        cfg.azure_ad_client_id.clone(),
+        cfg.azure_ad_token_endpoint.clone(),
+        cfg.azure_ad_client_jwk.clone(),
+        jwks::Jwks::new(&cfg.azure_ad_issuer, &cfg.azure_ad_jwks_uri)
+            .await
+            .unwrap(),
+    ).unwrap();
+
+    let azure_ad_cc: Provider<AzureADClientCredentialsTokenRequest> = Provider::new(
         cfg.azure_ad_issuer.clone(),
         cfg.azure_ad_client_id.clone(),
         cfg.azure_ad_token_endpoint.clone(),
@@ -120,7 +130,8 @@ async fn main() {
     let state = handlers::HandlerState {
         cfg: cfg.clone(),
         maskinporten: Arc::new(RwLock::new(maskinporten)),
-        azure_ad: Arc::new(RwLock::new(azure_ad)),
+        azure_ad_obo: Arc::new(RwLock::new(azure_ad_obo)),
+        azure_ad_cc: Arc::new(RwLock::new(azure_ad_cc)),
         token_x: Arc::new(RwLock::new(token_x)),
     };
 

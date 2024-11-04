@@ -24,7 +24,13 @@ pub async fn token(
     JsonOrForm(request): JsonOrForm<TokenRequest>,
 ) -> impl IntoResponse {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => state.azure_ad.read().await.get_token(state.clone(), request).await.into_response(),
+        IdentityProvider::AzureAD => {
+            if request.user_token.is_some() {
+                state.azure_ad_obo.read().await.get_token(state.clone(), request).await.into_response()
+            } else {
+                state.azure_ad_cc.read().await.get_token(state.clone(), request).await.into_response()
+            }
+        },
         IdentityProvider::TokenX => state.token_x.read().await.get_token(state.clone(), request).await.into_response(),
         IdentityProvider::Maskinporten => state.maskinporten.read().await.get_token(state.clone(), request).await.into_response(),
     }
@@ -52,7 +58,7 @@ pub async fn introspect(
             .introspect(request.token)
             .await,
         Some(IdentityProvider::AzureAD) => state
-            .azure_ad
+            .azure_ad_obo
             .write()
             .await
             .introspect(request.token)
@@ -89,7 +95,8 @@ impl Claims {
 pub struct HandlerState {
     pub cfg: Config,
     pub maskinporten: Arc<RwLock<Provider<MaskinportenTokenRequest>>>,
-    pub azure_ad: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest>>>,
+    pub azure_ad_obo: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest>>>,
+    pub azure_ad_cc: Arc<RwLock<Provider<AzureADClientCredentialsTokenRequest>>>,
     pub token_x: Arc<RwLock<Provider<TokenXTokenRequest>>>,
     // TODO: other providers
 }
