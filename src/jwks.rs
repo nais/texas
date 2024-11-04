@@ -1,4 +1,3 @@
-use crate::jwks::Error::{InvalidToken, KeyNotInJWKS};
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use serde::Deserialize;
@@ -78,7 +77,7 @@ impl Jwks {
         let signing_key = match self.keys.get(&key_id) {
             None => {
                 self.refresh().await?;
-                self.keys.get(&key_id).ok_or(KeyNotInJWKS)?
+                self.keys.get(&key_id).ok_or(Error::KeyNotInJWKS)?
             }
             Some(key) => key,
         };
@@ -88,7 +87,7 @@ impl Jwks {
             &signing_key.key.to_decoding_key(),
             &validation,
         )
-        .map_err(InvalidToken)?
+        .map_err(Error::InvalidToken)?
         .claims)
     }
 }

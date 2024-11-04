@@ -58,24 +58,9 @@ pub async fn introspect(
 
     let identity_provider = token_data.claims.identity_provider(state.cfg);
     let claims = match identity_provider {
-        Some(IdentityProvider::Maskinporten) => state
-            .maskinporten
-            .write()
-            .await
-            .introspect(request.token)
-            .await,
-        Some(IdentityProvider::AzureAD) => state
-            .azure_ad_obo
-            .write()
-            .await
-            .introspect(request.token)
-            .await,
-        Some(IdentityProvider::TokenX) => state
-            .token_x
-            .write()
-            .await
-            .introspect(request.token)
-            .await,
+        Some(IdentityProvider::Maskinporten) => state.maskinporten.write().await.introspect(request.token).await,
+        Some(IdentityProvider::AzureAD) => state.azure_ad_obo.write().await.introspect(request.token).await,
+        Some(IdentityProvider::TokenX) => state.token_x.write().await.introspect(request.token).await,
         None => panic!("Unknown issuer: {}", token_data.claims.iss),
     };
 
