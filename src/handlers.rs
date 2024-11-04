@@ -24,8 +24,8 @@ pub async fn token(
     JsonOrForm(request): JsonOrForm<TokenRequest>,
 ) -> impl IntoResponse {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => state.azure_ad_cc.read().await.get_token(state.clone(), request).await.into_response(),
-        IdentityProvider::Maskinporten => state.maskinporten.read().await.get_token(state.clone(), request).await.into_response(),
+        IdentityProvider::AzureAD => state.azure_ad_cc.read().await.get_token(request).await.into_response(),
+        IdentityProvider::Maskinporten => state.maskinporten.read().await.get_token(request).await.into_response(),
         IdentityProvider::TokenX => (StatusCode::BAD_REQUEST, "TokenX does not support machine-to-machine tokens".to_string()).into_response(),
     }
 }
@@ -36,9 +36,9 @@ pub async fn token_exchange(
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
 ) -> impl IntoResponse {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => state.azure_ad_obo.read().await.exchange_token(state.clone(), request.into()).await.into_response(),
+        IdentityProvider::AzureAD => state.azure_ad_obo.read().await.exchange_token(request.into()).await.into_response(),
         IdentityProvider::Maskinporten => (StatusCode::BAD_REQUEST, "Maskinporten does not support token exchange".to_string()).into_response(),
-        IdentityProvider::TokenX => state.token_x.read().await.exchange_token(state.clone(), request.into()).await.into_response(),
+        IdentityProvider::TokenX => state.token_x.read().await.exchange_token(request.into()).await.into_response(),
     }
 }
 
@@ -100,11 +100,10 @@ impl Claims {
 #[derive(Clone)]
 pub struct HandlerState {
     pub cfg: Config,
-    pub maskinporten: Arc<RwLock<Provider<MaskinportenTokenRequest>>>,
-    pub azure_ad_obo: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest>>>,
-    pub azure_ad_cc: Arc<RwLock<Provider<AzureADClientCredentialsTokenRequest>>>,
-    pub token_x: Arc<RwLock<Provider<TokenXTokenRequest>>>,
-    // TODO: other providers
+    pub maskinporten: Arc<RwLock<Provider<MaskinportenTokenRequest, JWTBearerAssertionClaims>>>,
+    pub azure_ad_obo: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest, ClientAssertionClaims>>>,
+    pub azure_ad_cc: Arc<RwLock<Provider<AzureADClientCredentialsTokenRequest, ClientAssertionClaims>>>,
+    pub token_x: Arc<RwLock<Provider<TokenXTokenRequest, ClientAssertionClaims>>>,
 }
 
 #[derive(Debug, Error)]
@@ -117,6 +116,9 @@ pub enum ApiError {
 
     #[error("invalid JSON in token response: {0}")]
     JSON(reqwest::Error),
+
+    #[error("cannot sign JWT claims")]
+    Sign,
 
     #[error("invalid token: {0}")]
     Validate(jwt::errors::Error),
@@ -132,6 +134,7 @@ impl IntoResponse for ApiError {
             ApiError::JSON(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ApiError::Upstream(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ApiError::Validate(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            ApiError::Sign => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         }
             .into_response()
     }

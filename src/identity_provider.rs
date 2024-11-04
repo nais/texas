@@ -1,7 +1,7 @@
 use crate::{jwks, types};
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use serde::Serialize;
+use serde::{Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -9,8 +9,8 @@ use axum::Json;
 use axum::response::IntoResponse;
 use log::error;
 use reqwest::StatusCode;
-use crate::handlers::{ApiError, HandlerState};
-use crate::types::{IdentityProvider, TokenExchangeRequest, TokenRequest, TokenResponse};
+use crate::handlers::{ApiError};
+use crate::types::{TokenExchangeRequest, TokenRequest, TokenResponse};
 
 pub trait TokenRequestFactory {
     fn token_request(config: TokenRequestConfig) -> Option<Self>
@@ -26,14 +26,16 @@ pub struct TokenRequestConfig {
 }
 
 #[derive(Clone)]
-pub struct Provider<T: Serialize> {
-    issuer: String, // unused for now; maskinporten might require this as `aud` in client_assertion
+pub struct Provider<T: Serialize, U: Serialize> {
+    #[allow(dead_code)]
+    issuer: String, // FIXME: unused for now; maskinporten might require this as `aud` in client_assertion
     client_id: String,
     pub token_endpoint: String,
     private_jwk: jwt::EncodingKey,
     client_assertion_header: jwt::Header,
     upstream_jwks: jwks::Jwks,
     _fake: PhantomData<T>,
+    _fake2: PhantomData<U>,
 }
 
 #[derive(Serialize)]
@@ -83,6 +85,7 @@ impl TokenRequestFactory for AzureADClientCredentialsTokenRequest {
         })
     }
 }
+
 impl TokenRequestFactory for AzureADOnBehalfOfTokenRequest {
     fn token_request(config: TokenRequestConfig) -> Option<Self> {
         Some(Self {
@@ -122,9 +125,10 @@ impl TokenRequestFactory for TokenXTokenRequest {
 }
 
 //impl<T> Provider<T> where T: TokenRequestFactory<T> + Serialize
-impl<T> Provider<T>
+impl<T, U> Provider<T, U>
 where
     T: Serialize + TokenRequestFactory,
+    U: Serialize + ClientAssertion,
 {
     pub fn new(
         issuer: String,
@@ -146,6 +150,7 @@ where
             upstream_jwks,
             private_jwk: client_private_jwk.key.to_encoding_key(),
             _fake: Default::default(),
+            _fake2: Default::default(),
         })
     }
 
@@ -165,148 +170,136 @@ where
             })
     }
 
-    fn create_assertion(&self, ass: AssertionClaimType) -> Result<String, jwt::errors::Error> {
-        AssertionClaims::new(
-            self.token_endpoint.clone(),
-            self.client_id.clone(),
-            ass,
-        ).serialize(&self.client_assertion_header, &self.private_jwk)
+    async fn get_token_with_config(&self, config: TokenRequestConfig,
+    ) -> Result<impl IntoResponse, ApiError> {
+        let params = T::token_request(config).ok_or(ApiError::Sign)?;
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(self.token_endpoint.clone())
+            .header("accept", "application/json")
+            .form(&params)
+            .send()
+            .await
+            .map_err(ApiError::UpstreamRequest)?;
+
+        if response.status() >= StatusCode::BAD_REQUEST {
+            let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
+            return Err(ApiError::Upstream(err));
+        }
+
+        let res: TokenResponse = response
+            .json()
+            .await
+            .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
+            .map_err(ApiError::JSON)?;
+
+        Ok((StatusCode::OK, Json(res)))
+    }
+
+    fn create_assertion(&self, target: String) -> String {
+        let assertion = U::new(self.token_endpoint.clone(), self.client_id.clone(), target);
+        serialize_claims(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
     }
 
     pub async fn get_token(
         &self,
-        _state: HandlerState,
         request: TokenRequest,
     ) -> Result<impl IntoResponse, ApiError> {
-        let assertion = match request.identity_provider {
-            IdentityProvider::AzureAD => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
-            IdentityProvider::TokenX => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
-            IdentityProvider::Maskinporten => self.create_assertion(AssertionClaimType::WithScope(request.target.clone())).unwrap()
-        };
-
-        let params = T::token_request(TokenRequestConfig {
-            target: request.target,
-            assertion,
+        let token_request = TokenRequestConfig {
+            target: request.target.clone(),
+            assertion: self.create_assertion(request.target.clone()),
             client_id: Some(self.client_id.clone()),
             user_token: None,
-        }).unwrap();
-
-        let client = reqwest::Client::new();
-        let response = client
-            .post(self.token_endpoint.clone())
-            .header("accept", "application/json")
-            .form(&params)
-            .send()
-            .await
-            .map_err(ApiError::UpstreamRequest)?;
-
-        if response.status() >= StatusCode::BAD_REQUEST {
-            let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
-            return Err(ApiError::Upstream(err));
-        }
-
-        let res: TokenResponse = response
-            .json()
-            .await
-            .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-            .map_err(ApiError::JSON)?;
-
-        Ok((StatusCode::OK, Json(res)))
+        };
+        self.get_token_with_config(token_request).await
     }
 
     pub async fn exchange_token(
         &self,
-        _state: HandlerState,
         request: TokenExchangeRequest,
     ) -> Result<impl IntoResponse, ApiError> {
-        let assertion = match request.identity_provider {
-            IdentityProvider::AzureAD => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
-            IdentityProvider::TokenX => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
-            IdentityProvider::Maskinporten => self.create_assertion(AssertionClaimType::WithScope(request.target.clone())).unwrap()
-        };
-
-        let params = T::token_request(TokenRequestConfig {
-            target: request.target,
-            assertion,
+        let token_request = TokenRequestConfig {
+            target: request.target.clone(),
+            assertion: self.create_assertion(request.target.clone()),
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
-        }).unwrap();
-
-        let client = reqwest::Client::new();
-        let response = client
-            .post(self.token_endpoint.clone())
-            .header("accept", "application/json")
-            .form(&params)
-            .send()
-            .await
-            .map_err(ApiError::UpstreamRequest)?;
-
-        if response.status() >= StatusCode::BAD_REQUEST {
-            let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
-            return Err(ApiError::Upstream(err));
-        }
-
-        let res: TokenResponse = response
-            .json()
-            .await
-            .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-            .map_err(ApiError::JSON)?;
-
-        Ok((StatusCode::OK, Json(res)))
+        };
+        self.get_token_with_config(token_request).await
     }
 }
 
-// FIXME: split into client_assertion and jwt_bearer types
-#[derive(serde::Serialize, serde::Deserialize)]
-struct AssertionClaims {
+pub trait ClientAssertion {
+    fn new(token_endpoint: String, client_id: String, target: String) -> Self;
+}
+
+#[derive(Serialize)]
+pub struct ClientAssertionClaims {
     exp: usize,
     iat: usize,
     nbf: usize,
     jti: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    scope: Option<String>,
+    sub: String,
     iss: String,
     aud: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sub: Option<String>,
 }
 
-enum AssertionClaimType {
-    WithScope(String),
-    #[allow(dead_code)]
-    WithSub(String),
+#[derive(Serialize)]
+pub struct JWTBearerAssertionClaims {
+    exp: usize,
+    iat: usize,
+    nbf: usize,
+    jti: String,
+    scope: String,
+    iss: String,
+    aud: String,
 }
 
-impl AssertionClaims {
-    fn new(token_endpoint: String, client_id: String, ass: AssertionClaimType) -> Self {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+fn epoch_now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+fn serialize_claims<T: Serialize>(
+    claims: T,
+    client_assertion_header: &jwt::Header,
+    key: &jwt::EncodingKey,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    jwt::encode(client_assertion_header, &claims, key)
+}
+
+impl ClientAssertion for JWTBearerAssertionClaims {
+    fn new(token_endpoint: String, client_id: String, target: String) -> Self {
+        let now = epoch_now_secs();
         let jti = uuid::Uuid::new_v4();
 
-        let (scope, sub) = match ass {
-            AssertionClaimType::WithScope(scope) => (Some(scope), None),
-            AssertionClaimType::WithSub(sub) => (None, Some(sub)),
-        };
-
-        AssertionClaims {
+        Self {
             exp: (now + 30) as usize,
             iat: now as usize,
             nbf: now as usize,
             jti: jti.to_string(),
-            scope,
-            sub,
             iss: client_id, // issuer of the token is the client itself
             aud: token_endpoint, // audience of the token is the issuer
+            scope: target,
         }
     }
+}
 
-    fn serialize(
-        &self,
-        client_assertion_header: &jwt::Header,
-        key: &jwt::EncodingKey,
-    ) -> Result<String, jsonwebtoken::errors::Error> {
-        jwt::encode(client_assertion_header, &self, key)
+impl ClientAssertion for ClientAssertionClaims {
+    fn new(token_endpoint: String, client_id: String, _target: String) -> Self {
+        let now = epoch_now_secs();
+        let jti = uuid::Uuid::new_v4();
+
+        Self {
+            exp: (now + 30) as usize,
+            iat: now as usize,
+            nbf: now as usize,
+            jti: jti.to_string(),
+            iss: client_id.clone(), // issuer of the token is the client itself
+            aud: token_endpoint, // audience of the token is the issuer
+            sub: client_id,
+        }
     }
 }

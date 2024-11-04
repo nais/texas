@@ -12,7 +12,7 @@ use log::{info, LevelFilter};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use identity_provider::Provider;
-use crate::identity_provider::{AzureADClientCredentialsTokenRequest, AzureADOnBehalfOfTokenRequest, MaskinportenTokenRequest, TokenXTokenRequest};
+use crate::identity_provider::{AzureADClientCredentialsTokenRequest, AzureADOnBehalfOfTokenRequest, ClientAssertionClaims, JWTBearerAssertionClaims, MaskinportenTokenRequest, TokenXTokenRequest};
 
 pub mod config {
     use clap::Parser;
@@ -83,11 +83,14 @@ async fn main() {
 
     print_texas_logo();
 
+    info!("Starting up");
+
     let _ = dotenv(); // load .env if present
 
     let cfg = Config::parse();
 
-    let maskinporten: Provider<MaskinportenTokenRequest> = Provider::new(
+    info!("Fetch JWKS for Maskinporten...");
+    let maskinporten: Provider<MaskinportenTokenRequest, JWTBearerAssertionClaims> = Provider::new(
         cfg.maskinporten_issuer.clone(),
         cfg.maskinporten_client_id.clone(),
         cfg.maskinporten_token_endpoint.clone(),
@@ -97,7 +100,8 @@ async fn main() {
             .unwrap(),
     ).unwrap();
 
-    let azure_ad_obo: Provider<AzureADOnBehalfOfTokenRequest> = Provider::new(
+    info!("Fetch JWKS for Azure AD (on behalf of)...");
+    let azure_ad_obo: Provider<AzureADOnBehalfOfTokenRequest, ClientAssertionClaims> = Provider::new(
         cfg.azure_ad_issuer.clone(),
         cfg.azure_ad_client_id.clone(),
         cfg.azure_ad_token_endpoint.clone(),
@@ -107,7 +111,8 @@ async fn main() {
             .unwrap(),
     ).unwrap();
 
-    let azure_ad_cc: Provider<AzureADClientCredentialsTokenRequest> = Provider::new(
+    info!("Fetch JWKS for Azure AD (client credentials)...");
+    let azure_ad_cc: Provider<AzureADClientCredentialsTokenRequest, ClientAssertionClaims> = Provider::new(
         cfg.azure_ad_issuer.clone(),
         cfg.azure_ad_client_id.clone(),
         cfg.azure_ad_token_endpoint.clone(),
@@ -117,7 +122,8 @@ async fn main() {
             .unwrap(),
     ).unwrap();
 
-    let token_x: Provider<TokenXTokenRequest> = Provider::new(
+    info!("Fetch JWKS for TokenX...");
+    let token_x: Provider<TokenXTokenRequest, ClientAssertionClaims> = Provider::new(
         cfg.token_x_issuer.clone(),
         cfg.token_x_client_id.clone(),
         cfg.token_x_token_endpoint.clone(),
