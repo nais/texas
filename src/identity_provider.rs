@@ -1,39 +1,40 @@
-use crate::config::Config;
-use crate::jwks;
+use crate::{jwks, types};
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use jsonwebtoken::{EncodingKey, Header};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::marker::PhantomData;
+use axum::Json;
+use axum::response::IntoResponse;
+use log::error;
+use reqwest::StatusCode;
+use crate::handlers::{ApiError, HandlerState};
+use crate::types::{TokenRequest, TokenResponse};
 
-pub trait Provider<T: Serialize> {
-    fn token_request(&self, target: String) -> T;
-    fn token_endpoint(&self) -> String;
-    fn introspect(
-        &mut self,
-        token: String,
-    ) -> impl std::future::Future<Output = HashMap<String, Value>> + Send;
+pub trait TokenRequestFactory {
+    fn token_request(config: TokenRequestConfig) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+pub struct TokenRequestConfig {
+    target: String,
+    assertion: String,
+    client_id: Option<String>,
+    user_token: Option<String>,
 }
 
 #[derive(Clone)]
-pub struct Maskinporten {
-    pub cfg: Config,
+pub struct Provider<T: Serialize> {
+    issuer: String,
+    client_id: String,
+    pub token_endpoint: String,
     private_jwk: jwt::EncodingKey,
     client_assertion_header: jwt::Header,
     upstream_jwks: jwks::Jwks,
+    _fake: PhantomData<T>,
 }
-
-#[derive(Clone)]
-pub struct AzureAD {
-    pub cfg: Config,
-    private_jwk: jwt::EncodingKey,
-    client_assertion_header: jwt::Header,
-    upstream_jwks: jwks::Jwks,
-}
-
-#[derive(Clone, Debug)]
-pub struct TokenX(pub Config);
 
 #[derive(Serialize)]
 pub struct AzureADClientCredentialsTokenRequest {
@@ -55,116 +56,111 @@ pub struct AzureADOnBehalfOfTokenRequest {
     assertion: String,
 }
 
-impl AzureAD {
-    pub fn on_behalf_of_request(
-        &self,
-        target: String,
-        user_token: String,
-    ) -> AzureADOnBehalfOfTokenRequest {
-        let client_assertion = AssertionClaims::new(
-            self.cfg.azure_ad_issuer.clone(),
-            self.cfg.azure_ad_client_id.clone(),
-            None,
-            Some(self.cfg.azure_ad_client_id.clone()),
-        )
-        .serialize(&self.client_assertion_header, &self.private_jwk)
-        .unwrap();
-
-        AzureADOnBehalfOfTokenRequest {
-            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
-            client_id: self.cfg.azure_ad_client_id.clone(),
-            client_assertion,
-            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-                .to_string(),
-            scope: target,
-            requested_token_use: "on_behalf_of".to_string(),
-            assertion: user_token,
-        }
-    }
-
-    pub fn new(cfg: Config, upstream_jwks: jwks::Jwks) -> Self {
-        let client_private_jwk: jwk::JsonWebKey = cfg.azure_ad_client_jwk.parse().unwrap();
-        let alg: jwt::Algorithm = client_private_jwk.algorithm.unwrap().into();
-        let kid: String = client_private_jwk.key_id.clone().unwrap();
-
-        let mut header = jwt::Header::new(alg);
-        header.kid = Some(kid);
-
-        Self {
-            cfg,
-            upstream_jwks,
-            private_jwk: client_private_jwk.key.to_encoding_key(),
-            client_assertion_header: header,
-        }
-    }
-}
-
-impl Provider<AzureADClientCredentialsTokenRequest> for AzureAD {
-    fn token_request(&self, _target: String) -> AzureADClientCredentialsTokenRequest {
-        AzureADClientCredentialsTokenRequest {
-            grant_type: "client_credentials".to_string(),
-            client_id: self.cfg.maskinporten_client_id.clone(),
-            client_assertion: "".to_string(),
-            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-                .to_string(),
-            scope: "".to_string(),
-        }
-    }
-
-    fn token_endpoint(&self) -> String {
-        self.cfg.azure_ad_token_endpoint.to_string()
-    }
-
-    async fn introspect(&mut self, _token: String) -> HashMap<String, Value> {
-        todo!()
-    }
-}
-
-#[derive(Serialize)]
-pub struct TokenXTokenRequest {}
-
-impl Provider<TokenXTokenRequest> for TokenX {
-    fn token_request(&self, _target: String) -> TokenXTokenRequest {
-        TokenXTokenRequest {}
-    }
-
-    fn token_endpoint(&self) -> String {
-        todo!()
-    }
-
-    async fn introspect(&mut self, _token: String) -> HashMap<String, Value> {
-        todo!()
-    }
-}
-
 #[derive(Serialize)]
 pub struct MaskinportenTokenRequest {
     grant_type: String,
     assertion: String,
 }
 
-impl Provider<MaskinportenTokenRequest> for Maskinporten {
-    fn token_request(&self, target: String) -> MaskinportenTokenRequest {
-        let token = AssertionClaims::new(
-            self.cfg.maskinporten_issuer.clone(),
-            self.cfg.maskinporten_client_id.clone(),
-            Some(target),
-            None,
-        )
-        .serialize(&self.client_assertion_header, &self.private_jwk)
-        .unwrap();
+impl TokenRequestFactory for AzureADClientCredentialsTokenRequest {
+    fn token_request(config: TokenRequestConfig) -> Option<AzureADClientCredentialsTokenRequest> {
+        Some(Self {
+            grant_type: "client_credentials".to_string(),
+            client_id: config.client_id?,
+            client_assertion: config.assertion,
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".to_string(),
+            scope: config.target,
+        })
+    }
+}
 
-        MaskinportenTokenRequest {
+impl TokenRequestFactory for AzureADOnBehalfOfTokenRequest {
+    fn token_request(config: TokenRequestConfig) -> Option<Self> {
+        Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
-            assertion: token,
-        }
+            client_id: config.client_id?,
+            client_assertion: config.assertion,
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                .to_string(),
+            scope: config.target,
+            requested_token_use: "on_behalf_of".to_string(),
+            assertion: config.user_token?,
+        })
+    }
+}
+impl TokenRequestFactory for MaskinportenTokenRequest {
+    fn token_request(config: TokenRequestConfig) -> Option<Self> {
+        Some(Self {
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
+            assertion: config.assertion,
+        })
+    }
+}
+
+// impl Provider<AzureADOnBehalfOfTokenRequest> {
+//     pub fn on_behalf_of_request(
+//         &self,
+//         target: String,
+//         user_token: String,
+//     ) -> AzureADOnBehalfOfTokenRequest {
+//         let client_assertion = AssertionClaims::new(
+//             self.issuer.clone(),
+//             self.client_id.clone(),
+//             None,
+//             Some(self.client_id.clone()),
+//         )
+//             .serialize(&self.client_assertion_header, &self.private_jwk)
+//             .unwrap();
+//
+//         AzureADOnBehalfOfTokenRequest {}
+//     }
+// }
+
+#[derive(Serialize)]
+pub struct TokenXTokenRequest {}
+
+// impl Provider<MaskinportenTokenRequest> {
+//     fn token_request(&self, target: String) -> MaskinportenTokenRequest {
+//         let token = AssertionClaims::new(
+//             self.cfg.maskinporten_issuer.clone(),
+//             self.cfg.maskinporten_client_id.clone(),
+//             Some(target),
+//             None,
+//         )
+//             .serialize(&self.client_assertion_header, &self.private_jwk)
+//             .unwrap();
+//     }
+// }
+
+//impl<T> Provider<T> where T: TokenRequestFactory<T> + Serialize
+impl<T> Provider<T>
+where
+    T: Serialize + TokenRequestFactory,
+{
+    pub fn new(
+        issuer: String,
+        client_id: String,
+        token_endpoint: String,
+        private_jwk: String,
+        upstream_jwks: jwks::Jwks,
+    ) -> Option<Self> {
+        let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().ok()?;
+        let alg: jwt::Algorithm = client_private_jwk.algorithm?.into();
+        let kid: String = client_private_jwk.key_id.clone()?;
+        let mut client_assertion_header = jwt::Header::new(alg);
+        client_assertion_header.kid = Some(kid);
+        Some(Self {
+            issuer,
+            client_id,
+            token_endpoint,
+            client_assertion_header,
+            upstream_jwks,
+            private_jwk: client_private_jwk.key.to_encoding_key(),
+            _fake: Default::default(),
+        })
     }
 
-    fn token_endpoint(&self) -> String {
-        self.cfg.maskinporten_token_endpoint.to_string()
-    }
-
-    async fn introspect(&mut self, token: String) -> HashMap<String, Value> {
+    pub async fn introspect(&mut self, token: String) -> HashMap<String, Value> {
         self.upstream_jwks
             .validate(&token)
             .await
@@ -179,26 +175,54 @@ impl Provider<MaskinportenTokenRequest> for Maskinporten {
                 ])
             })
     }
-}
 
-impl Maskinporten {
-    pub fn new(cfg: Config, upstream_jwks: jwks::Jwks) -> Self {
-        let client_private_jwk: jwk::JsonWebKey = cfg.maskinporten_client_jwk.parse().unwrap();
-        let alg: jwt::Algorithm = client_private_jwk.algorithm.unwrap().into();
-        let kid: String = client_private_jwk.key_id.clone().unwrap();
+    fn create_assertion(&self, ass: AssertionClaimType) -> Result<String, jwt::errors::Error> {
+        AssertionClaims::new(
+            self.issuer.clone(),
+            self.client_id.clone(),
+            ass,
+        ).serialize(&self.client_assertion_header, &self.private_jwk)
+    }
 
-        let mut header = jwt::Header::new(alg);
-        header.kid = Some(kid);
+    pub async fn get_token(
+        &self,
+        _state: HandlerState,
+        request: TokenRequest,
+    ) -> Result<impl IntoResponse, ApiError> {
+        let assertion = self.create_assertion(AssertionClaimType::WithScope(request.target.clone())).unwrap();
 
-        Self {
-            cfg,
-            upstream_jwks,
-            private_jwk: client_private_jwk.key.to_encoding_key(),
-            client_assertion_header: header,
+        let params = T::token_request(TokenRequestConfig {
+            target: request.target,
+            assertion,
+            client_id: Some(self.client_id.clone()),
+            user_token: request.user_token,
+        }).unwrap();
+
+        let client = reqwest::Client::new();
+        let response = client
+            .post(self.token_endpoint.clone())
+            .header("accept", "application/json")
+            .form(&params)
+            .send()
+            .await
+            .map_err(ApiError::UpstreamRequest)?;
+
+        if response.status() >= StatusCode::BAD_REQUEST {
+            let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
+            return Err(ApiError::Upstream(err));
         }
+
+        let res: TokenResponse = response
+            .json()
+            .await
+            .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
+            .map_err(ApiError::JSON)?;
+
+        Ok((StatusCode::OK, Json(res)))
     }
 }
 
+// FIXME: split into client_assertion and jwt_bearer types
 #[derive(serde::Serialize, serde::Deserialize)]
 struct AssertionClaims {
     exp: usize,
@@ -213,13 +237,24 @@ struct AssertionClaims {
     sub: Option<String>,
 }
 
+enum AssertionClaimType {
+    WithScope(String),
+    #[allow(dead_code)]
+    WithSub(String),
+}
+
 impl AssertionClaims {
-    fn new(issuer: String, client_id: String, scope: Option<String>, sub: Option<String>) -> Self {
+    fn new(issuer: String, client_id: String, ass: AssertionClaimType) -> Self {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
         let jti = uuid::Uuid::new_v4();
+
+        let (scope, sub) = match ass {
+            AssertionClaimType::WithScope(scope) => (Some(scope), None),
+            AssertionClaimType::WithSub(sub) => (None, Some(sub)),
+        };
 
         AssertionClaims {
             exp: (now + 30) as usize,
@@ -235,8 +270,8 @@ impl AssertionClaims {
 
     fn serialize(
         &self,
-        client_assertion_header: &Header,
-        key: &EncodingKey,
+        client_assertion_header: &jwt::Header,
+        key: &jwt::EncodingKey,
     ) -> Result<String, jsonwebtoken::errors::Error> {
         jwt::encode(client_assertion_header, &self, key)
     }

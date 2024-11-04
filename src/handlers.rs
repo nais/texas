@@ -4,7 +4,7 @@ use axum::{async_trait, Form, RequestExt};
 use crate::config::Config;
 use crate::identity_provider::*;
 use crate::types;
-use crate::types::{IdentityProvider, IntrospectRequest, TokenRequest, TokenResponse};
+use crate::types::{IdentityProvider, IntrospectRequest, TokenRequest};
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
@@ -22,45 +22,19 @@ use tokio::sync::RwLock;
 pub async fn token(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenRequest>,
-) -> Result<impl IntoResponse, ApiError> {
-    let endpoint = state.token_endpoint(&request.identity_provider).await;
-    let params = state
-        .token_request(
-            &request.identity_provider,
-            request.target,
-            request.user_token,
-        )
-        .await;
-
-    let client = reqwest::Client::new();
-    let request_builder = client
-        .post(endpoint)
-        .header("accept", "application/json")
-        .form(&params);
-
-    let response = request_builder
-        .send()
-        .await
-        .map_err(ApiError::UpstreamRequest)?;
-
-    if response.status() >= StatusCode::BAD_REQUEST {
-        let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
-        return Err(ApiError::Upstream(err));
+) -> impl IntoResponse {
+    match &request.identity_provider {
+        IdentityProvider::AzureAD => state.azure_ad.read().await.get_token(state.clone(), request).await.into_response(),
+        IdentityProvider::TokenX => todo!(),
+        IdentityProvider::Maskinporten => state.maskinporten.read().await.get_token(state.clone(), request).await.into_response(),
     }
-
-    let res: TokenResponse = response
-        .json()
-        .await
-        .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-        .map_err(ApiError::JSON)?;
-
-    Ok((StatusCode::OK, Json(res)))
 }
 
 pub async fn introspect(
     State(state): State<HandlerState>,
     Json(request): Json<IntrospectRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+
     // Need to decode the token to get the issuer before we actually validate it.
     let mut validation = jwt::Validation::new(RS512);
     validation.validate_exp = false;
@@ -69,8 +43,9 @@ pub async fn introspect(
     let token_data =
         jwt::decode::<Claims>(&request.token, &key, &validation).map_err(ApiError::Validate)?;
 
-    let claims = match token_data.claims.iss {
-        s if s == state.cfg.maskinporten_issuer => {
+    let identity_provider = token_data.claims.identity_provider(state.cfg);
+    let claims = match identity_provider {
+        Some(IdentityProvider::Maskinporten) => {
             state
                 .maskinporten
                 .write()
@@ -78,49 +53,34 @@ pub async fn introspect(
                 .introspect(request.token)
                 .await
         }
-        _ => panic!("Unknown issuer: {}", token_data.claims.iss),
+        Some(IdentityProvider::AzureAD) => panic!("not implemented"),
+        Some(IdentityProvider::TokenX) => panic!("not implemented"),
+        None => panic!("Unknown issuer: {}", token_data.claims.iss),
     };
 
     Ok((StatusCode::OK, Json(claims)))
 }
 
+#[derive(serde::Deserialize)]
+struct Claims {
+    iss: String,
+}
+
+impl Claims {
+    pub fn identity_provider(&self, cfg: Config) -> Option<IdentityProvider> {
+        match &self.iss {
+            s if s == &cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct HandlerState {
     pub cfg: Config,
-    pub maskinporten: Arc<RwLock<Maskinporten>>,
-    pub azure_ad: Arc<RwLock<AzureAD>>,
+    pub maskinporten: Arc<RwLock<Provider<MaskinportenTokenRequest>>>,
+    pub azure_ad: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest>>>,
     // TODO: other providers
-}
-
-impl HandlerState {
-    async fn token_request(
-        &self,
-        identity_provider: &IdentityProvider,
-        target: String,
-        user_token: Option<String>,
-    ) -> Box<dyn erased_serde::Serialize + Send> {
-        match identity_provider {
-            IdentityProvider::AzureAD => {
-                if let Some(x) = user_token {
-                    Box::new(self.azure_ad.read().await.on_behalf_of_request(target, x))
-                } else {
-                    Box::new(self.azure_ad.read().await.token_request(target))
-                }
-            }
-            IdentityProvider::TokenX => todo!(),
-            IdentityProvider::Maskinporten => {
-                Box::new(self.maskinporten.read().await.token_request(target))
-            }
-        }
-    }
-
-    async fn token_endpoint(&self, identity_provider: &IdentityProvider) -> String {
-        match identity_provider {
-            IdentityProvider::AzureAD => self.azure_ad.read().await.token_endpoint(),
-            IdentityProvider::TokenX => todo!(),
-            IdentityProvider::Maskinporten => self.maskinporten.read().await.token_endpoint(),
-        }
-    }
 }
 
 #[derive(Debug, Error)]
@@ -149,16 +109,11 @@ impl IntoResponse for ApiError {
             ApiError::Upstream(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             ApiError::Validate(_) => (StatusCode::BAD_REQUEST, self.to_string()),
         }
-        .into_response()
+            .into_response()
     }
 }
 
-#[derive(serde::Deserialize)]
-struct Claims {
-    iss: String,
-}
-
-pub struct JsonOrForm<T>(T);
+pub struct JsonOrForm<T>(pub T);
 
 #[async_trait]
 impl<S, T> FromRequest<S> for JsonOrForm<T>

@@ -11,6 +11,8 @@ use dotenv::dotenv;
 use log::{info, LevelFilter};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use identity_provider::Provider;
+use crate::identity_provider::{AzureADOnBehalfOfTokenRequest, MaskinportenTokenRequest};
 
 pub mod config {
     use clap::Parser;
@@ -72,19 +74,25 @@ async fn main() {
 
     let cfg = Config::parse();
 
-    let maskinporten = identity_provider::Maskinporten::new(
-        cfg.clone(),
+    let maskinporten: Provider<MaskinportenTokenRequest> = Provider::new(
+        cfg.maskinporten_issuer.clone(),
+        cfg.maskinporten_client_id.clone(),
+        cfg.maskinporten_token_endpoint.clone(),
+        cfg.maskinporten_client_jwk.clone(),
         jwks::Jwks::new(&cfg.maskinporten_issuer, &cfg.maskinporten_jwks_uri)
             .await
             .unwrap(),
-    );
+    ).unwrap();
 
-    let azure_ad = identity_provider::AzureAD::new(
-        cfg.clone(),
+    let azure_ad: Provider<AzureADOnBehalfOfTokenRequest> = Provider::new(
+        cfg.azure_ad_issuer.clone(),
+        cfg.azure_ad_client_id.clone(),
+        cfg.azure_ad_token_endpoint.clone(),
+        cfg.azure_ad_client_jwk.clone(),
         jwks::Jwks::new(&cfg.azure_ad_issuer, &cfg.azure_ad_jwks_uri)
             .await
             .unwrap(),
-    );
+    ).unwrap();
 
     let state = handlers::HandlerState {
         cfg: cfg.clone(),

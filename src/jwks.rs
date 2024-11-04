@@ -61,6 +61,7 @@ impl Jwks {
 
     /// Check a JWT against a JWKS.
     /// Returns the JWT's claims on success.
+    /// May update the list of signing keys if the key ID is not found.
     pub async fn validate(&mut self, token: &str) -> Result<HashMap<String, Value>, Error> {
         let alg = jwt::Algorithm::RS256;
         let mut validation = jwt::Validation::new(alg);
