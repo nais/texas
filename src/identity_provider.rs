@@ -10,7 +10,7 @@ use axum::response::IntoResponse;
 use log::error;
 use reqwest::StatusCode;
 use crate::handlers::{ApiError, HandlerState};
-use crate::types::{TokenRequest, TokenResponse};
+use crate::types::{IdentityProvider, TokenRequest, TokenResponse};
 
 pub trait TokenRequestFactory {
     fn token_request(config: TokenRequestConfig) -> Option<Self>
@@ -189,7 +189,11 @@ where
         _state: HandlerState,
         request: TokenRequest,
     ) -> Result<impl IntoResponse, ApiError> {
-        let assertion = self.create_assertion(AssertionClaimType::WithScope(request.target.clone())).unwrap();
+        let assertion = match request.identity_provider {
+            IdentityProvider::AzureAD => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
+            IdentityProvider::TokenX => self.create_assertion(AssertionClaimType::WithScope(self.client_id.clone())).unwrap(),
+            IdentityProvider::Maskinporten => self.create_assertion(AssertionClaimType::WithScope(request.target.clone())).unwrap()
+        };
 
         let params = T::token_request(TokenRequestConfig {
             target: request.target,
