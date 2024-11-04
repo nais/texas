@@ -14,29 +14,16 @@ use crate::handlers::{ApiError};
 use crate::types::{TokenExchangeRequest, TokenRequest, TokenResponse};
 
 pub trait TokenRequestFactory {
-    fn token_request(config: TokenRequestConfig) -> Option<Self>
+    fn token_request(config: TokenRequestParams) -> Option<Self>
     where
         Self: Sized;
 }
 
-pub struct TokenRequestConfig {
+pub struct TokenRequestParams {
     target: String,
     assertion: String,
     client_id: Option<String>,
     user_token: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct Provider<T: Serialize, U: Serialize> {
-    #[allow(dead_code)]
-    issuer: String, // FIXME: unused for now; maskinporten might require this as `aud` in client_assertion
-    client_id: String,
-    pub token_endpoint: String,
-    private_jwk: jwt::EncodingKey,
-    client_assertion_header: jwt::Header,
-    upstream_jwks: jwks::Jwks,
-    _fake: PhantomData<T>,
-    _fake2: PhantomData<U>,
 }
 
 #[derive(Serialize)]
@@ -76,7 +63,7 @@ pub struct TokenXTokenRequest {
 }
 
 impl TokenRequestFactory for AzureADClientCredentialsTokenRequest {
-    fn token_request(config: TokenRequestConfig) -> Option<AzureADClientCredentialsTokenRequest> {
+    fn token_request(config: TokenRequestParams) -> Option<AzureADClientCredentialsTokenRequest> {
         Some(Self {
             grant_type: "client_credentials".to_string(),
             client_id: config.client_id?,
@@ -88,7 +75,7 @@ impl TokenRequestFactory for AzureADClientCredentialsTokenRequest {
 }
 
 impl TokenRequestFactory for AzureADOnBehalfOfTokenRequest {
-    fn token_request(config: TokenRequestConfig) -> Option<Self> {
+    fn token_request(config: TokenRequestParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
             client_id: config.client_id?,
@@ -103,7 +90,7 @@ impl TokenRequestFactory for AzureADOnBehalfOfTokenRequest {
 }
 
 impl TokenRequestFactory for MaskinportenTokenRequest {
-    fn token_request(config: TokenRequestConfig) -> Option<Self> {
+    fn token_request(config: TokenRequestParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
             assertion: config.assertion,
@@ -112,7 +99,7 @@ impl TokenRequestFactory for MaskinportenTokenRequest {
 }
 
 impl TokenRequestFactory for TokenXTokenRequest {
-    fn token_request(config: TokenRequestConfig) -> Option<Self> {
+    fn token_request(config: TokenRequestParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
             client_assertion: config.assertion,
@@ -125,11 +112,24 @@ impl TokenRequestFactory for TokenXTokenRequest {
     }
 }
 
+#[derive(Clone)]
+pub struct Provider<R, A> {
+    #[allow(dead_code)]
+    issuer: String, // FIXME: unused for now; maskinporten might require this as `aud` in client_assertion
+    client_id: String,
+    pub token_endpoint: String,
+    private_jwk: jwt::EncodingKey,
+    client_assertion_header: jwt::Header,
+    upstream_jwks: jwks::Jwks,
+    _fake_request: PhantomData<R>,
+    _fake_assertion: PhantomData<A>,
+}
+
 //impl<T> Provider<T> where T: TokenRequestFactory<T> + Serialize
-impl<T, U> Provider<T, U>
+impl<R, A> Provider<R, A>
 where
-    T: Serialize + TokenRequestFactory,
-    U: Serialize + Assertion,
+    R: Serialize + TokenRequestFactory,
+    A: Serialize + Assertion,
 {
     pub fn new(
         issuer: String,
@@ -150,8 +150,8 @@ where
             client_assertion_header,
             upstream_jwks,
             private_jwk: client_private_jwk.key.to_encoding_key(),
-            _fake: Default::default(),
-            _fake2: Default::default(),
+            _fake_request: Default::default(),
+            _fake_assertion: Default::default(),
         })
     }
 
@@ -171,9 +171,9 @@ where
             })
     }
 
-    async fn get_token_with_config(&self, config: TokenRequestConfig,
+    async fn get_token_with_config(&self, config: TokenRequestParams,
     ) -> Result<impl IntoResponse, ApiError> {
-        let params = T::token_request(config).ok_or(ApiError::Sign)?;
+        let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
         let client = reqwest::Client::new();
         let response = client
@@ -198,16 +198,11 @@ where
         Ok((StatusCode::OK, Json(res)))
     }
 
-    fn create_assertion(&self, target: String) -> String {
-        let assertion = U::new(self.token_endpoint.clone(), self.client_id.clone(), target);
-        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
-    }
-
     pub async fn get_token(
         &self,
         request: TokenRequest,
     ) -> Result<impl IntoResponse, ApiError> {
-        let token_request = TokenRequestConfig {
+        let token_request = TokenRequestParams {
             target: request.target.clone(),
             assertion: self.create_assertion(request.target.clone()),
             client_id: Some(self.client_id.clone()),
@@ -220,12 +215,17 @@ where
         &self,
         request: TokenExchangeRequest,
     ) -> Result<impl IntoResponse, ApiError> {
-        let token_request = TokenRequestConfig {
+        let token_request = TokenRequestParams {
             target: request.target.clone(),
             assertion: self.create_assertion(request.target.clone()),
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
         };
         self.get_token_with_config(token_request).await
+    }
+
+    fn create_assertion(&self, target: String) -> String {
+        let assertion = A::new(self.token_endpoint.clone(), self.client_id.clone(), target);
+        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
     }
 }
