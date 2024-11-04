@@ -27,7 +27,7 @@ pub struct TokenRequestConfig {
 
 #[derive(Clone)]
 pub struct Provider<T: Serialize> {
-    issuer: String,
+    issuer: String, // unused for now; maskinporten might require this as `aud` in client_assertion
     client_id: String,
     pub token_endpoint: String,
     private_jwk: jwt::EncodingKey,
@@ -62,6 +62,16 @@ pub struct MaskinportenTokenRequest {
     assertion: String,
 }
 
+#[derive(Serialize)]
+pub struct TokenXTokenRequest {
+    grant_type: String, // urn:ietf:params:oauth:grant-type:token-exchange
+    client_assertion: String,
+    client_assertion_type: String, // urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+    subject_token_type: String, // urn:ietf:params:oauth:token-type:jwt
+    subject_token: String,
+    audience: String,
+}
+
 impl TokenRequestFactory for AzureADClientCredentialsTokenRequest {
     fn token_request(config: TokenRequestConfig) -> Option<AzureADClientCredentialsTokenRequest> {
         Some(Self {
@@ -73,7 +83,6 @@ impl TokenRequestFactory for AzureADClientCredentialsTokenRequest {
         })
     }
 }
-
 impl TokenRequestFactory for AzureADOnBehalfOfTokenRequest {
     fn token_request(config: TokenRequestConfig) -> Option<Self> {
         Some(Self {
@@ -88,6 +97,7 @@ impl TokenRequestFactory for AzureADOnBehalfOfTokenRequest {
         })
     }
 }
+
 impl TokenRequestFactory for MaskinportenTokenRequest {
     fn token_request(config: TokenRequestConfig) -> Option<Self> {
         Some(Self {
@@ -97,40 +107,19 @@ impl TokenRequestFactory for MaskinportenTokenRequest {
     }
 }
 
-// impl Provider<AzureADOnBehalfOfTokenRequest> {
-//     pub fn on_behalf_of_request(
-//         &self,
-//         target: String,
-//         user_token: String,
-//     ) -> AzureADOnBehalfOfTokenRequest {
-//         let client_assertion = AssertionClaims::new(
-//             self.issuer.clone(),
-//             self.client_id.clone(),
-//             None,
-//             Some(self.client_id.clone()),
-//         )
-//             .serialize(&self.client_assertion_header, &self.private_jwk)
-//             .unwrap();
-//
-//         AzureADOnBehalfOfTokenRequest {}
-//     }
-// }
-
-#[derive(Serialize)]
-pub struct TokenXTokenRequest {}
-
-// impl Provider<MaskinportenTokenRequest> {
-//     fn token_request(&self, target: String) -> MaskinportenTokenRequest {
-//         let token = AssertionClaims::new(
-//             self.cfg.maskinporten_issuer.clone(),
-//             self.cfg.maskinporten_client_id.clone(),
-//             Some(target),
-//             None,
-//         )
-//             .serialize(&self.client_assertion_header, &self.private_jwk)
-//             .unwrap();
-//     }
-// }
+impl TokenRequestFactory for TokenXTokenRequest {
+    fn token_request(config: TokenRequestConfig) -> Option<Self> {
+        Some(Self {
+            grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
+            client_assertion: config.assertion,
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                .to_string(),
+            subject_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
+            subject_token: config.user_token?,
+            audience: config.target,
+        })
+    }
+}
 
 //impl<T> Provider<T> where T: TokenRequestFactory<T> + Serialize
 impl<T> Provider<T>
@@ -178,7 +167,7 @@ where
 
     fn create_assertion(&self, ass: AssertionClaimType) -> Result<String, jwt::errors::Error> {
         AssertionClaims::new(
-            self.issuer.clone(),
+            self.token_endpoint.clone(),
             self.client_id.clone(),
             ass,
         ).serialize(&self.client_assertion_header, &self.private_jwk)
@@ -191,7 +180,7 @@ where
     ) -> Result<impl IntoResponse, ApiError> {
         let assertion = match request.identity_provider {
             IdentityProvider::AzureAD => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
-            IdentityProvider::TokenX => self.create_assertion(AssertionClaimType::WithScope(self.client_id.clone())).unwrap(),
+            IdentityProvider::TokenX => self.create_assertion(AssertionClaimType::WithSub(self.client_id.clone())).unwrap(),
             IdentityProvider::Maskinporten => self.create_assertion(AssertionClaimType::WithScope(request.target.clone())).unwrap()
         };
 
@@ -248,7 +237,7 @@ enum AssertionClaimType {
 }
 
 impl AssertionClaims {
-    fn new(issuer: String, client_id: String, ass: AssertionClaimType) -> Self {
+    fn new(token_endpoint: String, client_id: String, ass: AssertionClaimType) -> Self {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -268,7 +257,7 @@ impl AssertionClaims {
             scope,
             sub,
             iss: client_id, // issuer of the token is the client itself
-            aud: issuer,    // audience of the token is the issuer
+            aud: token_endpoint, // audience of the token is the issuer
         }
     }
 

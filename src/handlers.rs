@@ -25,7 +25,7 @@ pub async fn token(
 ) -> impl IntoResponse {
     match &request.identity_provider {
         IdentityProvider::AzureAD => state.azure_ad.read().await.get_token(state.clone(), request).await.into_response(),
-        IdentityProvider::TokenX => todo!(),
+        IdentityProvider::TokenX => state.token_x.read().await.get_token(state.clone(), request).await.into_response(),
         IdentityProvider::Maskinporten => state.maskinporten.read().await.get_token(state.clone(), request).await.into_response(),
     }
 }
@@ -45,21 +45,24 @@ pub async fn introspect(
 
     let identity_provider = token_data.claims.identity_provider(state.cfg);
     let claims = match identity_provider {
-        Some(IdentityProvider::Maskinporten) => {
-            state
-                .maskinporten
-                .write()
-                .await
-                .introspect(request.token)
-                .await
-        }
+        Some(IdentityProvider::Maskinporten) => state
+            .maskinporten
+            .write()
+            .await
+            .introspect(request.token)
+            .await,
         Some(IdentityProvider::AzureAD) => state
             .azure_ad
             .write()
             .await
             .introspect(request.token)
             .await,
-        Some(IdentityProvider::TokenX) => panic!("not implemented"),
+        Some(IdentityProvider::TokenX) => state
+            .token_x
+            .write()
+            .await
+            .introspect(request.token)
+            .await,
         None => panic!("Unknown issuer: {}", token_data.claims.iss),
     };
 
@@ -76,6 +79,7 @@ impl Claims {
         match &self.iss {
             s if s == &cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
             s if s == &cfg.azure_ad_issuer => Some(IdentityProvider::AzureAD),
+            s if s == &cfg.token_x_issuer => Some(IdentityProvider::TokenX),
             _ => None,
         }
     }
@@ -86,6 +90,7 @@ pub struct HandlerState {
     pub cfg: Config,
     pub maskinporten: Arc<RwLock<Provider<MaskinportenTokenRequest>>>,
     pub azure_ad: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest>>>,
+    pub token_x: Arc<RwLock<Provider<TokenXTokenRequest>>>,
     // TODO: other providers
 }
 
