@@ -3,18 +3,17 @@ pub mod identity_provider;
 pub mod jwks;
 pub mod types;
 mod claims;
+mod router;
 
+use crate::claims::{ClientAssertion, JWTBearerAssertion};
 use crate::config::Config;
-use axum::routing::post;
-use axum::Router;
+use crate::identity_provider::{AzureADClientCredentialsTokenRequest, AzureADOnBehalfOfTokenRequest, MaskinportenTokenRequest, TokenXTokenRequest};
 use clap::Parser;
 use dotenv::dotenv;
+use identity_provider::Provider;
 use log::{info, LevelFilter};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use identity_provider::Provider;
-use crate::claims::{ClientAssertion, JWTBearerAssertion};
-use crate::identity_provider::{AzureADClientCredentialsTokenRequest, AzureADOnBehalfOfTokenRequest, MaskinportenTokenRequest, TokenXTokenRequest};
 
 pub mod config {
     use clap::Parser;
@@ -93,6 +92,19 @@ async fn main() {
 
     let cfg = Config::parse();
 
+    let state = setup_state(cfg.clone()).await;
+    let app = router::new(state);
+
+    let listener = tokio::net::TcpListener::bind(cfg.bind_address)
+        .await
+        .unwrap();
+
+    info!("Serving on {:?}", listener.local_addr().unwrap());
+
+    axum::serve(listener, app).await.unwrap();
+}
+
+async fn setup_state(cfg: Config) -> handlers::HandlerState {
     // TODO: we should be able to conditionally enable certain providers based on the configuration
     info!("Fetch JWKS for Maskinporten...");
     let maskinporten: Provider<MaskinportenTokenRequest, JWTBearerAssertion> = Provider::new(
@@ -100,7 +112,7 @@ async fn main() {
         cfg.maskinporten_client_id.clone(),
         cfg.maskinporten_token_endpoint.clone(),
         cfg.maskinporten_client_jwk.clone(),
-        jwks::Jwks::new(&cfg.maskinporten_issuer, &cfg.maskinporten_jwks_uri)
+        jwks::Jwks::new(&cfg.maskinporten_issuer.clone(), &cfg.maskinporten_jwks_uri.clone())
             .await
             .unwrap(),
     ).unwrap();
@@ -112,7 +124,7 @@ async fn main() {
         cfg.azure_ad_client_id.clone(),
         cfg.azure_ad_token_endpoint.clone(),
         cfg.azure_ad_client_jwk.clone(),
-        jwks::Jwks::new(&cfg.azure_ad_issuer, &cfg.azure_ad_jwks_uri)
+        jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone())
             .await
             .unwrap(),
     ).unwrap();
@@ -123,7 +135,7 @@ async fn main() {
         cfg.azure_ad_client_id.clone(),
         cfg.azure_ad_token_endpoint.clone(),
         cfg.azure_ad_client_jwk.clone(),
-        jwks::Jwks::new(&cfg.azure_ad_issuer, &cfg.azure_ad_jwks_uri)
+        jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone())
             .await
             .unwrap(),
     ).unwrap();
@@ -134,30 +146,16 @@ async fn main() {
         cfg.token_x_client_id.clone(),
         cfg.token_x_token_endpoint.clone(),
         cfg.token_x_client_jwk.clone(),
-        jwks::Jwks::new(&cfg.token_x_issuer, &cfg.token_x_jwks_uri)
+        jwks::Jwks::new(&cfg.token_x_issuer.clone(), &cfg.token_x_jwks_uri.clone())
             .await
             .unwrap(),
     ).unwrap();
 
-    let state = handlers::HandlerState {
+    handlers::HandlerState {
         cfg: cfg.clone(),
         maskinporten: Arc::new(RwLock::new(maskinporten)),
         azure_ad_obo: Arc::new(RwLock::new(azure_ad_obo)),
         azure_ad_cc: Arc::new(RwLock::new(azure_ad_cc)),
         token_x: Arc::new(RwLock::new(token_x)),
-    };
-
-    let app = Router::new()
-        .route("/token", post(handlers::token))
-        .route("/token_exchange", post(handlers::token_exchange))
-        .route("/introspect", post(handlers::introspect))
-        .with_state(state.clone());
-
-    let listener = tokio::net::TcpListener::bind(cfg.bind_address)
-        .await
-        .unwrap();
-
-    info!("Serving on {:?}", listener.local_addr().unwrap());
-
-    axum::serve(listener, app).await.unwrap();
+    }
 }

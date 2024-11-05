@@ -13,7 +13,7 @@ use axum::Json;
 use jsonwebtoken as jwt;
 use jsonwebtoken::Algorithm::RS512;
 use jsonwebtoken::DecodingKey;
-use log::error;
+use log::{error};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -45,7 +45,7 @@ pub async fn token_exchange(
 
 pub async fn introspect(
     State(state): State<HandlerState>,
-    Json(request): Json<IntrospectRequest>,
+    JsonOrForm(request): JsonOrForm<IntrospectRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
 
     // Need to decode the token to get the issuer before we actually validate it.

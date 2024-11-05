@@ -37,8 +37,6 @@ pub enum TokenType {
 pub struct TokenRequest {
     pub target: String, // typically <cluster>:<namespace>:<app>
     pub identity_provider: IdentityProvider,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub force: Option<bool>,
 }
 
 /// This is a token exchange request that comes from the application we are serving.
@@ -49,7 +47,7 @@ pub struct TokenExchangeRequest {
     pub user_token: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct IntrospectRequest {
     pub token: String,
 }
