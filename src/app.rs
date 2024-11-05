@@ -116,6 +116,22 @@ mod tests {
             token_exchange_token(cfg.token_x_issuer.clone(), address.to_string(), format!("{}:{}", host, host_port), IdentityProvider::TokenX, format).await;
         }
 
+        // TODO: implement these tests:
+        // * Upstream:
+        //   * upstream is down
+        //   * upstream returns status code >= 400
+        //
+        // * /token/exchange
+        //   * user token is invalid during exchange (plus variations)
+        //
+        // * /token
+        //   * invalid ID provider for our endpoints
+        //
+        // * /introspect
+        //   * invalid or expired timestamps in nbf, iat, exp
+        //   * invalid aud
+        //   * plus all errors in /token/exchange
+
         join_handler.abort();
     }
 
