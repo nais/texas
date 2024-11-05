@@ -20,6 +20,10 @@ mod tests {
     use reqwest::{Error, Response};
     use serde::Serialize;
     use serde_json::Value;
+    use testcontainers::core::{IntoContainerPort, WaitFor};
+    use testcontainers::core::wait::HttpWaitStrategy;
+    use testcontainers::GenericImage;
+    use testcontainers::runners::AsyncRunner;
     use crate::handlers::HandlerState;
     // TODO: add some error case tests
 
@@ -37,7 +41,18 @@ mod tests {
     ///   2. Introspect the resulting token and check parameters
     #[tokio::test]
     async fn test_roundtrip() {
-        let cfg = Config::mock();
+        // Set up Docker container
+        let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.0")
+            .with_exposed_port(8080.tcp())
+            .with_wait_for(WaitFor::Http(HttpWaitStrategy::new("/test/.well-known/openid-configuration")))
+            .start()
+            .await
+            .unwrap();
+        let host = container.get_host().await.unwrap();
+        let host_port = container.get_host_port_ipv4(8080).await.unwrap();
+
+        // Set up Texas
+        let cfg = Config::mock(host.to_string(), host_port);
         let listener = tokio::net::TcpListener::bind(cfg.bind_address.clone())
             .await
             .unwrap();
