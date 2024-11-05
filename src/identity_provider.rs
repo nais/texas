@@ -118,8 +118,6 @@ impl TokenRequestFactory for TokenXTokenRequest {
 
 #[derive(Clone)]
 pub struct Provider<R, A> {
-    #[allow(dead_code)]
-    issuer: String, // FIXME: unused for now; maskinporten might require this as `aud` in client_assertion
     client_id: String,
     pub token_endpoint: String,
     private_jwk: jwt::EncodingKey,
@@ -135,7 +133,6 @@ where
     A: Serialize + Assertion,
 {
     pub fn new(
-        issuer: String,
         client_id: String,
         token_endpoint: String,
         private_jwk: String,
@@ -147,7 +144,6 @@ where
         let mut client_assertion_header = jwt::Header::new(alg);
         client_assertion_header.kid = Some(kid);
         Some(Self {
-            issuer,
             client_id,
             token_endpoint,
             client_assertion_header,
