@@ -26,6 +26,10 @@ pub struct TokenRequestParams {
     user_token: Option<String>,
 }
 
+// TODO: these might be generic over identity provider "capabilities" (which for a given provider we declare support or preference for), e.g.
+//  - GrantTypes (client_credentials, jwt-bearer, token-exchange)
+//  - AuthenticationMethods (private_key_jwt, client_secret_post, none)
+
 #[derive(Serialize)]
 pub struct AzureADClientCredentialsTokenRequest {
     grant_type: String, // client_credentials

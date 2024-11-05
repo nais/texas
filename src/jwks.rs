@@ -11,6 +11,7 @@ pub struct Jwks {
     keys: HashMap<String, jwk::JsonWebKey>,
 }
 
+// TODO: some of these errors relate to the keyset itself, some of it relates to validation of a JWT - are we conflating two things here?
 #[derive(Debug)]
 pub enum Error {
     Fetch(reqwest::Error),
@@ -61,6 +62,8 @@ impl Jwks {
     /// Check a JWT against a JWKS.
     /// Returns the JWT's claims on success.
     /// May update the list of signing keys if the key ID is not found.
+    // FIXME: this should validate that `aud` exists and either equals or contains the relying party's client id,
+    //  except for maskinporten where the `aud` claim isn't present
     pub async fn validate(&mut self, token: &str) -> Result<HashMap<String, Value>, Error> {
         let alg = jwt::Algorithm::RS256;
         let mut validation = jwt::Validation::new(alg);

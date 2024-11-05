@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
+// TODO: look into organizing, moving and renaming these structs more appropriately ("types" is a bit vague)
+
 /// This is an upstream RFCXXXX token response.
 #[derive(Serialize, Deserialize)]
 pub struct TokenResponse {

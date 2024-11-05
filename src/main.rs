@@ -25,6 +25,8 @@ pub mod config {
         #[arg(short, long, env, default_value = "127.0.0.1:3000")]
         pub bind_address: String,
 
+        // TODO: we should be able to conditionally enable each provider; we currently require all providers to be configured
+        //  all arguments within a provider must be present if the provider is enabled
         #[arg(env)]
         pub maskinporten_client_id: String,
         #[arg(env)]
@@ -91,6 +93,7 @@ async fn main() {
 
     let cfg = Config::parse();
 
+    // TODO: we should be able to conditionally enable certain providers based on the configuration
     info!("Fetch JWKS for Maskinporten...");
     let maskinporten: Provider<MaskinportenTokenRequest, JWTBearerAssertion> = Provider::new(
         cfg.maskinporten_issuer.clone(),
@@ -102,6 +105,7 @@ async fn main() {
             .unwrap(),
     ).unwrap();
 
+    // TODO: these two AAD providers should be a single provider, but we need to figure out how to handle the different token requests
     info!("Fetch JWKS for Azure AD (on behalf of)...");
     let azure_ad_obo: Provider<AzureADOnBehalfOfTokenRequest, ClientAssertion> = Provider::new(
         cfg.azure_ad_issuer.clone(),
@@ -146,10 +150,7 @@ async fn main() {
     let app = Router::new()
         .route("/token", post(handlers::token))
         .route("/token_exchange", post(handlers::token_exchange))
-        .route(
-            "/introspect",
-            post(handlers::introspect),
-        )
+        .route("/introspect", post(handlers::introspect))
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(cfg.bind_address)
