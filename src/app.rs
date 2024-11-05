@@ -15,7 +15,6 @@ pub fn new(state: handlers::HandlerState) -> Router {
 mod tests {
     use std::collections::HashMap;
     use crate::config::Config;
-    use crate::types::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest, TokenResponse};
     use log::{info};
     use reqwest::{Error, Response};
     use testcontainers::{ContainerAsync, GenericImage};
@@ -23,6 +22,7 @@ mod tests {
     use serde_json::Value;
 
     use crate::handlers::HandlerState;
+    use crate::identity_provider::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest, TokenResponse};
     // TODO: add some error case tests
 
     /// Test a full round-trip of the `/token`, `/token/exchange`, and `/introspect` endpoints.

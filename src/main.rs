@@ -1,7 +1,6 @@
 pub mod handlers;
 pub mod identity_provider;
 pub mod jwks;
-pub mod types;
 mod claims;
 mod app;
 mod config;

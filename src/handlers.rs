@@ -4,7 +4,6 @@ use axum::{async_trait, Form, RequestExt};
 use crate::config::Config;
 use crate::identity_provider::*;
 use crate::{jwks};
-use crate::types::{ErrorResponse, IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest};
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;

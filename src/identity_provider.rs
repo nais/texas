@@ -1,19 +1,93 @@
-use crate::{jwks, types};
+use crate::claims::{serialize, Assertion};
+use crate::handlers::ApiError;
+use crate::jwks;
+use axum::response::IntoResponse;
+use axum::Json;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use serde::{Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
-use std::marker::PhantomData;
-use axum::Json;
-use axum::response::IntoResponse;
 use log::error;
 use reqwest::StatusCode;
-use crate::claims::{serialize, Assertion};
-use crate::handlers::{ApiError};
-use crate::types::{TokenExchangeRequest, TokenRequest, TokenResponse};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+use std::marker::PhantomData;
 
-pub trait TokenRequestFactory {
+// TODO: look into organizing, moving and renaming these structs more appropriately ("types" is a bit vague)
+
+/// This is an upstream RFCXXXX token response.
+/// Delivered both from upstream and to Texas clients.
+#[derive(Serialize, Deserialize)]
+pub struct TokenResponse {
+    pub access_token: String,
+    pub token_type: TokenType,
+    #[serde(rename = "expires_in")]
+    pub expires_in_seconds: usize,
+}
+
+/// Token type is always Bearer, but this might change in the future.
+///
+/// This data type exists primarily for forwards API compatibility.
+#[derive(Deserialize, Serialize)]
+pub enum TokenType {
+    Bearer,
+}
+
+/// This is an RFCXXXX error response.
+/// Delivered both from upstream and to Texas clients.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ErrorResponse {
+    pub error: String,
+    #[serde(rename = "error_description")]
+    pub description: String,
+}
+
+impl Display for ErrorResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.error, self.description)
+    }
+}
+
+/// Which identity provider do we want to use with token fetch, exchange and validation?
+///
+/// FIXME: OpenAPI docs
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum IdentityProvider {
+    #[serde(rename = "azuread")]
+    AzureAD,
+    #[serde(rename = "tokenx")]
+    TokenX,
+    #[serde(rename = "maskinporten")]
+    Maskinporten,
+}
+
+/// This is a token request that comes from the application we are serving.
+///
+/// FIXME: OpenAPI docs
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TokenRequest {
+    pub target: String, // typically <cluster>:<namespace>:<app>
+    pub identity_provider: IdentityProvider,
+}
+
+/// This is a token exchange request that comes from the application we are serving.
+///
+/// FIXME: OpenAPI docs
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TokenExchangeRequest {
+    pub target: String,
+    pub identity_provider: IdentityProvider,
+    pub user_token: String,
+}
+
+/// This is a token introspection/validation request that comes from the application we are serving.
+///
+/// FIXME: OpenAPI docs
+#[derive(Serialize, Deserialize)]
+pub struct IntrospectRequest {
+    pub token: String,
+}
+pub trait TokenRequestBuilder {
     fn token_request(config: TokenRequestParams) -> Option<Self>
     where
         Self: Sized;
@@ -66,7 +140,7 @@ pub struct TokenXTokenRequest {
     audience: String,
 }
 
-impl TokenRequestFactory for AzureADClientCredentialsTokenRequest {
+impl TokenRequestBuilder for AzureADClientCredentialsTokenRequest {
     fn token_request(config: TokenRequestParams) -> Option<AzureADClientCredentialsTokenRequest> {
         Some(Self {
             grant_type: "client_credentials".to_string(),
@@ -78,7 +152,7 @@ impl TokenRequestFactory for AzureADClientCredentialsTokenRequest {
     }
 }
 
-impl TokenRequestFactory for AzureADOnBehalfOfTokenRequest {
+impl TokenRequestBuilder for AzureADOnBehalfOfTokenRequest {
     fn token_request(config: TokenRequestParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
@@ -93,7 +167,7 @@ impl TokenRequestFactory for AzureADOnBehalfOfTokenRequest {
     }
 }
 
-impl TokenRequestFactory for MaskinportenTokenRequest {
+impl TokenRequestBuilder for MaskinportenTokenRequest {
     fn token_request(config: TokenRequestParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
@@ -102,7 +176,7 @@ impl TokenRequestFactory for MaskinportenTokenRequest {
     }
 }
 
-impl TokenRequestFactory for TokenXTokenRequest {
+impl TokenRequestBuilder for TokenXTokenRequest {
     fn token_request(config: TokenRequestParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
@@ -129,7 +203,7 @@ pub struct Provider<R, A> {
 
 impl<R, A> Provider<R, A>
 where
-    R: Serialize + TokenRequestFactory,
+    R: Serialize + TokenRequestBuilder,
     A: Serialize + Assertion,
 {
     pub fn new(
@@ -185,7 +259,7 @@ where
 
         let status = response.status();
         if status >= StatusCode::BAD_REQUEST {
-            let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
+            let err: ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
             let err = ApiError::Upstream {
                 status_code: status,
                 error: err
