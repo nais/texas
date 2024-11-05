@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 // TODO: look into organizing, moving and renaming these structs more appropriately ("types" is a bit vague)
 
 /// This is an upstream RFCXXXX token response.
+/// Delivered both from upstream and to Texas clients.
 #[derive(Serialize, Deserialize)]
 pub struct TokenResponse {
     pub access_token: String,
@@ -12,7 +13,17 @@ pub struct TokenResponse {
     pub expires_in_seconds: usize,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+/// Token type is always Bearer, but this might change in the future.
+///
+/// This data type exists primarily for forwards API compatibility.
+#[derive(Deserialize, Serialize)]
+pub enum TokenType {
+    Bearer,
+}
+
+/// This is an RFCXXXX error response.
+/// Delivered both from upstream and to Texas clients.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ErrorResponse {
     pub error: String,
     #[serde(rename = "error_description")]
@@ -25,33 +36,9 @@ impl Display for ErrorResponse {
     }
 }
 
-/// For forwards API compatibility. Token type is always Bearer,
-/// but this might change in the future.
-#[derive(Deserialize, Serialize)]
-pub enum TokenType {
-    Bearer,
-}
-
-/// This is a token request that comes from the application we are serving.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct TokenRequest {
-    pub target: String, // typically <cluster>:<namespace>:<app>
-    pub identity_provider: IdentityProvider,
-}
-
-/// This is a token exchange request that comes from the application we are serving.
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct TokenExchangeRequest {
-    pub target: String,
-    pub identity_provider: IdentityProvider,
-    pub user_token: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct IntrospectRequest {
-    pub token: String,
-}
-
+/// Which identity provider do we want to use with token fetch, exchange and validation?
+///
+/// FIXME: OpenAPI docs
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum IdentityProvider {
     #[serde(rename = "azuread")]
@@ -60,4 +47,31 @@ pub enum IdentityProvider {
     TokenX,
     #[serde(rename = "maskinporten")]
     Maskinporten,
+}
+
+/// This is a token request that comes from the application we are serving.
+///
+/// FIXME: OpenAPI docs
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TokenRequest {
+    pub target: String, // typically <cluster>:<namespace>:<app>
+    pub identity_provider: IdentityProvider,
+}
+
+/// This is a token exchange request that comes from the application we are serving.
+///
+/// FIXME: OpenAPI docs
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TokenExchangeRequest {
+    pub target: String,
+    pub identity_provider: IdentityProvider,
+    pub user_token: String,
+}
+
+/// This is a token introspection/validation request that comes from the application we are serving.
+///
+/// FIXME: OpenAPI docs
+#[derive(Serialize, Deserialize)]
+pub struct IntrospectRequest {
+    pub token: String,
 }

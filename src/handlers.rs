@@ -3,8 +3,8 @@ use axum::{async_trait, Form, RequestExt};
 
 use crate::config::Config;
 use crate::identity_provider::*;
-use crate::{jwks, types};
-use crate::types::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest};
+use crate::{jwks};
+use crate::types::{ErrorResponse, IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest};
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
@@ -156,8 +156,11 @@ pub enum ApiError {
     #[error("identity provider error: {0}")]
     UpstreamRequest(reqwest::Error),
 
-    #[error("upstream error: {0}")]
-    Upstream(types::ErrorResponse),
+    #[error("upstream: status code {status_code}: {error}")]
+    Upstream {
+        status_code: StatusCode,
+        error: ErrorResponse,
+    },
 
     #[error("invalid JSON in token response: {0}")]
     JSON(reqwest::Error),
@@ -175,13 +178,14 @@ impl IntoResponse for ApiError {
             ApiError::UpstreamRequest(err) => (
                 err.status().unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                 self.to_string(),
-            ),
-            ApiError::JSON(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            ApiError::Upstream(_err) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            ApiError::Validate(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            ApiError::Sign => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            ).into_response(),
+            ApiError::JSON(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
+            ApiError::Upstream{status_code, error} => {
+                (status_code.clone(), Json(error.clone())).into_response()
+            }
+            ApiError::Validate(_) => (StatusCode::BAD_REQUEST, self.to_string()).into_response(),
+            ApiError::Sign => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
         }
-            .into_response()
     }
 }
 

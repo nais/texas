@@ -183,9 +183,15 @@ where
             .await
             .map_err(ApiError::UpstreamRequest)?;
 
-        if response.status() >= StatusCode::BAD_REQUEST {
+        let status = response.status();
+        if status >= StatusCode::BAD_REQUEST {
             let err: types::ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
-            return Err(ApiError::Upstream(err));
+            let err = ApiError::Upstream {
+                status_code: status,
+                error: err
+            };
+            error!("get_token_with_config: {}", err);
+            return Err(err);
         }
 
         let res: TokenResponse = response
