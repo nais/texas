@@ -129,7 +129,6 @@ pub struct Provider<R, A> {
     _fake_assertion: PhantomData<A>,
 }
 
-//impl<T> Provider<T> where T: TokenRequestFactory<T> + Serialize
 impl<R, A> Provider<R, A>
 where
     R: Serialize + TokenRequestFactory,

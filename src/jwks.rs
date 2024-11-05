@@ -3,6 +3,7 @@ use jsonwebtoken as jwt;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use thiserror::Error;
 
 #[derive(Clone, Debug)]
 pub struct Jwks {
@@ -12,13 +13,19 @@ pub struct Jwks {
 }
 
 // TODO: some of these errors relate to the keyset itself, some of it relates to validation of a JWT - are we conflating two things here?
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum Error {
+    #[error("fetch: {0}")]
     Fetch(reqwest::Error),
+    #[error("decode json: {0}")]
     JsonDecode(reqwest::Error),
+    #[error("json web key set has key with blank key id")]
     MissingKeyID,
+    #[error("signing key with {0} not in json web key set")]
+    KeyNotInJWKS(String),
+    #[error("invalid token header: {0}")]
     InvalidTokenHeader(jwt::errors::Error),
-    KeyNotInJWKS,
+    #[error("invalid token: {0}")]
     InvalidToken(jwt::errors::Error),
 }
 
@@ -80,7 +87,7 @@ impl Jwks {
         let signing_key = match self.keys.get(&key_id) {
             None => {
                 self.refresh().await?;
-                self.keys.get(&key_id).ok_or(Error::KeyNotInJWKS)?
+                self.keys.get(&key_id).ok_or(Error::KeyNotInJWKS(key_id))?
             }
             Some(key) => key,
         };

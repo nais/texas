@@ -3,7 +3,7 @@ use axum::{async_trait, Form, RequestExt};
 
 use crate::config::Config;
 use crate::identity_provider::*;
-use crate::types;
+use crate::{jwks, types};
 use crate::types::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest};
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
@@ -13,7 +13,7 @@ use axum::Json;
 use jsonwebtoken as jwt;
 use jsonwebtoken::Algorithm::RS512;
 use jsonwebtoken::DecodingKey;
-use log::{error};
+use log::{error, info};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -37,9 +37,9 @@ pub async fn token_exchange(
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
 ) -> impl IntoResponse {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => state.azure_ad_obo.read().await.exchange_token(request.into()).await.into_response(),
+        IdentityProvider::AzureAD => state.azure_ad_obo.read().await.exchange_token(request).await.into_response(),
         IdentityProvider::Maskinporten => (StatusCode::BAD_REQUEST, "Maskinporten does not support token exchange".to_string()).into_response(),
-        IdentityProvider::TokenX => state.token_x.read().await.exchange_token(request.into()).await.into_response(),
+        IdentityProvider::TokenX => state.token_x.read().await.exchange_token(request).await.into_response(),
     }
 }
 
@@ -90,6 +90,69 @@ pub struct HandlerState {
     pub azure_ad_obo: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest, ClientAssertion>>>,
     pub azure_ad_cc: Arc<RwLock<Provider<AzureADClientCredentialsTokenRequest, ClientAssertion>>>,
     pub token_x: Arc<RwLock<Provider<TokenXTokenRequest, ClientAssertion>>>,
+}
+
+#[derive(Error, Debug)]
+pub enum InitError {
+    #[error("invalid private JWK format")]
+    Jwk,
+
+    #[error("fetch JWKS from remote endpoint: {0}")]
+    Jwks(#[from] jwks::Error),
+}
+
+impl HandlerState {
+    pub async fn from_config(cfg: Config) -> Result<Self, InitError> {
+        // TODO: we should be able to conditionally enable certain providers based on the configuration
+        info!("Fetch JWKS for Maskinporten...");
+        let maskinporten: Provider<MaskinportenTokenRequest, JWTBearerAssertion> = Provider::new(
+            cfg.maskinporten_issuer.clone(),
+            cfg.maskinporten_client_id.clone(),
+            cfg.maskinporten_token_endpoint.clone(),
+            cfg.maskinporten_client_jwk.clone(),
+            jwks::Jwks::new(&cfg.maskinporten_issuer.clone(), &cfg.maskinporten_jwks_uri.clone())
+                .await?,
+        ).ok_or(InitError::Jwk)?;
+
+        // TODO: these two AAD providers should be a single provider, but we need to figure out how to handle the different token requests
+        info!("Fetch JWKS for Azure AD (on behalf of)...");
+        let azure_ad_obo: Provider<AzureADOnBehalfOfTokenRequest, ClientAssertion> = Provider::new(
+            cfg.azure_ad_issuer.clone(),
+            cfg.azure_ad_client_id.clone(),
+            cfg.azure_ad_token_endpoint.clone(),
+            cfg.azure_ad_client_jwk.clone(),
+            jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone())
+                .await?,
+        ).ok_or(InitError::Jwk)?;
+
+        info!("Fetch JWKS for Azure AD (client credentials)...");
+        let azure_ad_cc: Provider<AzureADClientCredentialsTokenRequest, ClientAssertion> = Provider::new(
+            cfg.azure_ad_issuer.clone(),
+            cfg.azure_ad_client_id.clone(),
+            cfg.azure_ad_token_endpoint.clone(),
+            cfg.azure_ad_client_jwk.clone(),
+            jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone())
+                .await?,
+        ).ok_or(InitError::Jwk)?;
+
+        info!("Fetch JWKS for TokenX...");
+        let token_x: Provider<TokenXTokenRequest, ClientAssertion> = Provider::new(
+            cfg.token_x_issuer.clone(),
+            cfg.token_x_client_id.clone(),
+            cfg.token_x_token_endpoint.clone(),
+            cfg.token_x_client_jwk.clone(),
+            jwks::Jwks::new(&cfg.token_x_issuer.clone(), &cfg.token_x_jwks_uri.clone())
+                .await?,
+        ).ok_or(InitError::Jwk)?;
+
+        Ok(Self {
+            cfg,
+            maskinporten: Arc::new(RwLock::new(maskinporten)),
+            azure_ad_obo: Arc::new(RwLock::new(azure_ad_obo)),
+            azure_ad_cc: Arc::new(RwLock::new(azure_ad_cc)),
+            token_x: Arc::new(RwLock::new(token_x)),
+        })
+    }
 }
 
 #[derive(Debug, Error)]
