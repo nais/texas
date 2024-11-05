@@ -16,13 +16,13 @@ mod tests {
     use std::collections::HashMap;
     use crate::config::Config;
     use crate::types::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest, TokenResponse};
-    use log::info;
-    use reqwest::{Error, Response};
+    use log::{info};
+    use reqwest::{Error, Response, StatusCode};
     use serde::Serialize;
     use serde_json::Value;
     use testcontainers::core::{IntoContainerPort, WaitFor};
     use testcontainers::core::wait::HttpWaitStrategy;
-    use testcontainers::GenericImage;
+    use testcontainers::{GenericImage};
     use testcontainers::runners::AsyncRunner;
     use crate::handlers::HandlerState;
     // TODO: add some error case tests
@@ -42,9 +42,9 @@ mod tests {
     #[tokio::test]
     async fn test_roundtrip() {
         // Set up Docker container
-        let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.0")
+        let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
             .with_exposed_port(8080.tcp())
-            .with_wait_for(WaitFor::Http(HttpWaitStrategy::new("/test/.well-known/openid-configuration")))
+            .with_wait_for(WaitFor::Http(HttpWaitStrategy::new("/test/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK)))
             .start()
             .await
             .unwrap();
@@ -68,8 +68,8 @@ mod tests {
             machine_to_machine_token(cfg.maskinporten_issuer.clone(), address.to_string(), IdentityProvider::Maskinporten, format.clone()).await;
             machine_to_machine_token(cfg.azure_ad_issuer.clone(), address.to_string(), IdentityProvider::AzureAD, format.clone()).await;
 
-            token_exchange_token(cfg.azure_ad_issuer.clone(), address.to_string(), IdentityProvider::AzureAD, format.clone()).await;
-            token_exchange_token(cfg.token_x_issuer.clone(), address.to_string(), IdentityProvider::TokenX, format).await;
+            token_exchange_token(cfg.azure_ad_issuer.clone(), address.to_string(), format!("{}:{}", host, host_port), IdentityProvider::AzureAD, format.clone()).await;
+            token_exchange_token(cfg.token_x_issuer.clone(), address.to_string(), format!("{}:{}", host, host_port), IdentityProvider::TokenX, format).await;
         }
 
         join_handler.abort();
@@ -85,7 +85,7 @@ mod tests {
             request_format.clone(),
         ).await.unwrap();
 
-        assert_eq!(response.status(), 200);
+        assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
 
         let body: TokenResponse = response.json().await.unwrap();
         assert!(body.expires_in_seconds > 0);
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
     }
 
-    async fn token_exchange_token(expected_issuer: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
+    async fn token_exchange_token(expected_issuer: String, address: String, identity_provider_address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
         #[derive(Serialize)]
         struct AuthorizeRequest {
             grant_type: String,
@@ -116,7 +116,7 @@ mod tests {
 
         // This request goes directly to the mock oauth2 server, which only accepts form encoding
         let user_token_response = post_request(
-            "http://localhost:8080/token".to_string(),
+            format!("http://{}/token", identity_provider_address),
             AuthorizeRequest {
                 grant_type: "authorization_code".to_string(),
                 code: "mycode".to_string(),
@@ -136,7 +136,7 @@ mod tests {
                 identity_provider,
                 user_token: user_token.access_token,
             },
-            request_format.clone()
+            request_format.clone(),
         ).await.unwrap();
 
         assert_eq!(response.status(), 200, "failed to exchange token: {:?}", response.text().await.unwrap());
@@ -150,7 +150,7 @@ mod tests {
             IntrospectRequest {
                 token: body.access_token.clone(),
             },
-            request_format
+            request_format,
         ).await.unwrap();
 
         assert_eq!(response.status(), 200);
