@@ -3,6 +3,9 @@ name = "texas"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+docker = []
+
 [dependencies]
 axum = { version = "0.7", features = ["http2", "macros"] }
 clap = { version = "4", features = ["derive", "env"] }

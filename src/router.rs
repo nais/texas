@@ -17,13 +17,11 @@ mod tests {
     use crate::config::Config;
     use crate::types::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest, TokenResponse};
     use log::{info};
-    use reqwest::{Error, Response, StatusCode};
+    use reqwest::{Error, Response};
+    use testcontainers::{ContainerAsync, GenericImage};
     use serde::Serialize;
     use serde_json::Value;
-    use testcontainers::core::{IntoContainerPort, WaitFor};
-    use testcontainers::core::wait::HttpWaitStrategy;
-    use testcontainers::{GenericImage};
-    use testcontainers::runners::AsyncRunner;
+
     use crate::handlers::HandlerState;
     // TODO: add some error case tests
 
@@ -41,15 +39,36 @@ mod tests {
     ///   2. Introspect the resulting token and check parameters
     #[tokio::test]
     async fn test_roundtrip() {
-        // Set up Docker container
-        let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
-            .with_exposed_port(8080.tcp())
-            .with_wait_for(WaitFor::Http(HttpWaitStrategy::new("/test/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK)))
-            .start()
-            .await
-            .unwrap();
-        let host = container.get_host().await.unwrap();
-        let host_port = container.get_host_port_ipv4(8080).await.unwrap();
+        #[allow(unused_mut)]
+        let mut host;
+        #[allow(unused_mut)]
+        let mut host_port;
+        #[allow(unused_variables, unused_mut)]
+        let mut container: ContainerAsync<GenericImage>;
+
+        #[cfg(feature = "docker")]
+        {
+            use testcontainers::core::{IntoContainerPort, WaitFor};
+            use testcontainers::core::wait::HttpWaitStrategy;
+            use testcontainers::runners::AsyncRunner;
+            use reqwest::{StatusCode};
+
+            // Set up Docker container
+            container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
+                .with_exposed_port(8080.tcp())
+                .with_wait_for(WaitFor::Http(HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK)))
+                .start()
+                .await
+                .unwrap();
+            host = container.get_host().await.unwrap().to_string();
+            host_port = container.get_host_port_ipv4(8080).await.unwrap();
+        }
+        #[cfg(not(feature = "docker"))]
+        // Requires docker-compose up to be running
+        {
+            host = "localhost".to_string();
+            host_port = 8080;
+        }
 
         // Set up Texas
         let cfg = Config::mock(host.to_string(), host_port);
