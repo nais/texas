@@ -1,28 +1,58 @@
-use crate::handlers;
-use crate::handlers::{introspect, token, token_exchange};
+use crate::config::Config;
+use crate::handlers::{introspect, token, token_exchange, HandlerState};
 use axum::routing::post;
 use axum::Router;
+use log::info;
+use tokio::net::TcpListener;
 
-pub fn new(state: handlers::HandlerState) -> Router {
-    Router::new()
-        .route("/token", post(token))
-        .route("/token/exchange", post(token_exchange))
-        .route("/introspect", post(introspect))
-        .with_state(state)
+pub struct App {
+    router: Router,
+    listener: TcpListener,
+}
+
+impl App {
+    pub async fn new(cfg: Config) -> Self {
+        let bind_address = cfg.bind_address.clone();
+        let listener = TcpListener::bind(bind_address).await.unwrap();
+
+        let state = HandlerState::from_config(cfg).await.unwrap();
+        let app = Self::router(state);
+
+        info!("Serving on {:?}", listener.local_addr().unwrap());
+
+        Self {
+            router: app,
+            listener,
+        }
+    }
+
+    pub async fn run(self) -> std::io::Result<()> {
+        axum::serve(self.listener, self.router).await
+    }
+
+    pub fn address(&self) -> Option<String> {
+        self.listener.local_addr().map(|addr| addr.to_string()).ok()
+    }
+
+    fn router(state: HandlerState) -> Router {
+        Router::new()
+            .route("/token", post(token))
+            .route("/token/exchange", post(token_exchange))
+            .route("/introspect", post(introspect))
+            .with_state(state)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use crate::app::App;
     use crate::config::Config;
-    use log::{info};
+    use crate::identity_provider::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest, TokenResponse};
     use reqwest::{Error, Response};
-    use testcontainers::{ContainerAsync, GenericImage};
     use serde::Serialize;
     use serde_json::Value;
-
-    use crate::handlers::HandlerState;
-    use crate::identity_provider::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest, TokenResponse};
+    use std::collections::HashMap;
+    use testcontainers::{ContainerAsync, GenericImage};
     // TODO: add some error case tests
 
     /// Test a full round-trip of the `/token`, `/token/exchange`, and `/introspect` endpoints.
@@ -51,7 +81,7 @@ mod tests {
             use testcontainers::core::{IntoContainerPort, WaitFor};
             use testcontainers::core::wait::HttpWaitStrategy;
             use testcontainers::runners::AsyncRunner;
-            use reqwest::{StatusCode};
+            use reqwest::StatusCode;
 
             // Set up Docker container
             container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
@@ -72,15 +102,10 @@ mod tests {
 
         // Set up Texas
         let cfg = Config::mock(host.to_string(), host_port);
-        let listener = tokio::net::TcpListener::bind(cfg.bind_address.clone())
-            .await
-            .unwrap();
-        let state = HandlerState::from_config(cfg.clone()).await.unwrap();
-        let app = super::new(state);
-        let address = listener.local_addr().unwrap();
-        info!("Serving on {:?}", address.clone());
+        let app = App::new(cfg.clone()).await;
+        let address = app.address().unwrap();
         let join_handler = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            app.run().await.unwrap();
         });
 
         for format in [RequestFormat::Form, RequestFormat::Json] {
