@@ -1,14 +1,21 @@
+use crate::handlers::__path_token;
 use crate::config::Config;
 use crate::handlers::{introspect, token, token_exchange, HandlerState};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 use log::info;
 use tokio::net::TcpListener;
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 
 pub struct App {
     router: Router,
     listener: TcpListener,
 }
+
+#[derive(OpenApi)]
+struct ApiDoc;
 
 impl App {
     pub async fn new(cfg: Config) -> Self {
@@ -16,7 +23,7 @@ impl App {
         let listener = TcpListener::bind(bind_address).await.unwrap();
 
         let state = HandlerState::from_config(cfg).await.unwrap();
-        let app = Self::router(state);
+        let app = Self::router(state).await;
 
         info!("Serving on {:?}", listener.local_addr().unwrap());
 
@@ -30,16 +37,22 @@ impl App {
         axum::serve(self.listener, self.router).await
     }
 
+    #[cfg(test)]
     pub fn address(&self) -> Option<String> {
         self.listener.local_addr().map(|addr| addr.to_string()).ok()
     }
 
-    fn router(state: HandlerState) -> Router {
-        Router::new()
-            .route("/token", post(token))
+    async fn router(state: HandlerState) -> Router {
+        let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+            .routes(routes!(token))
             .route("/token/exchange", post(token_exchange))
             .route("/introspect", post(introspect))
             .with_state(state)
+            .split_for_parts();
+
+        router.route("/doc", get(async move {
+            openapi.to_pretty_json().unwrap()
+        }.await))
     }
 }
 

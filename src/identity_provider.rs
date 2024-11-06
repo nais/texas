@@ -12,12 +12,10 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use utoipa::ToSchema;
 
-// TODO: look into organizing, moving and renaming these structs more appropriately ("types" is a bit vague)
-
-/// This is an upstream RFCXXXX token response.
-/// Delivered both from upstream and to Texas clients.
-#[derive(Serialize, Deserialize)]
+/// RFC6749 token response from section 5.1.
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct TokenResponse {
     pub access_token: String,
     pub token_type: TokenType,
@@ -28,14 +26,13 @@ pub struct TokenResponse {
 /// Token type is always Bearer, but this might change in the future.
 ///
 /// This data type exists primarily for forwards API compatibility.
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, ToSchema)]
 pub enum TokenType {
     Bearer,
 }
 
-/// This is an RFCXXXX error response.
-/// Delivered both from upstream and to Texas clients.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// RFC6749 token response from section 5.2.
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct ErrorResponse {
     pub error: String,
     #[serde(rename = "error_description")]
@@ -48,10 +45,8 @@ impl Display for ErrorResponse {
     }
 }
 
-/// Which identity provider do we want to use with token fetch, exchange and validation?
-///
-/// FIXME: OpenAPI docs
-#[derive(Deserialize, Serialize, Clone, Debug)]
+/// Identity provider for use with token fetch, exchange and validation.
+#[derive(Deserialize, Serialize, ToSchema, Clone, Debug)]
 pub enum IdentityProvider {
     #[serde(rename = "azuread")]
     AzureAD,
@@ -61,32 +56,35 @@ pub enum IdentityProvider {
     Maskinporten,
 }
 
-/// This is a token request that comes from the application we are serving.
-///
-/// FIXME: OpenAPI docs
-#[derive(Serialize, Deserialize, Clone, Debug)]
+/// Use this data type to request a token from the given identity provider.
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct TokenRequest {
-    pub target: String, // typically <cluster>:<namespace>:<app>
+    /// Who this token is intended for.
+    ///
+    /// Usually `cluster:namespace:application`.
+    pub target: String,
     pub identity_provider: IdentityProvider,
 }
 
-/// This is a token exchange request that comes from the application we are serving.
-///
-/// FIXME: OpenAPI docs
-#[derive(Serialize, Deserialize, Clone, Debug)]
+/// Use this data type to exchange a user token for another similar token, scoped to the requested target.
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct TokenExchangeRequest {
+    /// Who this token is intended for.
+    ///
+    /// Usually `cluster:namespace:application`.
     pub target: String,
     pub identity_provider: IdentityProvider,
+
+    /// The token you already have, usually from a previous request to `/token`.
     pub user_token: String,
 }
 
 /// This is a token introspection/validation request that comes from the application we are serving.
-///
-/// FIXME: OpenAPI docs
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct IntrospectRequest {
     pub token: String,
 }
+
 pub trait TokenRequestBuilder {
     fn token_request(config: TokenRequestParams) -> Option<Self>
     where

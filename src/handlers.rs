@@ -18,7 +18,21 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use crate::claims::{ClientAssertion, JWTBearerAssertion};
 
-#[axum::debug_handler]
+#[utoipa::path(
+    post,
+    path = "/token",
+    request_body(
+        content(
+            (TokenRequest = "application/json"),
+            (TokenRequest = "application/x-www-form-urlencoded"),
+        ),
+        description = "Token request"
+    ),
+    responses(
+        (status = OK, description = "Success", body = TokenResponse, content_type = "application/json"),
+        (status = BAD_REQUEST, description = "Bad request", body = ErrorResponse, content_type = "application/json")
+    )
+)]
 pub async fn token(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenRequest>,
@@ -30,6 +44,7 @@ pub async fn token(
     }
 }
 
+/// In practice, you need to call this endpoint to speak with other backend applications.
 #[axum::debug_handler]
 pub async fn token_exchange(
     State(state): State<HandlerState>,
