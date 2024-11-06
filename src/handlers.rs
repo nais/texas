@@ -1,10 +1,11 @@
-use std::collections::HashMap;
 use axum::extract::{FromRequest, Request};
 use axum::{async_trait, Form, RequestExt};
+use std::collections::HashMap;
 
+use crate::claims::{ClientAssertion, JWTBearerAssertion};
 use crate::config::Config;
 use crate::identity_provider::*;
-use crate::{jwks};
+use crate::jwks;
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
@@ -14,11 +15,10 @@ use jsonwebtoken as jwt;
 use jsonwebtoken::Algorithm::RS512;
 use jsonwebtoken::DecodingKey;
 use log::{error, info};
-use std::sync::Arc;
 use serde_json::Value;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
-use crate::claims::{ClientAssertion, JWTBearerAssertion};
 
 #[utoipa::path(
     post,
@@ -209,28 +209,10 @@ pub enum ApiError {
 }
 
 impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        match &self {
-            // network error while talking to upstream
-            ApiError::UpstreamRequest(err) => (
-                err.status().unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-                self.to_string(),
-            ).into_response(),
-            // upstream responded with a non-json error?
-            ApiError::JSON(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
-            // upstream successful responded with an oauth error
-            ApiError::Upstream { status_code, error } => {
-                (status_code.clone(), Json(error.clone())).into_response()
-
-                // TODO: map status code to the correct error code
-                //400, 500 -> verbatim
-                //* -> 500
-            }
-            // failed to validate token for introspection
-            ApiError::Validate(_) => (StatusCode::BAD_REQUEST, self.to_string()).into_response(),
-            // failed to sign JWT assertion
-            ApiError::Sign => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
-        }
+    fn into_response(self) -> axum::http::Response<axum::body::Body> {
+        let error_response = ErrorResponse::from(self);
+        let status_code = StatusCode::from(error_response.error.clone());
+        (status_code, Json(error_response)).into_response()
     }
 }
 

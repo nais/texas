@@ -90,6 +90,21 @@ pub enum OAuthErrorCode {
     ServerError,
 }
 
+impl From<OAuthErrorCode> for StatusCode {
+    /// map oauth2 error codes that Texas should handle to InternalServerError
+    fn from(value: OAuthErrorCode) -> Self {
+        match value {
+            OAuthErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
+            OAuthErrorCode::InvalidClient => StatusCode::INTERNAL_SERVER_ERROR,
+            OAuthErrorCode::InvalidGrant => StatusCode::INTERNAL_SERVER_ERROR,
+            OAuthErrorCode::UnauthorizedClient => StatusCode::INTERNAL_SERVER_ERROR,
+            OAuthErrorCode::UnsupportedGrantType => StatusCode::INTERNAL_SERVER_ERROR,
+            OAuthErrorCode::InvalidScope => StatusCode::BAD_REQUEST,
+            OAuthErrorCode::ServerError => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
 /// Identity provider for use with token fetch, exchange and validation.
 #[derive(Deserialize, Serialize, ToSchema, Clone, Debug)]
 pub enum IdentityProvider {

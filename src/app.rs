@@ -9,7 +9,6 @@ use tokio::net::TcpListener;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-use utoipa_swagger_ui::SwaggerUi;
 
 pub struct App {
     router: Router,
@@ -45,6 +44,7 @@ impl App {
     }
 
     async fn router(state: HandlerState) -> Router {
+        #[allow(unused)]
         let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
             .routes(routes!(token))
             .routes(routes!(introspect))
@@ -52,6 +52,8 @@ impl App {
             .with_state(state)
             .split_for_parts();
 
+        #[cfg(feature = "openapi")]
+        use utoipa_swagger_ui::SwaggerUi;
         #[cfg(feature = "openapi")]
         let router = router.merge(SwaggerUi::new("/swagger-ui")
             .url("/api-docs/openapi.json", openapi.clone()));
