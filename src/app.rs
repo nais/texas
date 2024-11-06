@@ -53,8 +53,10 @@ impl App {
             .split_for_parts();
 
         #[cfg(feature = "openapi")]
-        router.merge(SwaggerUi::new("/swagger-ui")
-            .url("/api-docs/openapi.json", openapi.clone()))
+        let router = router.merge(SwaggerUi::new("/swagger-ui")
+            .url("/api-docs/openapi.json", openapi.clone()));
+
+        router
     }
 }
 

@@ -32,7 +32,8 @@ use crate::claims::{ClientAssertion, JWTBearerAssertion};
     ),
     responses(
         (status = OK, description = "Success", body = TokenResponse, content_type = "application/json"),
-        (status = BAD_REQUEST, description = "Bad request", body = ErrorResponse, content_type = "application/json")
+        (status = BAD_REQUEST, description = "Bad request", body = ErrorResponse, content_type = "application/json"),
+        (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
 pub async fn token(
@@ -101,6 +102,7 @@ pub async fn introspect(
     Ok((StatusCode::OK, Json(claims)))
 }
 
+// TODO: rename to something more descriptive
 #[derive(serde::Deserialize)]
 struct Claims {
     iss: String,
@@ -209,15 +211,24 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         match &self {
+            // network error while talking to upstream
             ApiError::UpstreamRequest(err) => (
                 err.status().unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                 self.to_string(),
             ).into_response(),
+            // upstream responded with a non-json error?
             ApiError::JSON(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
-            ApiError::Upstream{status_code, error} => {
+            // upstream successful responded with an oauth error
+            ApiError::Upstream { status_code, error } => {
                 (status_code.clone(), Json(error.clone())).into_response()
+
+                // TODO: map status code to the correct error code
+                //400, 500 -> verbatim
+                //* -> 500
             }
+            // failed to validate token for introspection
             ApiError::Validate(_) => (StatusCode::BAD_REQUEST, self.to_string()).into_response(),
+            // failed to sign JWT assertion
             ApiError::Sign => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response(),
         }
     }

@@ -34,15 +34,60 @@ pub enum TokenType {
 /// RFC6749 token response from section 5.2.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct ErrorResponse {
-    pub error: String,
+    pub error: OAuthErrorCode,
     #[serde(rename = "error_description")]
     pub description: String,
 }
 
 impl Display for ErrorResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.error, self.description)
+        write!(f, "{}: {}", serde_json::to_string(&self.error).unwrap(), self.description)
     }
+}
+
+impl From<ApiError> for ErrorResponse {
+    fn from(err: ApiError) -> Self {
+        match err {
+            ApiError::Sign => ErrorResponse {
+                error: OAuthErrorCode::ServerError,
+                description: "Failed to sign assertion".to_string(),
+            },
+            ApiError::UpstreamRequest(err) => ErrorResponse {
+                error: OAuthErrorCode::ServerError,
+                description: format!("Upstream request failed: {}", err),
+            },
+            ApiError::JSON(err) => ErrorResponse {
+                error: OAuthErrorCode::ServerError,
+                description: format!("Failed to parse JSON: {}", err),
+            },
+            ApiError::Upstream { status_code: _status_code, error } => ErrorResponse {
+                error: error.error,
+                description: error.description,
+            },
+            ApiError::Validate(_) => ErrorResponse {
+                error: OAuthErrorCode::ServerError,
+                description: "Failed to validate token".to_string(),
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum OAuthErrorCode {
+    #[serde(rename = "invalid_request")]
+    InvalidRequest,
+    #[serde(rename = "invalid_client")]
+    InvalidClient,
+    #[serde(rename = "invalid_grant")]
+    InvalidGrant,
+    #[serde(rename = "unauthorized_client")]
+    UnauthorizedClient,
+    #[serde(rename = "unsupported_grant_type")]
+    UnsupportedGrantType,
+    #[serde(rename = "invalid_scope")]
+    InvalidScope,
+    #[serde(rename = "server_error")]
+    ServerError,
 }
 
 /// Identity provider for use with token fetch, exchange and validation.
@@ -260,7 +305,7 @@ where
             let err: ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
             let err = ApiError::Upstream {
                 status_code: status,
-                error: err
+                error: err,
             };
             error!("get_token_with_config: {}", err);
             return Err(err);
