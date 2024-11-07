@@ -28,7 +28,17 @@ use tokio::sync::RwLock;
             (TokenRequest = "application/json"),
             (TokenRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Request a machine-to-machine token for a given `target` from the specified identity provider."
+        description = "Request a machine-to-machine token for a given `target` from the specified identity provider.",
+        examples(
+            ("Generate a token for Maskinporten" = (value = json!(TokenRequest{
+                identity_provider: IdentityProvider::Maskinporten,
+                target: "altinn:serviceowner/rolesandrights".to_string(),
+            }))),
+            ("Generate a token for Azure AD" = (value = json!(TokenRequest{
+                identity_provider: IdentityProvider::AzureAD,
+                target: "cluster:namespace:application".to_string(),
+            }))),
+        ),
     ),
     responses(
         (status = OK, description = "Success", body = TokenResponse, content_type = "application/json",
@@ -63,14 +73,25 @@ pub async fn token(
             (TokenExchangeRequest = "application/json"),
             (TokenExchangeRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Exchange a user token for a new token, scoped to the given `target`. The new token contains the user context that allows your application to act on behalf of the user."
+        description = "Exchange a user token for a new token, scoped to the given `target`. The new token contains the user context that allows your application to act on behalf of the user.",
+        examples(
+            ("Exchange a token using TokenX" = (value = json!(TokenExchangeRequest{
+                identity_provider: IdentityProvider::TokenX,
+                target: "cluster:namespace:application".to_string(),
+                user_token: "eyJraWQiOiJpZHBvcnRlbiIsInR5cCI6IkpXVCIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiIxOTQyMmVhNC04ZWUwLTQ0YTYtOThjNi0zODc0MjAyN2YyYWQiLCJhdWQiOiJkZWZhdWx0IiwibmJmIjoxNzMwOTc4MzgwLCJhenAiOiJ5b2xvIiwiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL2lkcG9ydGVuIiwiZXhwIjoxNzMwOTgxOTgwLCJpYXQiOjE3MzA5NzgzODAsImp0aSI6IjBhMDU5MDc3LTQwNzEtNDdlYS04MmM2LTU2NTY2OTk3Nzg3MiIsInRpZCI6ImlkcG9ydGVuIn0.JwgvrhPMRMaNJngiR6hzHfhg5Qy-yV4zuAtxRRvdjX4g2cBmsWj305U-lHJGsozjFhpGpA0lAn16bD3l1Z6x7CsO6kbQEwKQiJE9gB61RwSUEjV4-RbpVrKMJwppQg8gPLrb4SbTjjkylD7B9CfPiIZYtCNr6d-J0lupYiB7IlK7anUImCv7RqXTuhH0aklVpVmxOZRhzHJ6_WfhWS54MysZmeRZwOsSO-ofkrcznFFaArS1ODfrYgHx4dgVBjkE7RTcLP7nuwNtvbLg9ZVvIAT4Xh-3fu0pCL9NXoDiqBsQ0SukBAlBFfWQBFu1-34-bXkfRz2RgCR964WbKUQ8gQ".to_string(),
+            }))),
+            ("Exchange a token using Azure AD" = (value = json!(TokenExchangeRequest{
+                identity_provider: IdentityProvider::AzureAD,
+                target: "cluster:namespace:application".to_string(),
+                user_token: "eyJraWQiOiJhenVyZWFkIiwidHlwIjoiSldUIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiI1ZDYzMDliNi05OGUzLTQ1ODAtYTQwNS02MDExYzhhNjExYzgiLCJhdWQiOiJkZWZhdWx0IiwibmJmIjoxNzMwOTc4MjQyLCJhenAiOiJ5b2xvIiwiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL2F6dXJlYWQiLCJleHAiOjE3MzA5ODE4NDIsImlhdCI6MTczMDk3ODI0MiwianRpIjoiZTU4ZGM2ZjctZjQ0NC00YzcxLThlNzAtNzRhNWY1MTRlZDAwIiwidGlkIjoiYXp1cmVhZCJ9.KhySKFTJVaE6tYhsxCZonYMXv4fKwjtOI4YIAIoOs3DwaXoynTvy2lgiHSfisq-jLTJFGf9eGNbvwc3jUtypclVpYy_8d3xbvuu6jrOA1zWYagZjYr1FNN1g8tlF0SXjtkK_Bg-eZusLnEEbrZK1KnQRWN0I5fXqS7-IVe07hKTOE1teg7of2nCjfJ-iOXhf1mkXqCoUfSbJuUX2PEUs0b9yXAh_J-5P75T6130KBfRw5T5gYI0Kab3u2vm6t-ihT2Kz0aMkUGv_39myDgiwP4TV2vt4PhUiwefPo7KD-4_dkHc7Q5xUv-DWgTLUfXL2lOWf2d0C5tVExLB86jq8hw".to_string(),
+            }))),
+        ),
     ),
     responses(
         (status = OK, description = "Success", body = TokenResponse, content_type = "application/json",
             examples(
                 ("Token response" = (value = json!(TokenResponse{
-                    // This token comes from mock-oauth2-server and is not a security issue
-                    access_token: "eyJraWQiOiJhenVyZWFkIiwidHlwIjoiSldUIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJlYzhjYTIwOS0xNGE0LTQ0MjEtYWM3NS0xZTRjMTYwYmUwZWQiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzYzMDEsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvYXp1cmVhZCIsImV4cCI6MTczMDk3OTkwMSwiaWF0IjoxNzMwOTc2MzAxLCJqdGkiOiI2MzFhMGFmNC1jNjI0LTRlMWMtOGQxNy00NTM4NjUzOThlMTYiLCJ0aWQiOiJhenVyZWFkIn0.DV80SBZBFEXOBdBOeWYU-kzjvwNnCtfcxJa71_R7voDOVz5vyFjGm1u1EXWBSjcBNxYjDj4KMobUffwfNfo5yLZI3bMr5qRplVvxEXjsnsnV6X1Rq-i19UazqtAia2wxkaBleIPVEVbuXcHDd6CGnOQb7cOgdgW6H3doPOIu7h65xYHo9_GTDWM5cB_Mk0bC9NFlFPLrruv8LyT1CTcfN4ddlU0_jj4SZN8mA5lFecIAj2-hP9jb-2J-jBevoaxQ6XiBI5z83hegs6yt72VQp2N4yZliCLODhZ4DyoL7EghID20rLnRq6Wam5-cwiGuPj95YChzMpNmcEN7PsCBhdQ".to_string(),
+                    access_token: "eyJraWQiOiJhenVyZWFkIiwidHlwIjoiSldUIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiI1ZDYzMDliNi05OGUzLTQ1ODAtYTQwNS02MDExYzhhNjExYzgiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzgyNDIsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvYXp1cmVhZCIsImV4cCI6MTczMDk4MTg0MiwiaWF0IjoxNzMwOTc4MjQyLCJqdGkiOiJkNDQ4NTRjNC1iYmZhLTRmZTMtYTMyNC0xZDQyNjdkZjdjZjYiLCJ0aWQiOiJhenVyZWFkIn0.fqTw40aXkzGqet7mMRfK-8cUICzBW7SKIb5UOh6sTvrqprJEtF1HG8MLRcjgjEVwShNkYzJiUZzOC7GSxcuYSiDFg9rboR0QPvTtYsPHWjBGCpvo7lJl27oyqS7QUS83Gsc3oGbCYxc_f4TWOVP8j6pVVZjHAietUd7A-KSwck_YkhmJxKpx7HUhK11AOLjcUlJzb_GpAf1zbog9aIsg9gg9DvWIXtyGqmmBAjr69faFzg7s6KssAQS6A3Qcn19nHC2-J_Ic5q-b8gIDGTq2w62GukbYjyjI7pMYYE04QPPmFI1jdKS9QygW8zX2wQ-10Tc4o4BmMMRjp1RvMm3t6Q".to_string(),
                     token_type: TokenType::Bearer,
                     expires_in_seconds: 3599,
                 }))),
@@ -98,16 +119,27 @@ pub async fn token_exchange(
             (IntrospectRequest = "application/json"),
             (IntrospectRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Introspect a token. This validates the token and returns its claims. The `active` field indicates whether the token is valid or not."
+        description = "Introspect a token. This means to validate the token and returns its claims. The `active` is not part of the claims, but indicates whether the token is valid.",
+        examples(
+            ("Token introspection" = (value = json!(IntrospectRequest{
+                token: "eyJraWQiOiJ0b2tlbngiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJlMDE1NTQyYy0wZjgxLTQwZjUtYmJkOS03YzNkOTM2NjI5OGYiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzcyOTMsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvdG9rZW54IiwiZXhwIjoxNzMwOTgwODkzLCJpYXQiOjE3MzA5NzcyOTMsImp0aSI6ImU3Y2JhZGMzLTZiZGEtNDljMC1hMTk2LWM0NzMyOGRhODgwZSIsInRpZCI6InRva2VueCJ9.SIme9o5YE6pZXT9IMAx5upV3V4ww_TnDlqZG203pkySPBd_VqNGBXzOKHeOasIDpXEMlf8Yc-1nKgySjGOT3c46PIHEUrhQFXF6s9OpJAYAwy7L2n2DIFfEOLt8EpwSpM5hWDwnGpSdvebWlmoaA3ImFEB5dtnxLrVG-7dYEEzZjMfBOKFWrPp03FTO4qKOJUqCZR0tmZRmcPzymPWFIMjP2FTj6iz9zai93dhQmdvNVMGL9HBXF6ewKf_CTlUIx9XpwI2M-dhlyH2PIxyhix7Amuff_mHuEHTuCAFqMfjon-F438uyZmgicyrvhoUGxV8W1PfZEiLIv0RBeWRJ9gw".to_string()
+            })))
+        ),
     ),
     responses(
         (status = OK, description = "Success", body = IntrospectResponse, content_type = "application/json",
         examples(
                 ("Valid token" = (value = json!(IntrospectResponse::new(HashMap::from(
-                    [("aud".to_string(), Value::String("dev-gcp:mynamespace:myapplication".to_string())),
-                     ("iat".to_string(), Value::Number(1730969701.into())),
-                     ("nbf".to_string(), Value::Number(1730969701.into())),
-                     ("exp".to_string(), Value::Number(1730969731.into())),
+                    [
+                    ("aud".to_string(), Value::String("my-target".into())),
+                    ("azp".to_string(), Value::String("yolo".into())),
+                    ("exp".to_string(), Value::Number(1730980893.into())),
+                    ("iat".to_string(), Value::Number(1730977293.into())),
+                    ("iss".to_string(), Value::String("http://localhost:8080/tokenx".into())),
+                    ("jti".to_string(), Value::String("e7cbadc3-6bda-49c0-a196-c47328da880e".into())),
+                    ("nbf".to_string(), Value::Number(1730977293.into())),
+                    ("sub".to_string(), Value::String("e015542c-0f81-40f5-bbd9-7c3d9366298f".into())),
+                    ("tid".to_string(), Value::String("tokenx".into())),
                     ],
                 ))))),
                 ("Invalid token" = (value = json!(IntrospectResponse::new_invalid("token is expired".to_string())))),
