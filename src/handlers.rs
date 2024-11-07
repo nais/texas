@@ -19,6 +19,7 @@ use serde_json::{Value};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
+use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange};
 
 #[utoipa::path(
     post,
@@ -178,10 +179,10 @@ pub async fn introspect(
 #[derive(Clone)]
 pub struct HandlerState {
     pub cfg: Config,
-    pub maskinporten: Arc<RwLock<Provider<MaskinportenTokenRequest, JWTBearerAssertion>>>,
-    pub azure_ad_obo: Arc<RwLock<Provider<AzureADOnBehalfOfTokenRequest, ClientAssertion>>>,
-    pub azure_ad_cc: Arc<RwLock<Provider<AzureADClientCredentialsTokenRequest, ClientAssertion>>>,
-    pub token_x: Arc<RwLock<Provider<TokenXTokenRequest, ClientAssertion>>>,
+    pub maskinporten: Arc<RwLock<Provider<JWTBearer, JWTBearerAssertion>>>,
+    pub azure_ad_obo: Arc<RwLock<Provider<OnBehalfOf, ClientAssertion>>>,
+    pub azure_ad_cc: Arc<RwLock<Provider<ClientCredentials, ClientAssertion>>>,
+    pub token_x: Arc<RwLock<Provider<TokenExchange, ClientAssertion>>>,
 }
 
 #[derive(Error, Debug)]
@@ -206,7 +207,7 @@ impl HandlerState {
     pub async fn from_config(cfg: Config) -> Result<Self, InitError> {
         // TODO: we should be able to conditionally enable certain providers based on the configuration
         info!("Fetch JWKS for Maskinporten...");
-        let maskinporten: Provider<MaskinportenTokenRequest, JWTBearerAssertion> = Provider::new(
+        let maskinporten: Provider<JWTBearer, JWTBearerAssertion> = Provider::new(
             cfg.maskinporten_client_id.clone(),
             cfg.maskinporten_token_endpoint.clone(),
             cfg.maskinporten_client_jwk.clone(),
@@ -219,7 +220,7 @@ impl HandlerState {
 
         // TODO: these two AAD providers should be a single provider, but we need to figure out how to handle the different token requests
         info!("Fetch JWKS for Azure AD (on behalf of)...");
-        let azure_ad_obo: Provider<AzureADOnBehalfOfTokenRequest, ClientAssertion> = Provider::new(
+        let azure_ad_obo: Provider<OnBehalfOf, ClientAssertion> = Provider::new(
             cfg.azure_ad_client_id.clone(),
             cfg.azure_ad_token_endpoint.clone(),
             cfg.azure_ad_client_jwk.clone(),
@@ -232,7 +233,7 @@ impl HandlerState {
             .ok_or(InitError::Jwk)?;
 
         info!("Fetch JWKS for Azure AD (client credentials)...");
-        let azure_ad_cc: Provider<AzureADClientCredentialsTokenRequest, ClientAssertion> =
+        let azure_ad_cc: Provider<ClientCredentials, ClientAssertion> =
             Provider::new(
                 cfg.azure_ad_client_id.clone(),
                 cfg.azure_ad_token_endpoint.clone(),
@@ -246,7 +247,7 @@ impl HandlerState {
                 .ok_or(InitError::Jwk)?;
 
         info!("Fetch JWKS for TokenX...");
-        let token_x: Provider<TokenXTokenRequest, ClientAssertion> = Provider::new(
+        let token_x: Provider<TokenExchange, ClientAssertion> = Provider::new(
             cfg.token_x_client_id.clone(),
             cfg.token_x_token_endpoint.clone(),
             cfg.token_x_client_jwk.clone(),

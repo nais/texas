@@ -4,6 +4,7 @@ mod config;
 pub mod handlers;
 pub mod identity_provider;
 pub mod jwks;
+mod grants;
 
 use crate::app::App;
 use clap::Parser;
