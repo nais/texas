@@ -37,9 +37,9 @@ pub enum TokenType {
 ///
 /// For provider specific claims, see the respective reference pages:
 ///
-/// - Azure AD: <https://doc.nais.io/auth/entra-id/reference/#claims>
-/// - TokenX: <https://doc.nais.io/auth/tokenx/reference/#claims>
-/// - Maskinporten: <https://doc.nais.io/auth/maskinporten/reference/#claims>
+/// - [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)
+/// - [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)
+/// - [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)
 #[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct IntrospectResponse {
     /// Indicates whether the token is valid. If this field is `false`,
@@ -57,11 +57,11 @@ pub struct IntrospectResponse {
 }
 
 impl IntrospectResponse {
-    pub fn new(claims: HashMap<String, Value>) -> Self {
+    pub fn new(claims: impl Into<HashMap<String, Value>>) -> Self {
         Self {
             active: true,
             error: None,
-            extra: claims,
+            extra: claims.into(),
         }
     }
 
@@ -76,16 +76,16 @@ impl IntrospectResponse {
 
 #[test]
 fn test_serialization_format() {
-    let mut ir = IntrospectResponse {
-        active: true,
-        error: None,
-        extra: Default::default(),
-    };
-    ir.extra.insert("foo".into(), "bar".into());
-    ir.error = Some("test".into());
-    println!("{:?}", &ir);
-    let serialized = serde_json::to_string(&ir).unwrap();
-    assert_eq!(serialized, r#"{"active":true,"error":"test","foo":"bar"}"#);
+    let ok = IntrospectResponse::new([
+        ("foo".into(), Value::String("bar".into())),
+    ]);
+    let failed = IntrospectResponse::new_invalid("my error");
+
+    let serialized = serde_json::to_string(&ok).unwrap();
+    assert_eq!(serialized, r#"{"active":true,"foo":"bar"}"#);
+
+    let serialized = serde_json::to_string(&failed).unwrap();
+    assert_eq!(serialized, r#"{"active":false,"error":"my error"}"#);
 }
 
 /// RFC 6749 token response from section 5.2.
