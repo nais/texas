@@ -77,48 +77,6 @@ mod tests {
     use testcontainers::{ContainerAsync, GenericImage};
     // TODO: add some error case tests
 
-    struct DockerRuntimeParams {
-        container: Option<ContainerAsync<GenericImage>>,
-        host: String,
-        port: u16,
-    }
-
-    impl DockerRuntimeParams {
-        /// Runs Docker from Rust, no external setup needed
-        #[cfg(feature = "docker")]
-        async fn init() -> DockerRuntimeParams {
-            use reqwest::StatusCode;
-            use testcontainers::core::wait::HttpWaitStrategy;
-            use testcontainers::core::{IntoContainerPort, WaitFor};
-            use testcontainers::runners::AsyncRunner;
-
-            // Set up Docker container
-            let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
-                .with_exposed_port(8080.tcp())
-                .with_wait_for(WaitFor::Http(HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK)))
-                .start()
-                .await
-                .unwrap();
-            let host = container.get_host().await.unwrap().to_string();
-            let port = container.get_host_port_ipv4(8080).await.unwrap();
-            Self {
-                container: Some(container),
-                host,
-                port,
-            }
-        }
-
-        /// Requires docker-compose up to be running.
-        #[cfg(not(feature = "docker"))]
-        async fn init() -> DockerRuntimeParams {
-            Self {
-                container: None,
-                host: "localhost".to_string(),
-                port: 8080,
-            }
-        }
-    }
-
     /// Test a full round-trip of the `/token`, `/token/exchange`, and `/introspect` endpoints.
     ///
     /// Content-type encodings tested are both `application/json` and `application/x-www-form-urlencoded`.
@@ -132,57 +90,46 @@ mod tests {
     ///   1. Request a client credentials token using Texas' `/token` endpoint
     ///   2. Introspect the resulting token and check parameters
     #[tokio::test]
-    async fn test_roundtrip() {
-        env_logger::builder().filter_level(LevelFilter::Info).init();
-
-        let docker = DockerRuntimeParams::init().await;
-
-        match docker.container {
-            None => info!("Expecting mock-oauth2-server natively in docker-compose on localhost:8080"),
-            Some(_) => info!("Running mock-oauth2-server on {}:{}", docker.host, docker.port, ),
-        }
-
-        // Set up Texas
-        let cfg = Config::mock(docker.host.clone(), docker.port);
-        let app = App::new(cfg.clone()).await;
-        let address = app.address().unwrap();
+    async fn test_all_providers_integration_tests() {
+        let testapp = TestApp::new().await;
+        let address = testapp.app.address().unwrap();
         let join_handler = tokio::spawn(async move {
-            app.run().await.unwrap();
+            testapp.app.run().await.unwrap();
         });
 
         for format in [RequestFormat::Form, RequestFormat::Json] {
             machine_to_machine_token(
-                cfg.maskinporten_issuer.clone(),
+                testapp.cfg.maskinporten_issuer.clone(),
                 "scope".to_string(),
                 address.to_string(),
                 IdentityProvider::Maskinporten,
-                format.clone()
+                format.clone(),
             ).await;
 
             machine_to_machine_token(
-                cfg.azure_ad_issuer.clone(),
-                cfg.azure_ad_client_id.clone(),
+                testapp.cfg.azure_ad_issuer.clone(),
+                testapp.cfg.azure_ad_client_id.clone(),
                 address.to_string(),
                 IdentityProvider::AzureAD,
-                format.clone()
+                format.clone(),
             ).await;
 
             token_exchange_token(
-                cfg.azure_ad_issuer.clone(),
-                cfg.azure_ad_client_id.clone(),
+                testapp.cfg.azure_ad_issuer.clone(),
+                testapp.cfg.azure_ad_client_id.clone(),
                 address.to_string(),
-                format!("{}:{}", docker.host.clone(), docker.port),
+                format!("{}:{}", testapp.docker.host.clone(), testapp.docker.port),
                 IdentityProvider::AzureAD,
-                format.clone()
+                format.clone(),
             ).await;
 
             token_exchange_token(
-                cfg.token_x_issuer.clone(),
-                cfg.token_x_client_id.clone(),
+                testapp.cfg.token_x_issuer.clone(),
+                testapp.cfg.token_x_client_id.clone(),
                 address.to_string(),
-                format!("{}:{}", docker.host.clone(), docker.port),
+                format!("{}:{}", testapp.docker.host.clone(), testapp.docker.port),
                 IdentityProvider::TokenX,
-                format
+                format,
             ).await;
         }
 
@@ -304,5 +251,76 @@ mod tests {
             RequestFormat::Form => request.form(&params),
         };
         request.send().await
+    }
+
+    struct TestApp {
+        app: App,
+        cfg: Config,
+        docker: DockerRuntimeParams,
+    }
+
+    impl TestApp {
+        async fn new() -> Self {
+            env_logger::builder().filter_level(LevelFilter::Info).init();
+
+            let docker = DockerRuntimeParams::init().await;
+
+            match docker.container {
+                None => info!("Expecting mock-oauth2-server natively in docker-compose on localhost:8080"),
+                Some(_) => info!("Running mock-oauth2-server on {}:{}", docker.host, docker.port, ),
+            }
+
+            // Set up Texas
+            let cfg = Config::mock(docker.host.clone(), docker.port);
+            let app = App::new(cfg.clone()).await;
+
+            Self {
+                app,
+                cfg,
+                docker,
+            }
+        }
+    }
+
+    struct DockerRuntimeParams {
+        container: Option<ContainerAsync<GenericImage>>,
+        host: String,
+        port: u16,
+    }
+
+    impl DockerRuntimeParams {
+        /// Runs Docker from Rust, no external setup needed
+        #[cfg(feature = "docker")]
+        async fn init() -> DockerRuntimeParams {
+            use reqwest::StatusCode;
+            use testcontainers::core::wait::HttpWaitStrategy;
+            use testcontainers::core::{IntoContainerPort, WaitFor};
+            use testcontainers::runners::AsyncRunner;
+
+            // Set up Docker container
+            let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
+                .with_exposed_port(8080.tcp())
+                .with_wait_for(WaitFor::Http(HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK)))
+                .start()
+                .await
+                .unwrap();
+            let host = container.get_host().await.unwrap().to_string();
+            let port = container.get_host_port_ipv4(8080).await.unwrap();
+            Self {
+                container: Some(container),
+                host,
+                port,
+            }
+        }
+
+        /// Requires docker-compose up to be running.
+        #[cfg(not(feature = "docker"))]
+        async fn init() -> DockerRuntimeParams {
+            Self {
+                container: None,
+                host: "localhost".to_string(),
+                port: 8080,
+            }
+        }
     }
 }
