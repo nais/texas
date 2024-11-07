@@ -1,8 +1,8 @@
-use crate::handlers::__path_token;
-use crate::handlers::__path_introspect;
 use crate::config::Config;
+use crate::handlers::__path_introspect;
+use crate::handlers::__path_token;
 use crate::handlers::{introspect, token, token_exchange, HandlerState};
-use axum::routing::{post};
+use axum::routing::post;
 use axum::Router;
 use log::info;
 use tokio::net::TcpListener;
@@ -85,10 +85,10 @@ mod tests {
         /// Runs Docker from Rust, no external setup needed
         #[cfg(feature = "docker")]
         async fn init() -> DockerRuntimeParams {
-            use testcontainers::core::{IntoContainerPort, WaitFor};
-            use testcontainers::core::wait::HttpWaitStrategy;
-            use testcontainers::runners::AsyncRunner;
             use reqwest::StatusCode;
+            use testcontainers::core::wait::HttpWaitStrategy;
+            use testcontainers::core::{IntoContainerPort, WaitFor};
+            use testcontainers::runners::AsyncRunner;
 
             // Set up Docker container
             let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
@@ -268,15 +268,11 @@ mod tests {
 
     async fn post_request(url: String, params: impl Serialize, format: RequestFormat) -> Result<Response, Error> {
         let client = reqwest::Client::new();
-        let request = client
-            .post(url)
-            .header("accept", "application/json");
+        let request = client.post(url).header("accept", "application/json");
         let request = match format {
             RequestFormat::Json => request.json(&params),
             RequestFormat::Form => request.form(&params),
         };
-        request
-            .send()
-            .await
+        request.send().await
     }
 }

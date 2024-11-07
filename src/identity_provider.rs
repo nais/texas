@@ -67,7 +67,7 @@ impl From<ApiError> for ErrorResponse {
             ApiError::Validate(_) => ErrorResponse {
                 error: OAuthErrorCode::ServerError,
                 description: "Failed to validate token".to_string(),
-            }
+            },
         }
     }
 }
@@ -193,7 +193,7 @@ pub struct TokenXTokenRequest {
     grant_type: String, // urn:ietf:params:oauth:grant-type:token-exchange
     client_assertion: String,
     client_assertion_type: String, // urn:ietf:params:oauth:client-assertion-type:jwt-bearer
-    subject_token_type: String, // urn:ietf:params:oauth:token-type:jwt
+    subject_token_type: String,    // urn:ietf:params:oauth:token-type:jwt
     subject_token: String,
     audience: String,
 }
@@ -335,10 +335,7 @@ where
         Ok((StatusCode::OK, Json(res)))
     }
 
-    pub async fn get_token(
-        &self,
-        request: TokenRequest,
-    ) -> Result<impl IntoResponse, ApiError> {
+    pub async fn get_token(&self, request: TokenRequest) -> Result<impl IntoResponse, ApiError> {
         let token_request = TokenRequestParams {
             target: request.target.clone(),
             assertion: self.create_assertion(request.target.clone()),

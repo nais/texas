@@ -85,11 +85,12 @@ pub async fn introspect(
     validation.validate_exp = false;
     validation.insecure_disable_signature_validation();
     let key = DecodingKey::from_secret(&[]);
-    let token_data = jwt::decode::<Claims>(&request.token, &key, &validation)
-        .map_err(|err| Json(HashMap::from([
+    let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).map_err(|err| {
+        Json(HashMap::from([
             ("active".to_string(), Value::Bool(false)),
             ("error".to_string(), Value::String(format!("{:?}", err))),
-        ])))?;
+        ]))
+    })?;
 
     let identity_provider = token_data.claims.identity_provider(state.cfg);
     let claims = match identity_provider {
@@ -145,8 +146,7 @@ impl HandlerState {
             cfg.maskinporten_client_id.clone(),
             cfg.maskinporten_token_endpoint.clone(),
             cfg.maskinporten_client_jwk.clone(),
-            jwks::Jwks::new(&cfg.maskinporten_issuer.clone(), &cfg.maskinporten_jwks_uri.clone())
-                .await?,
+            jwks::Jwks::new(&cfg.maskinporten_issuer.clone(), &cfg.maskinporten_jwks_uri.clone()).await?,
         ).ok_or(InitError::Jwk)?;
 
         // TODO: these two AAD providers should be a single provider, but we need to figure out how to handle the different token requests
@@ -155,27 +155,28 @@ impl HandlerState {
             cfg.azure_ad_client_id.clone(),
             cfg.azure_ad_token_endpoint.clone(),
             cfg.azure_ad_client_jwk.clone(),
-            jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone())
-                .await?,
-        ).ok_or(InitError::Jwk)?;
+            jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone()).await?,
+        )
+        .ok_or(InitError::Jwk)?;
 
         info!("Fetch JWKS for Azure AD (client credentials)...");
-        let azure_ad_cc: Provider<AzureADClientCredentialsTokenRequest, ClientAssertion> = Provider::new(
-            cfg.azure_ad_client_id.clone(),
-            cfg.azure_ad_token_endpoint.clone(),
-            cfg.azure_ad_client_jwk.clone(),
-            jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone())
-                .await?,
-        ).ok_or(InitError::Jwk)?;
+        let azure_ad_cc: Provider<AzureADClientCredentialsTokenRequest, ClientAssertion> =
+            Provider::new(
+                cfg.azure_ad_client_id.clone(),
+                cfg.azure_ad_token_endpoint.clone(),
+                cfg.azure_ad_client_jwk.clone(),
+                jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone()).await?,
+            )
+            .ok_or(InitError::Jwk)?;
 
         info!("Fetch JWKS for TokenX...");
         let token_x: Provider<TokenXTokenRequest, ClientAssertion> = Provider::new(
             cfg.token_x_client_id.clone(),
             cfg.token_x_token_endpoint.clone(),
             cfg.token_x_client_jwk.clone(),
-            jwks::Jwks::new(&cfg.token_x_issuer.clone(), &cfg.token_x_jwks_uri.clone())
-                .await?,
-        ).ok_or(InitError::Jwk)?;
+            jwks::Jwks::new(&cfg.token_x_issuer.clone(), &cfg.token_x_jwks_uri.clone()).await?,
+        )
+        .ok_or(InitError::Jwk)?;
 
         Ok(Self {
             cfg,

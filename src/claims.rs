@@ -1,5 +1,5 @@
-use serde::Serialize;
 use jsonwebtoken as jwt;
+use serde::Serialize;
 
 pub trait Assertion {
     fn new(token_endpoint: String, client_id: String, target: String) -> Self;
@@ -37,7 +37,7 @@ impl Assertion for JWTBearerAssertion {
             iat: now as usize,
             nbf: now as usize,
             jti: jti.to_string(),
-            iss: client_id, // issuer of the token is the client itself
+            iss: client_id,      // issuer of the token is the client itself
             aud: token_endpoint, // audience of the token is the issuer
             scope: target,
         }
@@ -55,7 +55,7 @@ impl Assertion for ClientAssertion {
             nbf: now as usize,
             jti: jti.to_string(),
             iss: client_id.clone(), // issuer of the token is the client itself
-            aud: token_endpoint, // audience of the token is the issuer
+            aud: token_endpoint,    // audience of the token is the issuer
             sub: client_id,
         }
     }
@@ -75,4 +75,3 @@ pub fn serialize<T: Serialize + Assertion>(
 ) -> Result<String, jsonwebtoken::errors::Error> {
     jwt::encode(client_assertion_header, &claims, key)
 }
-

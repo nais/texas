@@ -1,19 +1,21 @@
+mod app;
+mod claims;
+mod config;
 pub mod handlers;
 pub mod identity_provider;
 pub mod jwks;
-mod claims;
-mod app;
-mod config;
 
-use config::Config;
+use crate::app::App;
 use clap::Parser;
+use config::Config;
 use dotenv::dotenv;
 use log::{info, LevelFilter};
-use crate::app::App;
 
 #[tokio::main]
 async fn main() {
-    env_logger::builder().filter_level(LevelFilter::Debug).init();
+    env_logger::builder()
+        .filter_level(LevelFilter::Debug)
+        .init();
 
     config::print_texas_logo();
     info!("Starting up");
