@@ -125,9 +125,9 @@ impl From<ApiError> for ErrorResponse {
                 error: OAuthErrorCode::ServerError,
                 description: "Failed to validate token".to_string(),
             },
-            ApiError::UnsupportedMediaType(err) => ErrorResponse {
+            ApiError::UnsupportedMediaType(_) => ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,
-                description: err,
+                description: err.to_string(),
             },
             ApiError::UnprocessableContent => ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,

@@ -133,7 +133,8 @@ mod tests {
             ).await;
         }
 
-        invalid_identity_provider_in_token_request(address).await;
+        invalid_identity_provider_in_token_request(address.to_string()).await;
+        invalid_content_type_in_token_request(address.to_string()).await;
 
         // TODO: implement these tests:
         // * Upstream:
@@ -166,6 +167,18 @@ mod tests {
 
         assert_eq!(response.status(), 400);
         assert_eq!(response.text().await.unwrap(), "{\"error\":\"invalid_request\",\"error_description\":\"request cannot be deserialized\"}");
+    }
+
+    async fn invalid_content_type_in_token_request(address: String) {
+        let client = reqwest::Client::new();
+        let request = client.post(format!("http://{}/api/v1/token", address.clone().to_string()),)
+            .header("accept", "application/json")
+            .header("content-type", "text/plain")
+            .body("some plain text");
+        let response = request.send().await.unwrap();
+
+        assert_eq!(response.status(), 400);
+        assert_eq!(response.text().await.unwrap(), "{\"error\":\"invalid_request\",\"error_description\":\"unsupported media type text/plain\"}");
     }
 
     async fn machine_to_machine_token(expected_issuer: String, target: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
