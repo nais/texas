@@ -196,9 +196,9 @@ pub enum InitError {
 impl HandlerState {
     pub fn identity_provider_from_issuer(&self, iss: &str) -> Option<IdentityProvider> {
         match iss {
-            s if s == &self.cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
-            s if s == &self.cfg.azure_ad_issuer => Some(IdentityProvider::AzureAD),
-            s if s == &self.cfg.token_x_issuer => Some(IdentityProvider::TokenX),
+            s if s == self.cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
+            s if s == self.cfg.azure_ad_issuer => Some(IdentityProvider::AzureAD),
+            s if s == self.cfg.token_x_issuer => Some(IdentityProvider::TokenX),
             _ => None,
         }
     }
@@ -210,7 +210,11 @@ impl HandlerState {
             cfg.maskinporten_client_id.clone(),
             cfg.maskinporten_token_endpoint.clone(),
             cfg.maskinporten_client_jwk.clone(),
-            jwks::Jwks::new(&cfg.maskinporten_issuer.clone(), &cfg.maskinporten_jwks_uri.clone()).await?,
+            jwks::Jwks::new(
+                &cfg.maskinporten_issuer.clone(),
+                &cfg.maskinporten_jwks_uri.clone(),
+                None,
+            ).await?,
         ).ok_or(InitError::Jwk)?;
 
         // TODO: these two AAD providers should be a single provider, but we need to figure out how to handle the different token requests
@@ -219,7 +223,11 @@ impl HandlerState {
             cfg.azure_ad_client_id.clone(),
             cfg.azure_ad_token_endpoint.clone(),
             cfg.azure_ad_client_jwk.clone(),
-            jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone()).await?,
+            jwks::Jwks::new(
+                &cfg.azure_ad_issuer.clone(),
+                &cfg.azure_ad_jwks_uri.clone(),
+                Some(cfg.azure_ad_client_id.clone())
+            ).await?,
         )
             .ok_or(InitError::Jwk)?;
 
@@ -229,7 +237,11 @@ impl HandlerState {
                 cfg.azure_ad_client_id.clone(),
                 cfg.azure_ad_token_endpoint.clone(),
                 cfg.azure_ad_client_jwk.clone(),
-                jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone()).await?,
+                jwks::Jwks::new(
+                    &cfg.azure_ad_issuer.clone(),
+                    &cfg.azure_ad_jwks_uri.clone(),
+                    Some(cfg.azure_ad_client_id.clone())
+                ).await?,
             )
                 .ok_or(InitError::Jwk)?;
 
@@ -238,7 +250,11 @@ impl HandlerState {
             cfg.token_x_client_id.clone(),
             cfg.token_x_token_endpoint.clone(),
             cfg.token_x_client_jwk.clone(),
-            jwks::Jwks::new(&cfg.token_x_issuer.clone(), &cfg.token_x_jwks_uri.clone()).await?,
+            jwks::Jwks::new(
+                &cfg.token_x_issuer.clone(),
+                &cfg.token_x_jwks_uri.clone(),
+                Some(cfg.token_x_client_id.clone())
+            ).await?,
         )
             .ok_or(InitError::Jwk)?;
 

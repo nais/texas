@@ -151,11 +151,39 @@ mod tests {
         });
 
         for format in [RequestFormat::Form, RequestFormat::Json] {
-            machine_to_machine_token(cfg.maskinporten_issuer.clone(), address.to_string(), IdentityProvider::Maskinporten, format.clone()).await;
-            machine_to_machine_token(cfg.azure_ad_issuer.clone(), address.to_string(), IdentityProvider::AzureAD, format.clone()).await;
+            machine_to_machine_token(
+                cfg.maskinporten_issuer.clone(),
+                "scope".to_string(),
+                address.to_string(),
+                IdentityProvider::Maskinporten,
+                format.clone()
+            ).await;
 
-            token_exchange_token(cfg.azure_ad_issuer.clone(), address.to_string(), format!("{}:{}", docker.host.clone(), docker.port), IdentityProvider::AzureAD, format.clone()).await;
-            token_exchange_token(cfg.token_x_issuer.clone(), address.to_string(), format!("{}:{}", docker.host.clone(), docker.port), IdentityProvider::TokenX, format).await;
+            machine_to_machine_token(
+                cfg.azure_ad_issuer.clone(),
+                cfg.azure_ad_client_id.clone(),
+                address.to_string(),
+                IdentityProvider::AzureAD,
+                format.clone()
+            ).await;
+
+            token_exchange_token(
+                cfg.azure_ad_issuer.clone(),
+                cfg.azure_ad_client_id.clone(),
+                address.to_string(),
+                format!("{}:{}", docker.host.clone(), docker.port),
+                IdentityProvider::AzureAD,
+                format.clone()
+            ).await;
+
+            token_exchange_token(
+                cfg.token_x_issuer.clone(),
+                cfg.token_x_client_id.clone(),
+                address.to_string(),
+                format!("{}:{}", docker.host.clone(), docker.port),
+                IdentityProvider::TokenX,
+                format
+            ).await;
         }
 
         // TODO: implement these tests:
@@ -177,11 +205,11 @@ mod tests {
         join_handler.abort();
     }
 
-    async fn machine_to_machine_token(expected_issuer: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
+    async fn machine_to_machine_token(expected_issuer: String, target: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
         let response = post_request(
             format!("http://{}/api/v1/token", address.clone().to_string()),
             TokenRequest {
-                target: "mytarget".to_string(),
+                target,
                 identity_provider,
             },
             request_format.clone(),
@@ -207,7 +235,7 @@ mod tests {
         assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
     }
 
-    async fn token_exchange_token(expected_issuer: String, address: String, identity_provider_address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
+    async fn token_exchange_token(expected_issuer: String, target: String, address: String, identity_provider_address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
         #[derive(Serialize)]
         struct AuthorizeRequest {
             grant_type: String,
@@ -234,7 +262,7 @@ mod tests {
         let response = post_request(
             format!("http://{}/api/v1/token/exchange", address.clone().to_string()),
             TokenExchangeRequest {
-                target: "mytarget".to_string(),
+                target,
                 identity_provider,
                 user_token: user_token.access_token,
             },
