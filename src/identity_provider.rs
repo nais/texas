@@ -19,6 +19,7 @@ use utoipa::ToSchema;
 pub struct TokenResponse {
     pub access_token: String,
     pub token_type: TokenType,
+    /// Token expiry in seconds. Useful for caching purposes.
     #[serde(rename = "expires_in")]
     pub expires_in_seconds: usize,
 }
@@ -105,7 +106,7 @@ impl From<OAuthErrorCode> for StatusCode {
     }
 }
 
-/// Identity provider for use with token fetch, exchange and validation.
+/// Supported identity providers for use with token fetch, exchange and introspection.
 #[derive(Deserialize, Serialize, ToSchema, Clone, Debug)]
 pub enum IdentityProvider {
     #[serde(rename = "azuread")]
@@ -135,7 +136,9 @@ pub struct TokenExchangeRequest {
     pub target: String,
     pub identity_provider: IdentityProvider,
 
-    /// The token you already have, usually from a previous request to `/token`.
+    /// The token that contains the user's context.
+    ///
+    /// Usually found in the `Authorization` header in requests to your application.
     pub user_token: String,
 }
 

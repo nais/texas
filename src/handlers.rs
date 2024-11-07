@@ -28,7 +28,7 @@ use tokio::sync::RwLock;
             (TokenRequest = "application/json"),
             (TokenRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Token request"
+        description = "Request a machine-to-machine token for a given `target`."
     ),
     responses(
         (status = OK, description = "Success", body = TokenResponse, content_type = "application/json"),
@@ -47,7 +47,22 @@ pub async fn token(
     }
 }
 
-/// In practice, you need to call this endpoint to speak with other backend applications.
+#[utoipa::path(
+    post,
+    path = "/token/exchange",
+    request_body(
+        content(
+            (TokenExchangeRequest = "application/json"),
+            (TokenExchangeRequest = "application/x-www-form-urlencoded"),
+        ),
+        description = "Exchange a user token for a new token, scoped to the given `target`. The new token contains the user context that allows your application to act on behalf of the user"
+    ),
+    responses(
+        (status = OK, description = "Success", body = TokenResponse, content_type = "application/json"),
+        (status = BAD_REQUEST, description = "Bad request", body = ErrorResponse, content_type = "application/json"),
+        (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
+    )
+)]
 #[axum::debug_handler]
 pub async fn token_exchange(
     State(state): State<HandlerState>,
@@ -68,7 +83,7 @@ pub async fn token_exchange(
             (IntrospectRequest = "application/json"),
             (IntrospectRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Introspection request"
+        description = "Introspect a token. This validates the token and returns its claims. The `active` field indicates whether the token is valid or not."
     ),
     responses(
         (status = OK, description = "Success", body = HashMap<String, Value>, content_type = "application/json"),

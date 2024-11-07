@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::handlers::__path_introspect;
 use crate::handlers::__path_token;
+use crate::handlers::__path_token_exchange;
 use crate::handlers::{introspect, token, token_exchange, HandlerState};
-use axum::routing::post;
 use axum::Router;
 use log::info;
 use tokio::net::TcpListener;
@@ -47,8 +47,8 @@ impl App {
         #[allow(unused)]
         let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
             .routes(routes!(token))
+            .routes(routes!(token_exchange))
             .routes(routes!(introspect))
-            .route("/token/exchange", post(token_exchange))
             .with_state(state)
             .split_for_parts();
 
