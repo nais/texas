@@ -151,6 +151,11 @@ pub async fn introspect(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<IntrospectRequest>,
 ) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
+    #[derive(serde::Deserialize)]
+    struct IssuerClaim {
+        iss: String,
+    }
+
     // Need to decode the token to get the issuer before we actually validate it.
     let mut validation = jwt::Validation::new(RS512);
     validation.validate_exp = false;
@@ -159,7 +164,7 @@ pub async fn introspect(
     let token_data = jwt::decode::<IssuerClaim>(&request.token, &key, &validation).
         map_err(IntrospectResponse::new_invalid)?;
 
-    let identity_provider = token_data.claims.identity_provider(state.cfg);
+    let identity_provider = state.identity_provider_from_issuer(&token_data.claims.iss);
     let claims = match identity_provider {
         Some(IdentityProvider::Maskinporten) => state.maskinporten.write().await.introspect(request.token).await,
         Some(IdentityProvider::AzureAD) => state.azure_ad_obo.write().await.introspect(request.token).await,
@@ -168,22 +173,6 @@ pub async fn introspect(
     };
 
     Ok((StatusCode::OK, Json(claims)))
-}
-
-#[derive(serde::Deserialize)]
-struct IssuerClaim {
-    iss: String,
-}
-
-impl IssuerClaim {
-    pub fn identity_provider(&self, cfg: Config) -> Option<IdentityProvider> {
-        match &self.iss {
-            s if s == &cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
-            s if s == &cfg.azure_ad_issuer => Some(IdentityProvider::AzureAD),
-            s if s == &cfg.token_x_issuer => Some(IdentityProvider::TokenX),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -205,6 +194,15 @@ pub enum InitError {
 }
 
 impl HandlerState {
+    pub fn identity_provider_from_issuer(&self, iss: &str) -> Option<IdentityProvider> {
+        match iss {
+            s if s == &self.cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
+            s if s == &self.cfg.azure_ad_issuer => Some(IdentityProvider::AzureAD),
+            s if s == &self.cfg.token_x_issuer => Some(IdentityProvider::TokenX),
+            _ => None,
+        }
+    }
+
     pub async fn from_config(cfg: Config) -> Result<Self, InitError> {
         // TODO: we should be able to conditionally enable certain providers based on the configuration
         info!("Fetch JWKS for Maskinporten...");
