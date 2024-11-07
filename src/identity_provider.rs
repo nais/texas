@@ -33,6 +33,12 @@ pub enum TokenType {
 }
 
 /// RFC 7662 introspection response from section 2.2.
+///
+/// For provider specific claims, see the respective reference pages:
+///
+/// - Azure AD: <https://doc.nais.io/auth/entra-id/reference/#claims>
+/// - TokenX: <https://doc.nais.io/auth/tokenx/reference/#claims>
+/// - Maskinporten: <https://doc.nais.io/auth/maskinporten/reference/#claims>
 #[derive(Serialize, Deserialize, ToSchema, Debug)]
 pub struct IntrospectResponse {
     /// Indicates whether the token is valid. If this field is `false`,

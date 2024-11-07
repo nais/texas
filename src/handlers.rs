@@ -15,7 +15,7 @@ use jsonwebtoken as jwt;
 use jsonwebtoken::Algorithm::RS512;
 use jsonwebtoken::DecodingKey;
 use log::{error, info};
-use serde_json::Value;
+use serde_json::{Value};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -88,41 +88,36 @@ pub async fn token_exchange(
     responses(
         (status = OK, description = "Success", body = IntrospectResponse, content_type = "application/json",
         examples(
-                ("Demo" = (summary = "Example response", value = json!(IntrospectResponse::new(HashMap::from(
+                ("Valid token" = (value = json!(IntrospectResponse::new(HashMap::from(
                     [("aud".to_string(), Value::String("dev-gcp:mynamespace:myapplication".to_string())),
                      ("iat".to_string(), Value::Number(1730969701.into())),
                      ("nbf".to_string(), Value::Number(1730969701.into())),
                      ("exp".to_string(), Value::Number(1730969731.into())),
                     ],
                 ))))),
+                ("Invalid token" = (value = json!(IntrospectResponse::new_invalid("token is expired".to_string())))),
              )
         ),
-        (status = BAD_REQUEST, description = "Bad request", body = IntrospectResponse, content_type = "application/json"),
-        (status = INTERNAL_SERVER_ERROR, description = "Server error", body = IntrospectResponse, content_type = "application/json"),
     )
 )]
 pub async fn introspect(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<IntrospectRequest>,
-) -> Result<impl IntoResponse, Json<HashMap<String, Value>>> {
+) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
     // Need to decode the token to get the issuer before we actually validate it.
     let mut validation = jwt::Validation::new(RS512);
     validation.validate_exp = false;
     validation.insecure_disable_signature_validation();
     let key = DecodingKey::from_secret(&[]);
-    let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).map_err(|err| {
-        Json(HashMap::from([
-            ("active".to_string(), Value::Bool(false)),
-            ("error".to_string(), Value::String(format!("{:?}", err))),
-        ]))
-    })?;
+    let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).
+        map_err(IntrospectResponse::new_invalid)?;
 
     let identity_provider = token_data.claims.identity_provider(state.cfg);
     let claims = match identity_provider {
         Some(IdentityProvider::Maskinporten) => state.maskinporten.write().await.introspect(request.token).await,
         Some(IdentityProvider::AzureAD) => state.azure_ad_obo.write().await.introspect(request.token).await,
         Some(IdentityProvider::TokenX) => state.token_x.write().await.introspect(request.token).await,
-        None => panic!("Unknown issuer: {}", token_data.claims.iss), // FIXME: no panics pls
+        None => IntrospectResponse::new_invalid("token has unknown issuer".to_string()),
     };
 
     Ok((StatusCode::OK, Json(claims)))
