@@ -8,4 +8,4 @@ setup:
 
 check:
 	cargo clippy
-	cargo test
+	cargo test --features docker

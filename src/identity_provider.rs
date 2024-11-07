@@ -161,7 +161,9 @@ impl From<OAuthErrorCode> for StatusCode {
     }
 }
 
-/// Supported identity providers for use with token fetch, exchange and introspection.
+/// Identity providers for use with token fetch, exchange and introspection.
+///
+/// Each identity provider is enabled when appropriately configured in `nais.yaml`.
 #[derive(Deserialize, Serialize, ToSchema, Clone, Debug)]
 pub enum IdentityProvider {
     #[serde(rename = "azuread")]
@@ -197,19 +199,19 @@ pub struct TokenExchangeRequest {
     pub user_token: String,
 }
 
-/// This is a token introspection/validation request that comes from the application we are serving.
+/// This data type holds the OAuth token that will be validated in the introspect endpoint.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct IntrospectRequest {
     pub token: String,
 }
 
 pub trait TokenRequestBuilder {
-    fn token_request(config: TokenRequestParams) -> Option<Self>
+    fn token_request(config: TokenRequestBuilderParams) -> Option<Self>
     where
         Self: Sized;
 }
 
-pub struct TokenRequestParams {
+pub struct TokenRequestBuilderParams {
     target: String,
     assertion: String,
     client_id: Option<String>,
@@ -257,7 +259,7 @@ pub struct TokenXTokenRequest {
 }
 
 impl TokenRequestBuilder for AzureADClientCredentialsTokenRequest {
-    fn token_request(config: TokenRequestParams) -> Option<AzureADClientCredentialsTokenRequest> {
+    fn token_request(config: TokenRequestBuilderParams) -> Option<AzureADClientCredentialsTokenRequest> {
         Some(Self {
             grant_type: "client_credentials".to_string(),
             client_id: config.client_id?,
@@ -269,7 +271,7 @@ impl TokenRequestBuilder for AzureADClientCredentialsTokenRequest {
 }
 
 impl TokenRequestBuilder for AzureADOnBehalfOfTokenRequest {
-    fn token_request(config: TokenRequestParams) -> Option<Self> {
+    fn token_request(config: TokenRequestBuilderParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
             client_id: config.client_id?,
@@ -284,7 +286,7 @@ impl TokenRequestBuilder for AzureADOnBehalfOfTokenRequest {
 }
 
 impl TokenRequestBuilder for MaskinportenTokenRequest {
-    fn token_request(config: TokenRequestParams) -> Option<Self> {
+    fn token_request(config: TokenRequestBuilderParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
             assertion: config.assertion,
@@ -293,7 +295,7 @@ impl TokenRequestBuilder for MaskinportenTokenRequest {
 }
 
 impl TokenRequestBuilder for TokenXTokenRequest {
-    fn token_request(config: TokenRequestParams) -> Option<Self> {
+    fn token_request(config: TokenRequestBuilderParams) -> Option<Self> {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
             client_assertion: config.assertion,
@@ -352,7 +354,7 @@ where
             .unwrap_or_else(IntrospectResponse::new_invalid)
     }
 
-    async fn get_token_with_config(&self, config: TokenRequestParams,
+    async fn get_token_with_config(&self, config: TokenRequestBuilderParams,
     ) -> Result<impl IntoResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
@@ -386,7 +388,7 @@ where
     }
 
     pub async fn get_token(&self, request: TokenRequest) -> Result<impl IntoResponse, ApiError> {
-        let token_request = TokenRequestParams {
+        let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
             assertion: self.create_assertion(request.target.clone()),
             client_id: Some(self.client_id.clone()),
@@ -399,7 +401,7 @@ where
         &self,
         request: TokenExchangeRequest,
     ) -> Result<impl IntoResponse, ApiError> {
-        let token_request = TokenRequestParams {
+        let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
             assertion: self.create_assertion(request.target.clone()),
             client_id: Some(self.client_id.clone()),

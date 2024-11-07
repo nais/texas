@@ -28,10 +28,18 @@ use tokio::sync::RwLock;
             (TokenRequest = "application/json"),
             (TokenRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Request a machine-to-machine token for a given `target`."
+        description = "Request a machine-to-machine token for a given `target` from the specified identity provider."
     ),
     responses(
-        (status = OK, description = "Success", body = TokenResponse, content_type = "application/json"),
+        (status = OK, description = "Success", body = TokenResponse, content_type = "application/json",
+            examples(
+                ("Token response" = (value = json!(TokenResponse{
+                    // This token comes from mock-oauth2-server and is not a security issue
+                    access_token: "eyJraWQiOiJ0b2tlbngiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIyZjNjM2Y4YS03NTYwLTRjNWMtYmM4My0yNzVhY2Q1MWU1N2YiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzYxODQsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvdG9rZW54IiwiZXhwIjoxNzMwOTc5Nzg0LCJpYXQiOjE3MzA5NzYxODQsImp0aSI6IjBmNTM3M2YyLThjYmUtNDczOS05ZDU1LWY5MzE4YmFiNWQ2NyIsInRpZCI6InRva2VueCJ9.aQ-2TcdDRkWXbi3en6eMwzjSkYLH-S6aiAyss8MkkAPT_RGlZF_eCKFFsaKJ9YwQAzs4BN_d13W-xejPf6B_3Mn7xasDX_5r-M5ZwXxPWkRe5daqdqznF-vPAnIIjmqynjEYgijn79Rajorcu1sgW4bsrByp1lXNhntHar-8x62S_5oY40tEjIAHv7q2zKRxoKxKlcNpnLpKnZWrkJj7SboiCpGWc-W4JtcnNTHgKRXcFVfXSGD6EhHQ2HLDtmWJkk8NHTnjLI8IRt0mrkOs_nt2jNDDpH9ViqlWi7FOwi4C0OSfGHGukDYOeRc3vICgFGHyi0G6Avq9YXtuAP62_A".to_string(),
+                    token_type: TokenType::Bearer,
+                    expires_in_seconds: 3599,
+                }))),
+        )),
         (status = BAD_REQUEST, description = "Bad request", body = ErrorResponse, content_type = "application/json"),
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
@@ -55,15 +63,22 @@ pub async fn token(
             (TokenExchangeRequest = "application/json"),
             (TokenExchangeRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Exchange a user token for a new token, scoped to the given `target`. The new token contains the user context that allows your application to act on behalf of the user"
+        description = "Exchange a user token for a new token, scoped to the given `target`. The new token contains the user context that allows your application to act on behalf of the user."
     ),
     responses(
-        (status = OK, description = "Success", body = TokenResponse, content_type = "application/json"),
+        (status = OK, description = "Success", body = TokenResponse, content_type = "application/json",
+            examples(
+                ("Token response" = (value = json!(TokenResponse{
+                    // This token comes from mock-oauth2-server and is not a security issue
+                    access_token: "eyJraWQiOiJhenVyZWFkIiwidHlwIjoiSldUIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiJlYzhjYTIwOS0xNGE0LTQ0MjEtYWM3NS0xZTRjMTYwYmUwZWQiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzYzMDEsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvYXp1cmVhZCIsImV4cCI6MTczMDk3OTkwMSwiaWF0IjoxNzMwOTc2MzAxLCJqdGkiOiI2MzFhMGFmNC1jNjI0LTRlMWMtOGQxNy00NTM4NjUzOThlMTYiLCJ0aWQiOiJhenVyZWFkIn0.DV80SBZBFEXOBdBOeWYU-kzjvwNnCtfcxJa71_R7voDOVz5vyFjGm1u1EXWBSjcBNxYjDj4KMobUffwfNfo5yLZI3bMr5qRplVvxEXjsnsnV6X1Rq-i19UazqtAia2wxkaBleIPVEVbuXcHDd6CGnOQb7cOgdgW6H3doPOIu7h65xYHo9_GTDWM5cB_Mk0bC9NFlFPLrruv8LyT1CTcfN4ddlU0_jj4SZN8mA5lFecIAj2-hP9jb-2J-jBevoaxQ6XiBI5z83hegs6yt72VQp2N4yZliCLODhZ4DyoL7EghID20rLnRq6Wam5-cwiGuPj95YChzMpNmcEN7PsCBhdQ".to_string(),
+                    token_type: TokenType::Bearer,
+                    expires_in_seconds: 3599,
+                }))),
+        )),
         (status = BAD_REQUEST, description = "Bad request", body = ErrorResponse, content_type = "application/json"),
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[axum::debug_handler]
 pub async fn token_exchange(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
@@ -109,7 +124,7 @@ pub async fn introspect(
     validation.validate_exp = false;
     validation.insecure_disable_signature_validation();
     let key = DecodingKey::from_secret(&[]);
-    let token_data = jwt::decode::<Claims>(&request.token, &key, &validation).
+    let token_data = jwt::decode::<IssuerClaim>(&request.token, &key, &validation).
         map_err(IntrospectResponse::new_invalid)?;
 
     let identity_provider = token_data.claims.identity_provider(state.cfg);
@@ -123,13 +138,12 @@ pub async fn introspect(
     Ok((StatusCode::OK, Json(claims)))
 }
 
-// TODO: rename to something more descriptive
 #[derive(serde::Deserialize)]
-struct Claims {
+struct IssuerClaim {
     iss: String,
 }
 
-impl Claims {
+impl IssuerClaim {
     pub fn identity_provider(&self, cfg: Config) -> Option<IdentityProvider> {
         match &self.iss {
             s if s == &cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
