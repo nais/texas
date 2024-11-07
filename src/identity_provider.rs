@@ -318,6 +318,6 @@ where
 
     fn create_assertion(&self, target: String) -> String {
         let assertion = A::new(self.token_endpoint.clone(), self.client_id.clone(), target);
-        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
+        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap() // FIXME: don't unwrap
     }
 }

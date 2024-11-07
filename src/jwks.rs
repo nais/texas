@@ -24,6 +24,8 @@ pub enum Error {
     JsonDecode(reqwest::Error),
     #[error("json web key set has key with blank key id")]
     MissingKeyID,
+    #[error("missing key id from token header")]
+    MissingKeyIDInTokenHeader,
     #[error("signing key with {0} not in json web key set")]
     KeyNotInJWKS(String),
     #[error("invalid token header: {0}")]
@@ -94,7 +96,7 @@ impl Jwks {
         let key_id = jwt::decode_header(token)
             .map_err(Error::InvalidTokenHeader)?
             .kid
-            .ok_or(Error::MissingKeyID)?;
+            .ok_or(Error::MissingKeyIDInTokenHeader)?;
 
         // Refresh key store if needed before validating.
         let signing_key = match self.keys.get(&key_id) {

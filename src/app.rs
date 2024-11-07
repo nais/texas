@@ -137,20 +137,30 @@ mod tests {
         invalid_content_type_in_token_request(address.to_string()).await;
 
         // TODO: implement these tests:
-        // * Upstream:
-        //   * upstream is down
-        //   * upstream returns status code >= 400
+        // * /token
+        //   * upstream network error / reqwest error
+        //   * upstream responded with code >= 400
+        //      * json deserialize error
+        //      * oauth error
+        //   * upstream responded with non-error code but non-json response
         //
         // * /token/exchange
-        //   * user token is invalid during exchange (plus variations)
-        //
-        // * /token
-        //   * invalid ID provider for our endpoints
+        //   * missing or empty user token
+        //   * upstream network error / reqwest error
+        //   * upstream responded with code >= 400
+        //      * json deserialize error
+        //      * oauth error
+        //   * upstream responded with non-error code but non-json response
         //
         // * /introspect
+        //   * token is not a jwt
+        //   * token does not contain iss claim
+        //   * token is issued by unrecognized issuer
+        //   * token has invalid header
+        //   * token does not have kid (key id) in header
+        //   * token is signed with a key that is not in the jwks
         //   * invalid or expired timestamps in nbf, iat, exp
-        //   * invalid aud
-        //   * plus all errors in /token/exchange
+        //   * invalid or missing aud (for certain providers)
 
         join_handler.abort();
     }
