@@ -133,6 +133,8 @@ mod tests {
             ).await;
         }
 
+        invalid_identity_provider_in_token_request(address).await;
+
         // TODO: implement these tests:
         // * Upstream:
         //   * upstream is down
@@ -150,6 +152,20 @@ mod tests {
         //   * plus all errors in /token/exchange
 
         join_handler.abort();
+    }
+
+    async fn invalid_identity_provider_in_token_request(address: String) {
+        let response = post_request(
+            format!("http://{}/api/v1/token", address.clone().to_string()),
+            HashMap::from([
+                ("target", "dontcare") ,
+                ("identity_provider", "invalid"),
+            ]),
+            RequestFormat::Json,
+        ).await.unwrap();
+
+        assert_eq!(response.status(), 400);
+        assert_eq!(response.text().await.unwrap(), "{\"error\":\"invalid_request\",\"error_description\":\"request cannot be deserialized\"}");
     }
 
     async fn machine_to_machine_token(expected_issuer: String, target: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {

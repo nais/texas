@@ -9,7 +9,7 @@ use crate::jwks;
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse};
 use axum::Json;
 use jsonwebtoken as jwt;
 use jsonwebtoken::Algorithm::RS512;
@@ -227,7 +227,7 @@ impl HandlerState {
             jwks::Jwks::new(
                 &cfg.azure_ad_issuer.clone(),
                 &cfg.azure_ad_jwks_uri.clone(),
-                Some(cfg.azure_ad_client_id.clone())
+                Some(cfg.azure_ad_client_id.clone()),
             ).await?,
         )
             .ok_or(InitError::Jwk)?;
@@ -241,7 +241,7 @@ impl HandlerState {
                 jwks::Jwks::new(
                     &cfg.azure_ad_issuer.clone(),
                     &cfg.azure_ad_jwks_uri.clone(),
-                    Some(cfg.azure_ad_client_id.clone())
+                    Some(cfg.azure_ad_client_id.clone()),
                 ).await?,
             )
                 .ok_or(InitError::Jwk)?;
@@ -254,7 +254,7 @@ impl HandlerState {
             jwks::Jwks::new(
                 &cfg.token_x_issuer.clone(),
                 &cfg.token_x_jwks_uri.clone(),
-                Some(cfg.token_x_client_id.clone())
+                Some(cfg.token_x_client_id.clone()),
             ).await?,
         )
             .ok_or(InitError::Jwk)?;
@@ -288,6 +288,12 @@ pub enum ApiError {
 
     #[error("invalid token: {0}")]
     Validate(jwt::errors::Error),
+
+    #[error("unsupported media type {0}")]
+    UnsupportedMediaType(String),
+
+    #[error("request cannot be deserialized")]
+    UnprocessableContent,
 }
 
 impl IntoResponse for ApiError {
@@ -308,7 +314,7 @@ where
     Form<T>: FromRequest<()>,
     T: 'static,
 {
-    type Rejection = Response;
+    type Rejection = ApiError;
 
     async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
         let content_type_header = req.headers().get(CONTENT_TYPE);
@@ -316,16 +322,16 @@ where
 
         if let Some(content_type) = content_type {
             if content_type.starts_with("application/json") {
-                let Json(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
+                let Json(payload) = req.extract().await.map_err(|_|ApiError::UnprocessableContent)?;
                 return Ok(Self(payload));
             }
 
             if content_type.starts_with("application/x-www-form-urlencoded") {
-                let Form(payload) = req.extract().await.map_err(IntoResponse::into_response)?;
+                let Form(payload) = req.extract().await.map_err(|_|ApiError::UnprocessableContent)?;
                 return Ok(Self(payload));
             }
         }
 
-        Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
+        Err(ApiError::UnsupportedMediaType(content_type.unwrap_or("").to_string()))
     }
 }
