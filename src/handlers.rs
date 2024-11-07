@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 
 #[utoipa::path(
     post,
-    path = "/token",
+    path = "/api/v1/token",
     request_body(
         content(
             (TokenRequest = "application/json"),
@@ -49,7 +49,7 @@ pub async fn token(
 
 #[utoipa::path(
     post,
-    path = "/token/exchange",
+    path = "/api/v1/token/exchange",
     request_body(
         content(
             (TokenExchangeRequest = "application/json"),
@@ -77,7 +77,7 @@ pub async fn token_exchange(
 
 #[utoipa::path(
     post,
-    path = "/introspect",
+    path = "/api/v1/introspect",
     request_body(
         content(
             (IntrospectRequest = "application/json"),

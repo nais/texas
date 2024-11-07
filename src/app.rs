@@ -179,7 +179,7 @@ mod tests {
 
     async fn machine_to_machine_token(expected_issuer: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
         let response = post_request(
-            format!("http://{}/token", address.clone().to_string()),
+            format!("http://{}/api/v1/token", address.clone().to_string()),
             TokenRequest {
                 target: "mytarget".to_string(),
                 identity_provider,
@@ -194,7 +194,7 @@ mod tests {
         assert!(!body.access_token.is_empty());
 
         let response = post_request(
-            format!("http://{}/introspect", address.clone().to_string()),
+            format!("http://{}/api/v1/introspect", address.clone().to_string()),
             IntrospectRequest {
                 token: body.access_token.clone(),
             },
@@ -232,7 +232,7 @@ mod tests {
         let user_token: TokenResponse = user_token_response.json().await.unwrap();
 
         let response = post_request(
-            format!("http://{}/token/exchange", address.clone().to_string()),
+            format!("http://{}/api/v1/token/exchange", address.clone().to_string()),
             TokenExchangeRequest {
                 target: "mytarget".to_string(),
                 identity_provider,
@@ -248,7 +248,7 @@ mod tests {
         assert!(!body.access_token.is_empty());
 
         let response = post_request(
-            format!("http://{}/introspect", address.clone().to_string()),
+            format!("http://{}/api/v1/introspect", address.clone().to_string()),
             IntrospectRequest {
                 token: body.access_token.clone(),
             },
