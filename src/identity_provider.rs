@@ -14,7 +14,7 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use utoipa::ToSchema;
 
-/// RFC6749 token response from section 5.1.
+/// RFC 6749 token response from section 5.1.
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct TokenResponse {
     pub access_token: String,
@@ -32,7 +32,16 @@ pub enum TokenType {
     Bearer,
 }
 
-/// RFC6749 token response from section 5.2.
+/// RFC 7662 introspection response from section 2.2.
+#[derive(Serialize, Deserialize)]
+struct IntrospectResponse {
+    active: bool,
+
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+/// RFC 6749 token response from section 5.2.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
 pub struct ErrorResponse {
     pub error: OAuthErrorCode,
