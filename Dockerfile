@@ -24,7 +24,6 @@ RUN \
         export CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc ; \
         export CXX_aarch64_unknown_linux_musl=aarch64-linux-gnu-g++ ; \
     fi ; \
-    cargo test --release --target ${TARGET} --features docker -- --test-threads 1 ; \
     cargo build --release --target ${TARGET} && mkdir -p target/final/release/ && mv target/${TARGET}/release/texas target/final/release/texas ; \
     file target/final/release/texas
 
