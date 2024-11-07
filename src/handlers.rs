@@ -86,9 +86,9 @@ pub async fn token_exchange(
         description = "Introspect a token. This validates the token and returns its claims. The `active` field indicates whether the token is valid or not."
     ),
     responses(
-        (status = OK, description = "Success", body = HashMap<String, Value>, content_type = "application/json"),
-        (status = BAD_REQUEST, description = "Bad request", body = HashMap<String, Value>, content_type = "application/json"),
-        (status = INTERNAL_SERVER_ERROR, description = "Server error", body = HashMap<String, Value>, content_type = "application/json"),
+        (status = OK, description = "Success", body = IntrospectResponse, content_type = "application/json"),
+        (status = BAD_REQUEST, description = "Bad request", body = IntrospectResponse, content_type = "application/json"),
+        (status = INTERNAL_SERVER_ERROR, description = "Server error", body = IntrospectResponse, content_type = "application/json"),
     )
 )]
 pub async fn introspect(

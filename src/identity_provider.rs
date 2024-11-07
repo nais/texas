@@ -33,12 +33,52 @@ pub enum TokenType {
 }
 
 /// RFC 7662 introspection response from section 2.2.
-#[derive(Serialize, Deserialize)]
-struct IntrospectResponse {
+#[derive(Serialize, Deserialize, ToSchema, Debug)]
+pub struct IntrospectResponse {
+    /// Indicates whether the token is valid. If this field is `false`,
+    /// the token is invalid and must not be used to authenticate or validate.
     active: bool,
 
+    /// If active is false, this field will contain the reason why the token is invalid.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+
+    /// All claims from the token will also be present in the introspection response.
+    /// Only included if `active` is `true`.
     #[serde(flatten)]
     extra: HashMap<String, Value>,
+}
+
+impl IntrospectResponse {
+    fn new(claims: HashMap<String, Value>) -> Self {
+        Self {
+            active: true,
+            error: None,
+            extra: claims,
+        }
+    }
+
+    fn new_invalid(error_message: impl ToString) -> Self {
+        Self {
+            active: false,
+            error: Some(error_message.to_string()),
+            extra: Default::default(),
+        }
+    }
+}
+
+#[test]
+fn test_serialization_format() {
+    let mut ir = IntrospectResponse {
+        active: true,
+        error: None,
+        extra: Default::default(),
+    };
+    ir.extra.insert("foo".into(), "bar".into());
+    ir.error = Some("test".into());
+    println!("{:?}", &ir);
+    let serialized = serde_json::to_string(&ir).unwrap();
+    assert_eq!(serialized, r#"{"active":true,"error":"test","foo":"bar"}"#);
 }
 
 /// RFC 6749 token response from section 5.2.
@@ -298,20 +338,12 @@ where
         })
     }
 
-    pub async fn introspect(&mut self, token: String) -> HashMap<String, Value> {
+    pub async fn introspect(&mut self, token: String) -> IntrospectResponse {
         self.upstream_jwks
             .validate(&token)
             .await
-            .map(|mut hashmap| {
-                hashmap.insert("active".to_string(), Value::Bool(true));
-                hashmap
-            })
-            .unwrap_or_else(|err| {
-                HashMap::from([
-                    ("active".to_string(), Value::Bool(false)),
-                    ("error".to_string(), Value::String(format!("{:?}", err))),
-                ])
-            })
+            .map(IntrospectResponse::new)
+            .unwrap_or_else(IntrospectResponse::new_invalid)
     }
 
     async fn get_token_with_config(&self, config: TokenRequestParams,
