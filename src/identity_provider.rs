@@ -50,7 +50,7 @@ pub struct IntrospectResponse {
 }
 
 impl IntrospectResponse {
-    fn new(claims: HashMap<String, Value>) -> Self {
+    pub fn new(claims: HashMap<String, Value>) -> Self {
         Self {
             active: true,
             error: None,
@@ -58,7 +58,7 @@ impl IntrospectResponse {
         }
     }
 
-    fn new_invalid(error_message: impl ToString) -> Self {
+    pub fn new_invalid(error_message: impl ToString) -> Self {
         Self {
             active: false,
             error: Some(error_message.to_string()),

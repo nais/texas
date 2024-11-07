@@ -86,7 +86,17 @@ pub async fn token_exchange(
         description = "Introspect a token. This validates the token and returns its claims. The `active` field indicates whether the token is valid or not."
     ),
     responses(
-        (status = OK, description = "Success", body = IntrospectResponse, content_type = "application/json"),
+        (status = OK, description = "Success", body = IntrospectResponse, content_type = "application/json",
+        examples(
+                ("Demo" = (summary = "Example response", value = json!(IntrospectResponse::new(HashMap::from(
+                    [("aud".to_string(), Value::String("dev-gcp:mynamespace:myapplication".to_string())),
+                     ("iat".to_string(), Value::Number(1730969701.into())),
+                     ("nbf".to_string(), Value::Number(1730969701.into())),
+                     ("exp".to_string(), Value::Number(1730969731.into())),
+                    ],
+                ))))),
+             )
+        ),
         (status = BAD_REQUEST, description = "Bad request", body = IntrospectResponse, content_type = "application/json"),
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = IntrospectResponse, content_type = "application/json"),
     )
@@ -172,7 +182,7 @@ impl HandlerState {
             cfg.azure_ad_client_jwk.clone(),
             jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone()).await?,
         )
-        .ok_or(InitError::Jwk)?;
+            .ok_or(InitError::Jwk)?;
 
         info!("Fetch JWKS for Azure AD (client credentials)...");
         let azure_ad_cc: Provider<AzureADClientCredentialsTokenRequest, ClientAssertion> =
@@ -182,7 +192,7 @@ impl HandlerState {
                 cfg.azure_ad_client_jwk.clone(),
                 jwks::Jwks::new(&cfg.azure_ad_issuer.clone(), &cfg.azure_ad_jwks_uri.clone()).await?,
             )
-            .ok_or(InitError::Jwk)?;
+                .ok_or(InitError::Jwk)?;
 
         info!("Fetch JWKS for TokenX...");
         let token_x: Provider<TokenXTokenRequest, ClientAssertion> = Provider::new(
@@ -191,7 +201,7 @@ impl HandlerState {
             cfg.token_x_client_jwk.clone(),
             jwks::Jwks::new(&cfg.token_x_issuer.clone(), &cfg.token_x_jwks_uri.clone()).await?,
         )
-        .ok_or(InitError::Jwk)?;
+            .ok_or(InitError::Jwk)?;
 
         Ok(Self {
             cfg,
