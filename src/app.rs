@@ -26,7 +26,9 @@ impl App {
         let state = HandlerState::from_config(cfg).await.unwrap();
         let app = Self::router(state).await;
 
-        info!("Serving on {:?}", listener.local_addr().unwrap());
+        info!("Serving on http://{:?}", listener.local_addr().unwrap());
+        #[cfg(feature = "openapi")]
+        info!("Swagger API documentation: http://{:?}/swagger-ui", listener.local_addr().unwrap());
 
         Self {
             router: app,
