@@ -69,15 +69,18 @@ mod tests {
     use crate::app::App;
     use crate::config::Config;
     use crate::identity_provider::{ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode, TokenExchangeRequest, TokenRequest, TokenResponse};
+    use axum::routing::get;
+    use axum::{Json, Router};
+    use jsonwebkey as jwk;
+    use jsonwebtoken as jwt;
     use log::{info, LevelFilter};
     use reqwest::{Error, Response, StatusCode};
-    use serde::{Serialize};
+    use serde::de::DeserializeOwned;
+    use serde::Serialize;
     use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::fmt::Debug;
-    use jsonwebtoken as jwt;
-    use jsonwebkey as jwk;
-    use serde::de::DeserializeOwned;
+    use axum::response::IntoResponse;
     use testcontainers::{ContainerAsync, GenericImage};
 
     /// Test a full round-trip of the `/token`, `/token/exchange`, and `/introspect` endpoints.
@@ -177,7 +180,7 @@ mod tests {
     }
 
     async fn test_introspect_unrecognized_issuer(address: &str) {
-        let token = sign_claims_with_ephemeral_jwk(
+        let token = sign_with_default_jwk(
             HashMap::<String, Value>::from([
                 ("iss".into(), Value::String("snafu".into())),
             ])
@@ -193,7 +196,7 @@ mod tests {
     }
 
     async fn test_introspect_missing_issuer(address: &str) {
-        let token = sign_claims_with_ephemeral_jwk(HashMap::<String,Value>::new());
+        let token = sign_with_default_jwk(HashMap::<String, Value>::new());
         test_well_formed_json_request(
             IntrospectRequest {
                 token,
@@ -204,9 +207,65 @@ mod tests {
         ).await;
     }
 
-    fn sign_claims_with_ephemeral_jwk(claims: impl Serialize) -> String {
-        let mut key = jwk::JsonWebKey::new(jwk::Key::generate_p256());
-        key.set_algorithm(jwk::Algorithm::ES256).unwrap();
+    #[cfg(test)]
+    struct TokenServer {
+        listener: tokio::net::TcpListener,
+        keys: HashMap<String, Vec<jwk::JsonWebKey>>,
+    }
+
+    #[cfg(test)]
+    impl TokenServer {
+
+        async fn new() -> Self {
+            let mut keys = HashMap::<String, Vec<jwk::JsonWebKey>>::new();
+            keys.insert("keys".to_string(), vec![get_signing_key()]);
+            Self {
+                listener: tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap(),
+                keys,
+            }
+        }
+
+        fn address(&self) -> String {
+            self.listener.local_addr().unwrap().to_string()
+        }
+
+        pub async fn run(self) -> std::io::Result<()> {
+            let app = Router::new()
+                .route("/token", get(|| async {
+                    "Hello, world!"
+                }))
+                .route("/jwks", get(self.jwks()));
+
+            axum::serve(self.listener, app).await
+        }
+
+        fn jwks(&self) -> Json<HashMap<String, Vec<jwk::JsonWebKey>>> {
+            Json(self.keys.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn foo() {
+        let server = TokenServer::new().await;
+        let address = server.address();
+        let join_handler = tokio::spawn(async move {
+            server.run().await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let response = client.get(format!("http://{}/jwks", address)).send().await.unwrap();
+        println!("{:?}", response.text().await.unwrap());
+        join_handler.abort();
+    }
+
+
+    fn get_signing_key() -> jwk::JsonWebKey {
+        let raw = r#"{"p":"_LNnIjBshCrFuxtjUC2KKzg_NTVv26UZh5j12_9r5mYTxb8yW047jOYFEGvIdMkTRLGOBig6fLWzgd62lnLainzV35J6K6zr4jQfTldLondlkldMR6nQrp1KfnNUuRbKvzpNKkhl12-f1l91l0tCx3s4blztvWgdzN2xBfvWV68","kty":"RSA","q":"9MIWsbIA3WjiR_Ful5FM8NCgb6JdS2D6ySHVepoNI-iAPilcltF_J2orjfLqAxeztTskPi45wtF_-eV4GIYSzvMo-gFiXLMrvEa7WaWizMi_7Bu9tEk3m_f3IDLN9lwULYoebkDbiXx6GOiuj0VkuKz8ckYFNKLCMP9QRLFff-0","d":"J6UX848X8tNz-09PFvcFDUVqak32GXzoPjnuDjBsxNUvG7LxenLmM_i8tvYl0EW9Ztn4AiCqJUoHw5cX3jz_mSqGl7ciaDedpKm_AetcZwHiEuT1EpSKRPMmOMQSqcJqXrdbbWB8gdUrnTKZIlJCfj7yqgT16ypC43TnwjA0UwxhG5pHaYjKI3pPdoHg2BzA-iubHjVn15Sz7-pnjBmeGDbEFa7ADY-1yPHCmqqvPKTNhoCNW6RpG34Id9hXslPa3X-7pAhJrDBd0_NPlktSA2rUkifYiZURhHR5ijhe0v3uw6kYP8f_foVm_C8O1ExkxXh9Dg8KDZ89dbsSOtBc0Q","e":"AQAB","use":"sig","kid":"l7C_WJgbZ_6e59vPrFETAehX7Dsp7fIyvSV4XhotsGs","qi":"cQFN5q5WhYkzgd1RS0rGqvpX1AkmZMrLv2MW04gSfu0dDwpbsSAu8EUCQW9oA4pr6V7R9CBSu9kdN2iY5SR-hZvEad5nDKPV1F3TMQYv5KpRiS_0XhfV5PcolUJVO_4p3h8d-mo2hh1Sw2fairAKOzvnwJCQ6DFkiY7H1cqwA54","dp":"YTql9AGtvyy158gh7jeXcgmySEbHQzvDFulDr-IXIg8kjHGEbp0rTIs0Z50RA95aC5RFkRjpaBKBfvaySjDm5WIi6GLzntpp6B8l7H6qG1jVO_la4Df2kzjx8LVvY8fhOrKz_hDdHodUeKdCF3RdvWMr00ruLnJhBPJHqoW7cwE","alg":"RS256","dq":"IZA4AngRbEtEtG7kJn6zWVaSmZxfRMXwvgIYvy4-3Qy2AVA0tS3XTPVfMaD8_B2U9CY_CxPVseR-sysHc_12uNBZbycfcOzU84WTjXCMSZ7BysPnGMDtkkLHra-p1L29upz1HVNhh5H9QEswHM98R2LZX2ZAsn4bORLZ1AGqweU","n":"8ZqUp5Cs90XpNn8tJBdUUxdGH4bjqKjFj8lyB3x50RpTuECuwzX1NpVqyFENDiEtMja5fdmJl6SErjnhj6kbhcmfmFibANuG-0WlV5yMysdSbocd75C1JQbiPdpHdXrijmVFMfDnoZTQ-ErNsqqngTNkn5SXBcPenli6Cf9MTSchZuh_qFj_B7Fp3CWKehTiyBcLlNOIjYsXX8WQjZkWKGpQ23AWjZulngWRektLcRWuEKTWaRBtbAr3XAfSmcqTICrebaD3IMWKHDtvzHAt_pt4wnZ06clgeO2Wbc980usnpsF7g8k9p81RcbS4JEZmuuA9NCmOmbyADXwgA9_-Aw"}"#;
+        raw.parse().unwrap()
+    }
+
+    fn sign_with_default_jwk(claims: impl Serialize) -> String {
+        let key = get_signing_key();
         let alg: jwt::Algorithm = key.algorithm.unwrap().into();
         jwt::encode(
             &jwt::Header::new(alg),
