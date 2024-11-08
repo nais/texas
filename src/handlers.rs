@@ -1,7 +1,6 @@
 use axum::extract::{FromRequest, Request};
-use axum::{async_trait, Form, RequestExt};
+use axum::{async_trait, Form};
 use std::collections::HashMap;
-
 use crate::claims::{ClientAssertion, JWTBearerAssertion};
 use crate::config::Config;
 use crate::identity_provider::*;
@@ -17,6 +16,7 @@ use jsonwebtoken::DecodingKey;
 use log::{error, info};
 use serde_json::{Value};
 use std::sync::Arc;
+use axum::extract::rejection::{FormRejection, JsonRejection};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange};
@@ -289,11 +289,11 @@ pub enum ApiError {
     #[error("invalid token: {0}")]
     Validate(jwt::errors::Error),
 
-    #[error("unsupported media type {0}")]
+    #[error("{0}")]
     UnsupportedMediaType(String),
 
-    #[error("request cannot be deserialized")]
-    UnprocessableContent,
+    #[error("{0}")]
+    UnprocessableContent(String),
 }
 
 impl IntoResponse for ApiError {
@@ -310,28 +310,48 @@ pub struct JsonOrForm<T>(pub T);
 impl<S, T> FromRequest<S> for JsonOrForm<T>
 where
     S: Send + Sync,
-    Json<T>: FromRequest<()>,
-    Form<T>: FromRequest<()>,
     T: 'static,
+    Json<T>: FromRequest<S, Rejection=JsonRejection>,
+    Form<T>: FromRequest<S, Rejection=FormRejection>,
 {
     type Rejection = ApiError;
 
-    async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         let content_type_header = req.headers().get(CONTENT_TYPE);
         let content_type = content_type_header.and_then(|value| value.to_str().ok());
 
         if let Some(content_type) = content_type {
-            if content_type.starts_with("application/json") {
-                let Json(payload) = req.extract().await.map_err(|_|ApiError::UnprocessableContent)?;
-                return Ok(Self(payload));
+            if content_type.eq_ignore_ascii_case("application/json") {
+                return match Json::<T>::from_request(req, state).await {
+                    Ok(payload) => Ok(Self(payload.0)),
+                    Err(rejection) => {
+                        Err(match rejection {
+                            JsonRejection::MissingJsonContentType(err) => ApiError::UnsupportedMediaType(err.body_text()),
+                            JsonRejection::JsonDataError(err) => ApiError::UnprocessableContent(err.body_text()),
+                            JsonRejection::JsonSyntaxError(err) => ApiError::UnprocessableContent(err.body_text()),
+                            JsonRejection::BytesRejection(err) => ApiError::UnprocessableContent(err.body_text()),
+                            err => ApiError::UnprocessableContent(err.body_text()),
+                        })
+                    }
+                }
             }
 
-            if content_type.starts_with("application/x-www-form-urlencoded") {
-                let Form(payload) = req.extract().await.map_err(|_|ApiError::UnprocessableContent)?;
-                return Ok(Self(payload));
+            if content_type.eq_ignore_ascii_case("application/x-www-form-urlencoded") {
+                return match Form::<T>::from_request(req, state).await {
+                    Ok(payload) => Ok(Self(payload.0)),
+                    Err(rejection) => {
+                        Err(match rejection {
+                            FormRejection::InvalidFormContentType(err) => ApiError::UnsupportedMediaType(err.body_text()),
+                            FormRejection::FailedToDeserializeForm(err) => ApiError::UnprocessableContent(err.body_text()),
+                            FormRejection::FailedToDeserializeFormBody(err) => ApiError::UnprocessableContent(err.body_text()),
+                            FormRejection::BytesRejection(err) => ApiError::UnprocessableContent(err.body_text()),
+                            err => ApiError::UnprocessableContent(err.body_text()),
+                        })
+                    }
+                }
             }
         }
 
-        Err(ApiError::UnsupportedMediaType(content_type.unwrap_or("").to_string()))
+        Err(ApiError::UnsupportedMediaType(format!("unsupported media type: {}: expected one of `application/json`, `application/x-www-form-urlencoded`", content_type.unwrap_or("").to_string())))
     }
 }

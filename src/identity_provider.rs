@@ -129,7 +129,7 @@ impl From<ApiError> for ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,
                 description: err.to_string(),
             },
-            ApiError::UnprocessableContent => ErrorResponse {
+            ApiError::UnprocessableContent(_) => ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,
                 description: err.to_string(),
             },

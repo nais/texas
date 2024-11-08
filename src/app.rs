@@ -72,7 +72,7 @@ mod tests {
     use log::{info, LevelFilter};
     use reqwest::{Error, Response};
     use serde::Serialize;
-    use serde_json::Value;
+    use serde_json::{json, Value};
     use std::collections::HashMap;
     use testcontainers::{ContainerAsync, GenericImage};
 
@@ -171,27 +171,33 @@ mod tests {
     async fn invalid_identity_provider_in_token_request(address: String) {
         let response = post_request(
             format!("http://{}/api/v1/token", address.clone().to_string()),
-            HashMap::from([
-                ("target", "dontcare") ,
-                ("identity_provider", "invalid"),
-            ]),
+            json!({"target":"dontcare","identity_provider":"invalid"}),
             RequestFormat::Json,
         ).await.unwrap();
 
         assert_eq!(response.status(), 400);
-        assert_eq!(response.text().await.unwrap(), "{\"error\":\"invalid_request\",\"error_description\":\"request cannot be deserialized\"}");
+        assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten` at line 1 column 30"}"#);
+
+        let response = post_request(
+            format!("http://{}/api/v1/token", address.clone().to_string()),
+            HashMap::from([("target", "dontcare"), ("identity_provider", "invalid")]),
+            RequestFormat::Form,
+        ).await.unwrap();
+
+        assert_eq!(response.status(), 400);
+        assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`"}"#);
     }
 
     async fn invalid_content_type_in_token_request(address: String) {
         let client = reqwest::Client::new();
-        let request = client.post(format!("http://{}/api/v1/token", address.clone().to_string()),)
+        let request = client.post(format!("http://{}/api/v1/token", address.clone().to_string()))
             .header("accept", "application/json")
             .header("content-type", "text/plain")
             .body("some plain text");
         let response = request.send().await.unwrap();
 
         assert_eq!(response.status(), 400);
-        assert_eq!(response.text().await.unwrap(), "{\"error\":\"invalid_request\",\"error_description\":\"unsupported media type text/plain\"}");
+        assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"unsupported media type: text/plain: expected one of `application/json`, `application/x-www-form-urlencoded`"}"#);
     }
 
     async fn machine_to_machine_token(expected_issuer: String, target: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
