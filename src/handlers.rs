@@ -1,25 +1,25 @@
-use axum::extract::{FromRequest, Request};
-use axum::{async_trait, Form};
-use std::collections::HashMap;
 use crate::claims::{ClientAssertion, JWTBearerAssertion};
 use crate::config::Config;
+use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange};
 use crate::identity_provider::*;
 use crate::jwks;
+use axum::extract::rejection::{FormRejection, JsonRejection};
 use axum::extract::State;
+use axum::extract::{FromRequest, Request};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse};
+use axum::response::IntoResponse;
 use axum::Json;
+use axum::{async_trait, Form};
 use jsonwebtoken as jwt;
 use jsonwebtoken::Algorithm::RS512;
 use jsonwebtoken::DecodingKey;
 use log::{error, info};
-use serde_json::{Value};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
-use axum::extract::rejection::{FormRejection, JsonRejection};
 use thiserror::Error;
 use tokio::sync::RwLock;
-use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange};
 
 #[utoipa::path(
     post,
@@ -60,9 +60,25 @@ pub async fn token(
     JsonOrForm(request): JsonOrForm<TokenRequest>,
 ) -> impl IntoResponse {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => state.azure_ad_cc.read().await.get_token(request).await.into_response(),
-        IdentityProvider::Maskinporten => state.maskinporten.read().await.get_token(request).await.into_response(),
-        IdentityProvider::TokenX => (StatusCode::BAD_REQUEST, "TokenX does not support machine-to-machine tokens".to_string()).into_response(),
+        IdentityProvider::AzureAD => state
+            .azure_ad_cc
+            .read()
+            .await
+            .get_token(request)
+            .await
+            .into_response(),
+        IdentityProvider::Maskinporten => state
+            .maskinporten
+            .read()
+            .await
+            .get_token(request)
+            .await
+            .into_response(),
+        IdentityProvider::TokenX => (
+            StatusCode::BAD_REQUEST,
+            "TokenX does not support machine-to-machine tokens".to_string(),
+        )
+            .into_response(),
     }
 }
 
@@ -106,9 +122,25 @@ pub async fn token_exchange(
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
 ) -> impl IntoResponse {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => state.azure_ad_obo.read().await.exchange_token(request).await.into_response(),
-        IdentityProvider::Maskinporten => (StatusCode::BAD_REQUEST, "Maskinporten does not support token exchange".to_string()).into_response(),
-        IdentityProvider::TokenX => state.token_x.read().await.exchange_token(request).await.into_response(),
+        IdentityProvider::AzureAD => state
+            .azure_ad_obo
+            .read()
+            .await
+            .exchange_token(request)
+            .await
+            .into_response(),
+        IdentityProvider::Maskinporten => (
+            StatusCode::BAD_REQUEST,
+            "Maskinporten does not support token exchange".to_string(),
+        )
+            .into_response(),
+        IdentityProvider::TokenX => state
+            .token_x
+            .read()
+            .await
+            .exchange_token(request)
+            .await
+            .into_response(),
     }
 }
 
@@ -163,15 +195,34 @@ pub async fn introspect(
     validation.set_required_spec_claims::<&str>(&[]);
     validation.insecure_disable_signature_validation();
     let key = DecodingKey::from_secret(&[]);
-    let token_data = jwt::decode::<IssuerClaim>(&request.token, &key, &validation).
-        map_err(IntrospectResponse::new_invalid)?;
+    let token_data = jwt::decode::<IssuerClaim>(&request.token, &key, &validation)
+        .map_err(IntrospectResponse::new_invalid)?;
 
     let identity_provider = state.identity_provider_from_issuer(&token_data.claims.iss);
     let claims = match identity_provider {
-        Some(IdentityProvider::Maskinporten) => state.maskinporten.write().await.introspect(request.token).await,
-        Some(IdentityProvider::AzureAD) => state.azure_ad_obo.write().await.introspect(request.token).await,
-        Some(IdentityProvider::TokenX) => state.token_x.write().await.introspect(request.token).await,
-        None => IntrospectResponse::new_invalid(format!("token has unknown issuer: {}", token_data.claims.iss)),
+        Some(IdentityProvider::Maskinporten) => {
+            state
+                .maskinporten
+                .write()
+                .await
+                .introspect(request.token)
+                .await
+        }
+        Some(IdentityProvider::AzureAD) => {
+            state
+                .azure_ad_obo
+                .write()
+                .await
+                .introspect(request.token)
+                .await
+        }
+        Some(IdentityProvider::TokenX) => {
+            state.token_x.write().await.introspect(request.token).await
+        }
+        None => IntrospectResponse::new_invalid(format!(
+            "token has unknown issuer: {}",
+            token_data.claims.iss
+        )),
     };
 
     Ok((StatusCode::OK, Json(claims)))
@@ -216,8 +267,10 @@ impl HandlerState {
                 &cfg.maskinporten_issuer.clone(),
                 &cfg.maskinporten_jwks_uri.clone(),
                 None,
-            ).await?,
-        ).ok_or(InitError::Jwk)?;
+            )
+            .await?,
+        )
+        .ok_or(InitError::Jwk)?;
 
         // TODO: these two AAD providers should be a single provider, but we need to figure out how to handle the different token requests
         info!("Fetch JWKS for Azure AD (on behalf of)...");
@@ -229,23 +282,24 @@ impl HandlerState {
                 &cfg.azure_ad_issuer.clone(),
                 &cfg.azure_ad_jwks_uri.clone(),
                 Some(cfg.azure_ad_client_id.clone()),
-            ).await?,
+            )
+            .await?,
         )
-            .ok_or(InitError::Jwk)?;
+        .ok_or(InitError::Jwk)?;
 
         info!("Fetch JWKS for Azure AD (client credentials)...");
-        let azure_ad_cc: Provider<ClientCredentials, ClientAssertion> =
-            Provider::new(
-                cfg.azure_ad_client_id.clone(),
-                cfg.azure_ad_token_endpoint.clone(),
-                cfg.azure_ad_client_jwk.clone(),
-                jwks::Jwks::new(
-                    &cfg.azure_ad_issuer.clone(),
-                    &cfg.azure_ad_jwks_uri.clone(),
-                    Some(cfg.azure_ad_client_id.clone()),
-                ).await?,
+        let azure_ad_cc: Provider<ClientCredentials, ClientAssertion> = Provider::new(
+            cfg.azure_ad_client_id.clone(),
+            cfg.azure_ad_token_endpoint.clone(),
+            cfg.azure_ad_client_jwk.clone(),
+            jwks::Jwks::new(
+                &cfg.azure_ad_issuer.clone(),
+                &cfg.azure_ad_jwks_uri.clone(),
+                Some(cfg.azure_ad_client_id.clone()),
             )
-                .ok_or(InitError::Jwk)?;
+            .await?,
+        )
+        .ok_or(InitError::Jwk)?;
 
         info!("Fetch JWKS for TokenX...");
         let token_x: Provider<TokenExchange, ClientAssertion> = Provider::new(
@@ -256,9 +310,10 @@ impl HandlerState {
                 &cfg.token_x_issuer.clone(),
                 &cfg.token_x_jwks_uri.clone(),
                 Some(cfg.token_x_client_id.clone()),
-            ).await?,
+            )
+            .await?,
         )
-            .ok_or(InitError::Jwk)?;
+        .ok_or(InitError::Jwk)?;
 
         Ok(Self {
             cfg,
@@ -312,8 +367,8 @@ impl<S, T> FromRequest<S> for JsonOrForm<T>
 where
     S: Send + Sync,
     T: 'static,
-    Json<T>: FromRequest<S, Rejection=JsonRejection>,
-    Form<T>: FromRequest<S, Rejection=FormRejection>,
+    Json<T>: FromRequest<S, Rejection = JsonRejection>,
+    Form<T>: FromRequest<S, Rejection = FormRejection>,
 {
     type Rejection = ApiError;
 
@@ -325,31 +380,43 @@ where
             if content_type.eq_ignore_ascii_case("application/json") {
                 return match Json::<T>::from_request(req, state).await {
                     Ok(payload) => Ok(Self(payload.0)),
-                    Err(rejection) => {
-                        Err(match rejection {
-                            JsonRejection::MissingJsonContentType(err) => ApiError::UnsupportedMediaType(err.body_text()),
-                            JsonRejection::JsonDataError(err) => ApiError::UnprocessableContent(err.body_text()),
-                            JsonRejection::JsonSyntaxError(err) => ApiError::UnprocessableContent(err.body_text()),
-                            JsonRejection::BytesRejection(err) => ApiError::UnprocessableContent(err.body_text()),
-                            err => ApiError::UnprocessableContent(err.body_text()),
-                        })
-                    }
-                }
+                    Err(rejection) => Err(match rejection {
+                        JsonRejection::MissingJsonContentType(err) => {
+                            ApiError::UnsupportedMediaType(err.body_text())
+                        }
+                        JsonRejection::JsonDataError(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        JsonRejection::JsonSyntaxError(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        JsonRejection::BytesRejection(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        err => ApiError::UnprocessableContent(err.body_text()),
+                    }),
+                };
             }
 
             if content_type.eq_ignore_ascii_case("application/x-www-form-urlencoded") {
                 return match Form::<T>::from_request(req, state).await {
                     Ok(payload) => Ok(Self(payload.0)),
-                    Err(rejection) => {
-                        Err(match rejection {
-                            FormRejection::InvalidFormContentType(err) => ApiError::UnsupportedMediaType(err.body_text()),
-                            FormRejection::FailedToDeserializeForm(err) => ApiError::UnprocessableContent(err.body_text()),
-                            FormRejection::FailedToDeserializeFormBody(err) => ApiError::UnprocessableContent(err.body_text()),
-                            FormRejection::BytesRejection(err) => ApiError::UnprocessableContent(err.body_text()),
-                            err => ApiError::UnprocessableContent(err.body_text()),
-                        })
-                    }
-                }
+                    Err(rejection) => Err(match rejection {
+                        FormRejection::InvalidFormContentType(err) => {
+                            ApiError::UnsupportedMediaType(err.body_text())
+                        }
+                        FormRejection::FailedToDeserializeForm(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        FormRejection::FailedToDeserializeFormBody(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        FormRejection::BytesRejection(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        err => ApiError::UnprocessableContent(err.body_text()),
+                    }),
+                };
             }
         }
 

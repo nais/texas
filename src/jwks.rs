@@ -1,9 +1,9 @@
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
+use jsonwebtoken::Validation;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use jsonwebtoken::Validation;
 use thiserror::Error;
 
 #[derive(Clone, Debug)]
@@ -35,7 +35,11 @@ pub enum Error {
 }
 
 impl Jwks {
-    pub async fn new(issuer: &str, endpoint: &str, required_audience: Option<String>) -> Result<Jwks, Error> {
+    pub async fn new(
+        issuer: &str,
+        endpoint: &str,
+        required_audience: Option<String>,
+    ) -> Result<Jwks, Error> {
         #[derive(Deserialize)]
         struct Response {
             keys: Vec<jwk::JsonWebKey>,
@@ -84,7 +88,8 @@ impl Jwks {
 
     /// Pull a new version of the JWKS from the original endpoint.
     pub async fn refresh(&mut self) -> Result<(), Error> {
-        let new_jwks = Self::new(&self.issuer, &self.endpoint, self.required_audience.clone()).await?;
+        let new_jwks =
+            Self::new(&self.issuer, &self.endpoint, self.required_audience.clone()).await?;
         self.keys = new_jwks.keys;
         Ok(())
     }

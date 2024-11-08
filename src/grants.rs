@@ -59,7 +59,8 @@ impl TokenRequestBuilder for ClientCredentials {
             grant_type: "client_credentials".to_string(),
             client_id: config.client_id?,
             client_assertion: config.assertion,
-            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".to_string(),
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                .to_string(),
             scope: config.target,
         })
     }
@@ -102,4 +103,3 @@ impl TokenRequestBuilder for TokenExchange {
         })
     }
 }
-

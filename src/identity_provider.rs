@@ -1,4 +1,5 @@
 use crate::claims::{serialize, Assertion};
+use crate::grants::{TokenRequestBuilder, TokenRequestBuilderParams};
 use crate::handlers::ApiError;
 use crate::jwks;
 use axum::response::IntoResponse;
@@ -13,7 +14,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use utoipa::ToSchema;
-use crate::grants::{TokenRequestBuilder, TokenRequestBuilderParams};
 
 /// RFC 6749 token response from section 5.1.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -76,9 +76,7 @@ impl IntrospectResponse {
 
 #[test]
 fn test_introspect_response_serialization_format() {
-    let ok = IntrospectResponse::new([
-        ("foo".into(), Value::String("bar".into())),
-    ]);
+    let ok = IntrospectResponse::new([("foo".into(), Value::String("bar".into()))]);
     let failed = IntrospectResponse::new_invalid("my error");
 
     let serialized = serde_json::to_string(&ok).unwrap();
@@ -98,7 +96,12 @@ pub struct ErrorResponse {
 
 impl Display for ErrorResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", serde_json::to_string(&self.error).unwrap(), self.description)
+        write!(
+            f,
+            "{}: {}",
+            serde_json::to_string(&self.error).unwrap(),
+            self.description
+        )
     }
 }
 
@@ -117,7 +120,10 @@ impl From<ApiError> for ErrorResponse {
                 error: OAuthErrorCode::ServerError,
                 description: format!("Failed to parse JSON: {}", err),
             },
-            ApiError::Upstream { status_code: _status_code, error } => ErrorResponse {
+            ApiError::Upstream {
+                status_code: _status_code,
+                error,
+            } => ErrorResponse {
                 error: error.error,
                 description: error.description,
             },
@@ -260,7 +266,9 @@ where
             .unwrap_or_else(IntrospectResponse::new_invalid)
     }
 
-    async fn get_token_with_config(&self, config: TokenRequestBuilderParams,
+    async fn get_token_with_config(
+        &self,
+        config: TokenRequestBuilderParams,
     ) -> Result<impl IntoResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
@@ -318,6 +326,7 @@ where
 
     fn create_assertion(&self, target: String) -> String {
         let assertion = A::new(self.token_endpoint.clone(), self.client_id.clone(), target);
-        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap() // FIXME: don't unwrap
+        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
+        // FIXME: don't unwrap
     }
 }

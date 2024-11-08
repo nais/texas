@@ -28,7 +28,10 @@ impl App {
 
         info!("Serving on http://{:?}", listener.local_addr().unwrap());
         #[cfg(feature = "openapi")]
-        info!("Swagger API documentation: http://{:?}/swagger-ui", listener.local_addr().unwrap());
+        info!(
+            "Swagger API documentation: http://{:?}/swagger-ui",
+            listener.local_addr().unwrap()
+        );
 
         Self {
             router: app,
@@ -57,8 +60,8 @@ impl App {
         #[cfg(feature = "openapi")]
         use utoipa_swagger_ui::SwaggerUi;
         #[cfg(feature = "openapi")]
-        let router = router.merge(SwaggerUi::new("/swagger-ui")
-            .url("/api-docs/openapi.json", openapi.clone()));
+        let router = router
+            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()));
 
         router
     }
@@ -67,8 +70,12 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::app::App;
+    use crate::claims::epoch_now_secs;
     use crate::config::Config;
-    use crate::identity_provider::{ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode, TokenExchangeRequest, TokenRequest, TokenResponse};
+    use crate::identity_provider::{
+        ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode,
+        TokenExchangeRequest, TokenRequest, TokenResponse,
+    };
     use jsonwebkey as jwk;
     use jsonwebtoken as jwt;
     use log::{info, LevelFilter};
@@ -78,9 +85,8 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::fmt::Debug;
-    use testcontainers::{ContainerAsync, GenericImage, ImageExt};
     use testcontainers::core::Mount;
-    use crate::claims::epoch_now_secs;
+    use testcontainers::{ContainerAsync, GenericImage};
 
     /// Test a full round-trip of the `/token`, `/token/exchange`, and `/introspect` endpoints.
     ///
@@ -101,7 +107,8 @@ mod tests {
         let join_handler = tokio::spawn(async move {
             testapp.app.run().await.unwrap();
         });
-        let identity_provider_address = format!("{}:{}", testapp.docker.host.clone(), testapp.docker.port);
+        let identity_provider_address =
+            format!("{}:{}", testapp.docker.host.clone(), testapp.docker.port);
 
         for format in [RequestFormat::Form, RequestFormat::Json] {
             machine_to_machine_token(
@@ -110,7 +117,8 @@ mod tests {
                 address.to_string(),
                 IdentityProvider::Maskinporten,
                 format.clone(),
-            ).await;
+            )
+            .await;
 
             machine_to_machine_token(
                 testapp.cfg.azure_ad_issuer.clone(),
@@ -118,7 +126,8 @@ mod tests {
                 address.to_string(),
                 IdentityProvider::AzureAD,
                 format.clone(),
-            ).await;
+            )
+            .await;
 
             token_exchange_token(
                 testapp.cfg.azure_ad_issuer.clone(),
@@ -127,7 +136,8 @@ mod tests {
                 identity_provider_address.to_string(),
                 IdentityProvider::AzureAD,
                 format.clone(),
-            ).await;
+            )
+            .await;
 
             token_exchange_token(
                 testapp.cfg.token_x_issuer.clone(),
@@ -136,7 +146,8 @@ mod tests {
                 identity_provider_address.to_string(),
                 IdentityProvider::TokenX,
                 format,
-            ).await;
+            )
+            .await;
         }
 
         test_token_invalid_identity_provider(&address).await;
@@ -186,31 +197,28 @@ mod tests {
     }
 
     async fn test_introspect_token_unrecognized_issuer(address: &str) {
-        let token = Token::sign(
-            TokenClaims::from([
-                ("iss".into(), Value::String("snafu".into())),
-            ])
-        );
+        let token = Token::sign(TokenClaims::from([(
+            "iss".into(),
+            Value::String("snafu".into()),
+        )]));
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token,
-            },
+            IntrospectRequest { token },
             IntrospectResponse::new_invalid("token has unknown issuer: snafu"),
             StatusCode::OK,
-        ).await;
+        )
+        .await;
     }
 
     async fn test_introspect_token_missing_issuer(address: &str) {
         let token = Token::sign(TokenClaims::new());
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token,
-            },
+            IntrospectRequest { token },
             IntrospectResponse::new_invalid("JSON error: missing field `iss` at line 1 column 2"),
             StatusCode::OK,
-        ).await;
+        )
+        .await;
     }
 
     async fn test_introspect_token_is_not_a_jwt(address: &str) {
@@ -221,48 +229,53 @@ mod tests {
             },
             IntrospectResponse::new_invalid("InvalidToken"),
             StatusCode::OK,
-        ).await;
+        )
+        .await;
     }
 
     async fn test_introspect_token_missing_kid(address: &str, identity_provider_address: &str) {
-        let token = Token::sign(
-            TokenClaims::from([
-                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
-            ])
-        );
+        let token = Token::sign(TokenClaims::from([(
+            "iss".into(),
+            format!("http://{}/maskinporten", identity_provider_address).into(),
+        )]));
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token,
-            },
+            IntrospectRequest { token },
             IntrospectResponse::new_invalid("missing key id from token header"),
             StatusCode::OK,
-        ).await;
+        )
+        .await;
     }
 
-    async fn test_introspect_token_missing_key_in_jwks(address: &str, identity_provider_address: &str) {
+    async fn test_introspect_token_missing_key_in_jwks(
+        address: &str,
+        identity_provider_address: &str,
+    ) {
         let token = Token::sign_with_kid(
-            TokenClaims::from([
-                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
-            ]),
+            TokenClaims::from([(
+                "iss".into(),
+                format!("http://{}/maskinporten", identity_provider_address).into(),
+            )]),
             "missing-key",
         );
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token,
-            },
+            IntrospectRequest { token },
             IntrospectResponse::new_invalid("signing key with missing-key not in json web key set"),
             StatusCode::OK,
-        ).await;
+        )
+        .await;
     }
 
     async fn test_introspect_token_is_expired(address: &str, identity_provider_address: &str) {
         // token is expired
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
+                (
+                    "iss".into(),
+                    format!("http://{}/maskinporten", identity_provider_address).into(),
+                ),
                 ("nbf".into(), (epoch_now_secs()).into()),
                 ("iat".into(), (epoch_now_secs()).into()),
                 ("exp".into(), (epoch_now_secs() - 120).into()),
@@ -272,19 +285,24 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token,
-            },
+            IntrospectRequest { token },
             IntrospectResponse::new_invalid("invalid token: ExpiredSignature"),
             StatusCode::OK,
-        ).await;
+        )
+        .await;
     }
 
     // FIXME: this test doesn't fail as expected; validation crate not working?
-    async fn test_introspect_token_is_issued_in_the_future(address: &str, identity_provider_address: &str) {
+    async fn test_introspect_token_is_issued_in_the_future(
+        address: &str,
+        identity_provider_address: &str,
+    ) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
+                (
+                    "iss".into(),
+                    format!("http://{}/maskinporten", identity_provider_address).into(),
+                ),
                 ("nbf".into(), (epoch_now_secs()).into()),
                 ("iat".into(), (epoch_now_secs() + 120).into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
@@ -294,19 +312,24 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token,
-            },
+            IntrospectRequest { token },
             IntrospectResponse::new_invalid("token is issued in the future"),
             StatusCode::OK,
-        ).await;
+        )
+        .await;
     }
 
     // FIXME: this test doesn't fail as expected; validation crate not working?
-    async fn test_introspect_token_has_not_before_in_the_future(address: &str, identity_provider_address: &str) {
+    async fn test_introspect_token_has_not_before_in_the_future(
+        address: &str,
+        identity_provider_address: &str,
+    ) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
+                (
+                    "iss".into(),
+                    format!("http://{}/maskinporten", identity_provider_address).into(),
+                ),
                 ("nbf".into(), (epoch_now_secs() - 120).into()),
                 ("iat".into(), (epoch_now_secs()).into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
@@ -317,12 +340,11 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token,
-            },
+            IntrospectRequest { token },
             IntrospectResponse::new_invalid("token has not before in the future"),
             StatusCode::OK,
-        ).await;
+        )
+        .await;
     }
 
     async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
@@ -338,7 +360,8 @@ mod tests {
                 description: "invalid request: missing or empty assertion parameter".to_string(),
             },
             StatusCode::BAD_REQUEST,
-        ).await;
+        )
+        .await;
     }
 
     async fn test_token_invalid_identity_provider(address: &str) {
@@ -346,34 +369,54 @@ mod tests {
             format!("http://{}/api/v1/token", address),
             json!({"target":"dontcare","identity_provider":"invalid"}),
             RequestFormat::Json,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 400);
-        assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten` at line 1 column 30"}"#);
+        assert_eq!(
+            response.text().await.unwrap(),
+            r#"{"error":"invalid_request","error_description":"Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten` at line 1 column 30"}"#
+        );
 
         let response = post_request(
             format!("http://{}/api/v1/token", address),
             HashMap::from([("target", "dontcare"), ("identity_provider", "invalid")]),
             RequestFormat::Form,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 400);
-        assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`"}"#);
+        assert_eq!(
+            response.text().await.unwrap(),
+            r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`"}"#
+        );
     }
 
     async fn test_token_invalid_content_type(address: &str) {
         let client = reqwest::Client::new();
-        let request = client.post(format!("http://{}/api/v1/token", address))
+        let request = client
+            .post(format!("http://{}/api/v1/token", address))
             .header("accept", "application/json")
             .header("content-type", "text/plain")
             .body("some plain text");
         let response = request.send().await.unwrap();
 
         assert_eq!(response.status(), 400);
-        assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"unsupported media type: text/plain: expected one of `application/json`, `application/x-www-form-urlencoded`"}"#);
+        assert_eq!(
+            response.text().await.unwrap(),
+            r#"{"error":"invalid_request","error_description":"unsupported media type: text/plain: expected one of `application/json`, `application/x-www-form-urlencoded`"}"#
+        );
     }
 
-    async fn machine_to_machine_token(expected_issuer: String, target: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
+    async fn machine_to_machine_token(
+        expected_issuer: String,
+        target: String,
+        address: String,
+        identity_provider: IdentityProvider,
+        request_format: RequestFormat,
+    ) {
         let response = post_request(
             format!("http://{}/api/v1/token", address.clone().to_string()),
             TokenRequest {
@@ -381,9 +424,16 @@ mod tests {
                 identity_provider,
             },
             request_format.clone(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
+        assert_eq!(
+            response.status(),
+            200,
+            "failed to get token: {:?}",
+            response.text().await.unwrap()
+        );
 
         let body: TokenResponse = response.json().await.unwrap();
         assert!(body.expires_in_seconds > 0);
@@ -395,7 +445,9 @@ mod tests {
                 token: body.access_token.clone(),
             },
             request_format,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
@@ -403,7 +455,14 @@ mod tests {
         assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
     }
 
-    async fn token_exchange_token(expected_issuer: String, target: String, address: String, identity_provider_address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
+    async fn token_exchange_token(
+        expected_issuer: String,
+        target: String,
+        address: String,
+        identity_provider_address: String,
+        identity_provider: IdentityProvider,
+        request_format: RequestFormat,
+    ) {
         #[derive(Serialize)]
         struct AuthorizeRequest {
             grant_type: String,
@@ -422,22 +481,34 @@ mod tests {
                 client_secret: "myclientsecret".to_string(),
             },
             RequestFormat::Form,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(user_token_response.status(), 200);
         let user_token: TokenResponse = user_token_response.json().await.unwrap();
 
         let response = post_request(
-            format!("http://{}/api/v1/token/exchange", address.clone().to_string()),
+            format!(
+                "http://{}/api/v1/token/exchange",
+                address.clone().to_string()
+            ),
             TokenExchangeRequest {
                 target,
                 identity_provider,
                 user_token: user_token.access_token,
             },
             request_format.clone(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(response.status(), 200, "failed to exchange token: {:?}", response.text().await.unwrap());
+        assert_eq!(
+            response.status(),
+            200,
+            "failed to exchange token: {:?}",
+            response.text().await.unwrap()
+        );
 
         let body: TokenResponse = response.json().await.unwrap();
         assert!(body.expires_in_seconds > 0);
@@ -449,7 +520,9 @@ mod tests {
                 token: body.access_token.clone(),
             },
             request_format,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
@@ -464,7 +537,11 @@ mod tests {
         Form,
     }
 
-    async fn post_request(url: String, params: impl Serialize, format: RequestFormat) -> Result<Response, Error> {
+    async fn post_request(
+        url: String,
+        params: impl Serialize,
+        format: RequestFormat,
+    ) -> Result<Response, Error> {
         let client = reqwest::Client::new();
         let request = client.post(url).header("accept", "application/json");
         let request = match format {
@@ -474,17 +551,18 @@ mod tests {
         request.send().await
     }
 
-    async fn test_well_formed_json_request<T: Serialize, U: DeserializeOwned + PartialEq + Debug>(
+    async fn test_well_formed_json_request<
+        T: Serialize,
+        U: DeserializeOwned + PartialEq + Debug,
+    >(
         url: &str,
         request: T,
         response: U,
         status_code: StatusCode,
     ) {
-        let http_response = post_request(
-            url.to_string(),
-            request,
-            RequestFormat::Json,
-        ).await.unwrap();
+        let http_response = post_request(url.to_string(), request, RequestFormat::Json)
+            .await
+            .unwrap();
 
         assert_eq!(http_response.status(), status_code);
         assert_eq!(http_response.json::<U>().await.unwrap(), response);
@@ -503,19 +581,20 @@ mod tests {
             let docker = DockerRuntimeParams::init().await;
 
             match docker.container {
-                None => info!("Expecting mock-oauth2-server natively in docker-compose on localhost:8080"),
-                Some(_) => info!("Running mock-oauth2-server on {}:{}", docker.host, docker.port, ),
+                None => info!(
+                    "Expecting mock-oauth2-server natively in docker-compose on localhost:8080"
+                ),
+                Some(_) => info!(
+                    "Running mock-oauth2-server on {}:{}",
+                    docker.host, docker.port,
+                ),
             }
 
             // Set up Texas
             let cfg = Config::mock(docker.host.clone(), docker.port);
             let app = App::new(cfg.clone()).await;
 
-            Self {
-                app,
-                cfg,
-                docker,
-            }
+            Self { app, cfg, docker }
         }
     }
 
@@ -548,11 +627,7 @@ mod tests {
 
         fn encode(&self) -> String {
             let key = Self::get_signing_key();
-            jwt::encode(
-                &self.header,
-                &self.claims,
-                &key.key.to_encoding_key(),
-            ).unwrap()
+            jwt::encode(&self.header, &self.claims, &key.key.to_encoding_key()).unwrap()
         }
 
         fn get_signing_key() -> jwk::JsonWebKey {
@@ -573,17 +648,23 @@ mod tests {
             use reqwest::StatusCode;
             use std::env;
             use testcontainers::core::wait::HttpWaitStrategy;
-            use testcontainers::core::{IntoContainerPort, WaitFor, ImageExt};
+            use testcontainers::core::{ImageExt, IntoContainerPort, WaitFor};
             use testcontainers::runners::AsyncRunner;
 
             // Set up Docker container
             let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
                 .with_exposed_port(8080.tcp())
-                .with_wait_for(WaitFor::Http(HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK)))
+                .with_wait_for(WaitFor::Http(
+                    HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration")
+                        .with_expected_status_code(StatusCode::OK),
+                ))
                 .with_mount(Mount::bind_mount(
-                    format!("{}/hack/mock-oauth2-server.json", env::current_dir().unwrap().to_str().unwrap().to_string()),
-                    "/app/config.json")
-                )
+                    format!(
+                        "{}/hack/mock-oauth2-server.json",
+                        env::current_dir().unwrap().to_str().unwrap().to_string()
+                    ),
+                    "/app/config.json",
+                ))
                 .with_env_var("JSON_CONFIG_PATH", "/app/config.json")
                 .start()
                 .await
