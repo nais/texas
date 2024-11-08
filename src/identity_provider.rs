@@ -89,7 +89,7 @@ fn test_serialization_format() {
 }
 
 /// RFC 6749 token response from section 5.2.
-#[derive(Serialize, Deserialize, ToSchema, Debug, Clone)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct ErrorResponse {
     pub error: OAuthErrorCode,
     #[serde(rename = "error_description")]
@@ -137,7 +137,7 @@ impl From<ApiError> for ErrorResponse {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
 pub enum OAuthErrorCode {
     #[serde(rename = "invalid_request")]
     InvalidRequest,

@@ -68,12 +68,14 @@ impl App {
 mod tests {
     use crate::app::App;
     use crate::config::Config;
-    use crate::identity_provider::{IdentityProvider, IntrospectRequest, TokenExchangeRequest, TokenRequest, TokenResponse};
+    use crate::identity_provider::{ErrorResponse, IdentityProvider, IntrospectRequest, OAuthErrorCode, TokenExchangeRequest, TokenRequest, TokenResponse};
     use log::{info, LevelFilter};
-    use reqwest::{Error, Response};
-    use serde::Serialize;
+    use reqwest::{Error, Response, StatusCode};
+    use serde::{Serialize};
     use serde_json::{json, Value};
     use std::collections::HashMap;
+    use std::fmt::Debug;
+    use serde::de::DeserializeOwned;
     use testcontainers::{ContainerAsync, GenericImage};
 
     /// Test a full round-trip of the `/token`, `/token/exchange`, and `/introspect` endpoints.
@@ -132,45 +134,75 @@ mod tests {
             ).await;
         }
 
-        invalid_identity_provider_in_token_request(address.to_string()).await;
-        invalid_content_type_in_token_request(address.to_string()).await;
+        invalid_identity_provider_in_token_request(&address).await;
+        invalid_content_type_in_token_request(&address).await;
+        missing_or_empty_user_token(&address).await;
+        introspect_token_is_not_a_jwt(&address).await;
 
         // TODO: implement these tests:
         // * /token
-        //   * upstream network error / reqwest error
-        //   * upstream responded with code >= 400
-        //      * json deserialize error
-        //      * oauth error
-        //   * upstream responded with success code but non-json body
+        //   * [ ] upstream network error / reqwest error
+        //   * [ ] upstream responded with code >= 400
+        //      * [ ] json deserialize error
+        //      * [ ] oauth error
+        //   * [ ] upstream responded with success code but non-json body
         //
         // * /token/exchange
-        //   * missing or empty user token
-        //   * upstream network error / reqwest error
-        //   * upstream responded with code >= 400
-        //      * json deserialize error
-        //      * oauth error
-        //   * upstream responded with success code but non-json body
+        //   * [x] missing or empty user token
+        //   * [ ] upstream network error / reqwest error
+        //   * [ ] upstream responded with code >= 400
+        //      * [ ] json deserialize error
+        //      * [ ] oauth error
+        //   * [ ] upstream responded with success code but non-json body
         //
         // * /introspect
-        //   * token is not a jwt
-        //   * token does not contain iss claim
-        //   * token is issued by unrecognized issuer
-        //   * token has invalid header
-        //   * token does not have kid (key id) in header
-        //   * token is signed with a key that is not in the jwks
-        //   * invalid or expired timestamps in nbf, iat, exp
-        //   * invalid or missing aud (for certain providers)
-        //   * refreshing jwks fails
-        //     * fetch / network error / reqwest error
-        //     * decode error
-        //     * jwks has key with blank or missing key id
+        //   * [x] token is not a jwt
+        //   * [ ] token does not contain iss claim
+        //   * [ ] token is issued by unrecognized issuer
+        //   * [ ] token has invalid header
+        //   * [ ] token does not have kid (key id) in header
+        //   * [ ] token is signed with a key that is not in the jwks
+        //   * [ ] invalid or expired timestamps in nbf, iat, exp
+        //   * [ ] invalid or missing aud (for certain providers)
+        //   * [ ] refreshing jwks fails
+        //     * [ ] fetch / network error / reqwest error
+        //     * [ ] decode error
+        //     * [ ] jwks has key with blank or missing key id
 
         join_handler.abort();
     }
 
-    async fn invalid_identity_provider_in_token_request(address: String) {
+    async fn introspect_token_is_not_a_jwt(address: &str) {
         let response = post_request(
-            format!("http://{}/api/v1/token", address.clone().to_string()),
+            format!("http://{}/api/v1/token/exchange", address),
+            IntrospectRequest {
+                token: "this is not a token".to_string(),
+            },
+            RequestFormat::Json,
+        ).await.unwrap();
+
+        assert_eq!(response.status(), 400);
+    }
+
+    async fn missing_or_empty_user_token(address: &str) {
+        test_well_formed_json_request(
+            TokenExchangeRequest {
+                target: "target".to_string(),
+                identity_provider: IdentityProvider::AzureAD,
+                user_token: "".to_string(),
+            },
+            ErrorResponse {
+                error: OAuthErrorCode::InvalidRequest,
+                description: "invalid request: missing or empty assertion parameter".to_string(),
+            },
+            &format!("http://{}/api/v1/token/exchange", address),
+            StatusCode::BAD_REQUEST,
+        ).await;
+    }
+
+    async fn invalid_identity_provider_in_token_request(address: &str) {
+        let response = post_request(
+            format!("http://{}/api/v1/token", address),
             json!({"target":"dontcare","identity_provider":"invalid"}),
             RequestFormat::Json,
         ).await.unwrap();
@@ -179,7 +211,7 @@ mod tests {
         assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten` at line 1 column 30"}"#);
 
         let response = post_request(
-            format!("http://{}/api/v1/token", address.clone().to_string()),
+            format!("http://{}/api/v1/token", address),
             HashMap::from([("target", "dontcare"), ("identity_provider", "invalid")]),
             RequestFormat::Form,
         ).await.unwrap();
@@ -188,9 +220,9 @@ mod tests {
         assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`"}"#);
     }
 
-    async fn invalid_content_type_in_token_request(address: String) {
+    async fn invalid_content_type_in_token_request(address: &str) {
         let client = reqwest::Client::new();
-        let request = client.post(format!("http://{}/api/v1/token", address.clone().to_string()))
+        let request = client.post(format!("http://{}/api/v1/token", address))
             .header("accept", "application/json")
             .header("content-type", "text/plain")
             .body("some plain text");
@@ -299,6 +331,22 @@ mod tests {
             RequestFormat::Form => request.form(&params),
         };
         request.send().await
+    }
+
+    async fn test_well_formed_json_request<T: Serialize, U: DeserializeOwned + PartialEq + Debug>(
+        request: T,
+        response: U,
+        url: &str,
+        status_code: StatusCode,
+    ) {
+        let http_response = post_request(
+            url.to_string(),
+            request,
+            RequestFormat::Json,
+        ).await.unwrap();
+
+        assert_eq!(http_response.status(), status_code);
+        assert_eq!(http_response.json::<U>().await.unwrap(), response);
     }
 
     struct TestApp {

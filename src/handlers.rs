@@ -352,6 +352,6 @@ where
             }
         }
 
-        Err(ApiError::UnsupportedMediaType(format!("unsupported media type: {}: expected one of `application/json`, `application/x-www-form-urlencoded`", content_type.unwrap_or("").to_string())))
+        Err(ApiError::UnsupportedMediaType(format!("unsupported media type: {}: expected one of `application/json`, `application/x-www-form-urlencoded`", content_type.unwrap_or(""))))
     }
 }
