@@ -138,15 +138,15 @@ mod tests {
             ).await;
         }
 
-        invalid_identity_provider_in_token_request(&address).await;
-        invalid_content_type_in_token_request(&address).await;
-        missing_or_empty_user_token(&address).await;
-        introspect_token_is_not_a_jwt(&address).await;
-        test_introspect_missing_issuer(&address).await;
-        test_introspect_unrecognized_issuer(&address).await;
-        introspect_token_missing_kid(&address).await;
-        introspect_token_missing_key_in_jwks(&address).await;
-        introspect_token_invalid_timestamps(&address).await;
+        test_token_invalid_identity_provider(&address).await;
+        test_token_invalid_content_type(&address).await;
+        test_token_exchange_missing_or_empty_user_token(&address).await;
+        test_introspect_token_is_not_a_jwt(&address).await;
+        test_introspect_token_missing_issuer(&address).await;
+        test_introspect_token_unrecognized_issuer(&address).await;
+        test_introspect_token_missing_kid(&address).await;
+        test_introspect_token_missing_key_in_jwks(&address).await;
+        test_introspect_token_invalid_timestamps(&address).await;
 
         // TODO: implement these tests:
         // * /token
@@ -180,7 +180,7 @@ mod tests {
         join_handler.abort();
     }
 
-    async fn test_introspect_unrecognized_issuer(address: &str) {
+    async fn test_introspect_token_unrecognized_issuer(address: &str) {
         let token = TokenServer::token(
             TokenClaims::from([
                 ("iss".into(), Value::String("snafu".into())),
@@ -196,7 +196,7 @@ mod tests {
         ).await;
     }
 
-    async fn test_introspect_missing_issuer(address: &str) {
+    async fn test_introspect_token_missing_issuer(address: &str) {
         let token = TokenServer::token(TokenClaims::new());
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
@@ -208,7 +208,7 @@ mod tests {
         ).await;
     }
 
-    async fn introspect_token_is_not_a_jwt(address: &str) {
+    async fn test_introspect_token_is_not_a_jwt(address: &str) {
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
             IntrospectRequest {
@@ -219,7 +219,7 @@ mod tests {
         ).await;
     }
 
-    async fn introspect_token_missing_kid(address: &str) {
+    async fn test_introspect_token_missing_kid(address: &str) {
         let token = TokenServer::token(
             TokenClaims::from([
                 ("iss".into(), Value::String("http://localhost:8080/maskinporten".into())),
@@ -235,7 +235,7 @@ mod tests {
         ).await;
     }
 
-    async fn introspect_token_missing_key_in_jwks(address: &str) {
+    async fn test_introspect_token_missing_key_in_jwks(address: &str) {
         let token = TokenServer::token_with_kid(
             TokenClaims::from([
                 ("iss".into(), Value::String("http://localhost:8080/maskinporten".into())),
@@ -253,7 +253,7 @@ mod tests {
         ).await;
     }
     //   * [ ] invalid or expired timestamps in nbf, iat, exp
-    async fn introspect_token_invalid_timestamps(address: &str) {
+    async fn test_introspect_token_invalid_timestamps(address: &str) {
 
     }
 
@@ -345,7 +345,7 @@ mod tests {
         }
     }
 
-    async fn missing_or_empty_user_token(address: &str) {
+    async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
         test_well_formed_json_request(
             &format!("http://{}/api/v1/token/exchange", address),
             TokenExchangeRequest {
@@ -361,7 +361,7 @@ mod tests {
         ).await;
     }
 
-    async fn invalid_identity_provider_in_token_request(address: &str) {
+    async fn test_token_invalid_identity_provider(address: &str) {
         let response = post_request(
             format!("http://{}/api/v1/token", address),
             json!({"target":"dontcare","identity_provider":"invalid"}),
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(response.text().await.unwrap(), r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`"}"#);
     }
 
-    async fn invalid_content_type_in_token_request(address: &str) {
+    async fn test_token_invalid_content_type(address: &str) {
         let client = reqwest::Client::new();
         let request = client.post(format!("http://{}/api/v1/token", address))
             .header("accept", "application/json")
