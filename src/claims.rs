@@ -61,7 +61,7 @@ impl Assertion for ClientAssertion {
     }
 }
 
-fn epoch_now_secs() -> u64 {
+pub fn epoch_now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
