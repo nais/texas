@@ -80,7 +80,6 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::fmt::Debug;
-    use axum::response::IntoResponse;
     use testcontainers::{ContainerAsync, GenericImage};
 
     /// Test a full round-trip of the `/token`, `/token/exchange`, and `/introspect` endpoints.
@@ -215,7 +214,6 @@ mod tests {
 
     #[cfg(test)]
     impl TokenServer {
-
         async fn new() -> Self {
             let mut keys = HashMap::<String, Vec<jwk::JsonWebKey>>::new();
             keys.insert("keys".to_string(), vec![get_signing_key()]);
@@ -234,13 +232,9 @@ mod tests {
                 .route("/token", get(|| async {
                     "Hello, world!"
                 }))
-                .route("/jwks", get(self.jwks()));
+                .route("/jwks", get(|| async { Json(self.keys) }));
 
             axum::serve(self.listener, app).await
-        }
-
-        fn jwks(&self) -> Json<HashMap<String, Vec<jwk::JsonWebKey>>> {
-            Json(self.keys.clone())
         }
     }
 
