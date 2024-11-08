@@ -160,6 +160,7 @@ pub async fn introspect(
     // Need to decode the token to get the issuer before we actually validate it.
     let mut validation = jwt::Validation::new(RS512);
     validation.validate_exp = false;
+    validation.set_required_spec_claims::<&str>(&[]);
     validation.insecure_disable_signature_validation();
     let key = DecodingKey::from_secret(&[]);
     let token_data = jwt::decode::<IssuerClaim>(&request.token, &key, &validation).
@@ -170,7 +171,7 @@ pub async fn introspect(
         Some(IdentityProvider::Maskinporten) => state.maskinporten.write().await.introspect(request.token).await,
         Some(IdentityProvider::AzureAD) => state.azure_ad_obo.write().await.introspect(request.token).await,
         Some(IdentityProvider::TokenX) => state.token_x.write().await.introspect(request.token).await,
-        None => IntrospectResponse::new_invalid("token has unknown issuer".to_string()),
+        None => IntrospectResponse::new_invalid(format!("token has unknown issuer: {}", token_data.claims.iss)),
     };
 
     Ok((StatusCode::OK, Json(claims)))

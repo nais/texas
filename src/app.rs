@@ -75,6 +75,8 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::fmt::Debug;
+    use jsonwebtoken as jwt;
+    use jsonwebkey as jwk;
     use serde::de::DeserializeOwned;
     use testcontainers::{ContainerAsync, GenericImage};
 
@@ -138,6 +140,8 @@ mod tests {
         invalid_content_type_in_token_request(&address).await;
         missing_or_empty_user_token(&address).await;
         introspect_token_is_not_a_jwt(&address).await;
+        test_introspect_missing_issuer(&address).await;
+        test_introspect_unrecognized_issuer(&address).await;
 
         // TODO: implement these tests:
         // * /token
@@ -157,8 +161,8 @@ mod tests {
         //
         // * /introspect
         //   * [x] token is not a jwt
-        //   * [ ] token does not contain iss claim
-        //   * [ ] token is issued by unrecognized issuer
+        //   * [x] token does not contain iss claim
+        //   * [x] token is issued by unrecognized issuer
         //   * [ ] token has invalid header
         //   * [ ] token does not have kid (key id) in header
         //   * [ ] token is signed with a key that is not in the jwks
@@ -170,6 +174,45 @@ mod tests {
         //     * [ ] jwks has key with blank or missing key id
 
         join_handler.abort();
+    }
+
+    async fn test_introspect_unrecognized_issuer(address: &str) {
+        let token = sign_claims_with_ephemeral_jwk(
+            HashMap::<String, Value>::from([
+                ("iss".into(), Value::String("snafu".into())),
+            ])
+        );
+        test_well_formed_json_request(
+            IntrospectRequest {
+                token,
+            },
+            IntrospectResponse::new_invalid("token has unknown issuer: snafu"),
+            &format!("http://{}/api/v1/introspect", address),
+            StatusCode::OK,
+        ).await;
+    }
+
+    async fn test_introspect_missing_issuer(address: &str) {
+        let token = sign_claims_with_ephemeral_jwk(HashMap::<String,Value>::new());
+        test_well_formed_json_request(
+            IntrospectRequest {
+                token,
+            },
+            IntrospectResponse::new_invalid("JSON error: missing field `iss` at line 1 column 2"),
+            &format!("http://{}/api/v1/introspect", address),
+            StatusCode::OK,
+        ).await;
+    }
+
+    fn sign_claims_with_ephemeral_jwk(claims: impl Serialize) -> String {
+        let mut key = jwk::JsonWebKey::new(jwk::Key::generate_p256());
+        key.set_algorithm(jwk::Algorithm::ES256).unwrap();
+        let alg: jwt::Algorithm = key.algorithm.unwrap().into();
+        jwt::encode(
+            &jwt::Header::new(alg),
+            &claims,
+            &key.key.to_encoding_key(),
+        ).unwrap()
     }
 
     async fn introspect_token_is_not_a_jwt(address: &str) {

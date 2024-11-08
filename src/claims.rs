@@ -68,7 +68,7 @@ fn epoch_now_secs() -> u64 {
         .as_secs()
 }
 
-pub fn serialize<T: Serialize + Assertion>(
+pub fn serialize<T: Serialize>(
     claims: T,
     client_assertion_header: &jwt::Header,
     key: &jwt::EncodingKey,
