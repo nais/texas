@@ -40,7 +40,7 @@ pub enum TokenType {
 /// - [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)
 /// - [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)
 /// - [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)
-#[derive(Serialize, Deserialize, ToSchema, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, PartialEq)]
 pub struct IntrospectResponse {
     /// Indicates whether the token is valid. If this field is `false`,
     /// the token is invalid and must not be used to authenticate or validate.
@@ -75,7 +75,7 @@ impl IntrospectResponse {
 }
 
 #[test]
-fn test_serialization_format() {
+fn test_introspect_response_serialization_format() {
     let ok = IntrospectResponse::new([
         ("foo".into(), Value::String("bar".into())),
     ]);

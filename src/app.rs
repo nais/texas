@@ -68,7 +68,7 @@ impl App {
 mod tests {
     use crate::app::App;
     use crate::config::Config;
-    use crate::identity_provider::{ErrorResponse, IdentityProvider, IntrospectRequest, OAuthErrorCode, TokenExchangeRequest, TokenRequest, TokenResponse};
+    use crate::identity_provider::{ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode, TokenExchangeRequest, TokenRequest, TokenResponse};
     use log::{info, LevelFilter};
     use reqwest::{Error, Response, StatusCode};
     use serde::{Serialize};
@@ -173,15 +173,14 @@ mod tests {
     }
 
     async fn introspect_token_is_not_a_jwt(address: &str) {
-        let response = post_request(
-            format!("http://{}/api/v1/token/exchange", address),
+        test_well_formed_json_request(
             IntrospectRequest {
                 token: "this is not a token".to_string(),
             },
-            RequestFormat::Json,
-        ).await.unwrap();
-
-        assert_eq!(response.status(), 400);
+            IntrospectResponse::new_invalid("InvalidToken"),
+            &format!("http://{}/api/v1/introspect", address),
+            StatusCode::OK,
+        ).await;
     }
 
     async fn missing_or_empty_user_token(address: &str) {
