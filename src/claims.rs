@@ -1,5 +1,8 @@
+use std::ops::Bound::Excluded;
 use jsonwebtoken as jwt;
 use serde::Serialize;
+
+const EXPIRY_LEEWAY_SECONDS: usize = 30;
 
 pub trait Assertion {
     fn new(token_endpoint: String, client_id: String, target: String) -> Self;
@@ -33,7 +36,7 @@ impl Assertion for JWTBearerAssertion {
         let jti = uuid::Uuid::new_v4();
 
         Self {
-            exp: (now + 30) as usize,
+            exp: now as usize + EXPIRY_LEEWAY_SECONDS,
             iat: now as usize,
             nbf: now as usize,
             jti: jti.to_string(),
@@ -50,7 +53,7 @@ impl Assertion for ClientAssertion {
         let jti = uuid::Uuid::new_v4();
 
         Self {
-            exp: (now + 30) as usize,
+            exp: now as usize + EXPIRY_LEEWAY_SECONDS,
             iat: now as usize,
             nbf: now as usize,
             jti: jti.to_string(),
