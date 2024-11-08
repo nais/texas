@@ -75,7 +75,6 @@ mod tests {
     use serde_json::Value;
     use std::collections::HashMap;
     use testcontainers::{ContainerAsync, GenericImage};
-    // TODO: add some error case tests
 
     /// Test a full round-trip of the `/token`, `/token/exchange`, and `/introspect` endpoints.
     ///
@@ -142,7 +141,7 @@ mod tests {
         //   * upstream responded with code >= 400
         //      * json deserialize error
         //      * oauth error
-        //   * upstream responded with non-error code but non-json response
+        //   * upstream responded with success code but non-json body
         //
         // * /token/exchange
         //   * missing or empty user token
@@ -150,7 +149,7 @@ mod tests {
         //   * upstream responded with code >= 400
         //      * json deserialize error
         //      * oauth error
-        //   * upstream responded with non-error code but non-json response
+        //   * upstream responded with success code but non-json body
         //
         // * /introspect
         //   * token is not a jwt
@@ -161,6 +160,10 @@ mod tests {
         //   * token is signed with a key that is not in the jwks
         //   * invalid or expired timestamps in nbf, iat, exp
         //   * invalid or missing aud (for certain providers)
+        //   * refreshing jwks fails
+        //     * fetch / network error / reqwest error
+        //     * decode error
+        //     * jwks has key with blank or missing key id
 
         join_handler.abort();
     }
