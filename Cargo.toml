@@ -9,7 +9,6 @@ openapi = []
 
 [dependencies]
 axum = { version = "0.7", features = ["http2", "macros"] }
-clap = { version = "4", features = ["derive", "env"] }
 dotenv = { version = "0.15", features = ["clap"] }
 tokio = { version = "1.41", features = ["rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }

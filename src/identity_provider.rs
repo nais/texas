@@ -139,6 +139,10 @@ impl From<ApiError> for ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,
                 description: err.to_string(),
             },
+            ApiError::UnsupportedIdentityProvider(_) => ErrorResponse {
+                error: OAuthErrorCode::InvalidRequest,
+                description: err.to_string(),
+            }
         }
     }
 }
@@ -187,6 +191,16 @@ pub enum IdentityProvider {
     TokenX,
     #[serde(rename = "maskinporten")]
     Maskinporten,
+}
+
+impl Display for IdentityProvider {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if let Ok(Value::String(s)) = serde_json::to_value(self) {
+            f.write_str(&s)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// Use this data type to request a token from the given identity provider.

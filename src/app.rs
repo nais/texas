@@ -112,7 +112,7 @@ mod tests {
 
         for format in [RequestFormat::Form, RequestFormat::Json] {
             machine_to_machine_token(
-                testapp.cfg.maskinporten_issuer.clone(),
+                testapp.cfg.maskinporten.clone().unwrap().issuer.clone(),
                 "scope".to_string(),
                 address.to_string(),
                 IdentityProvider::Maskinporten,
@@ -121,8 +121,8 @@ mod tests {
             .await;
 
             machine_to_machine_token(
-                testapp.cfg.azure_ad_issuer.clone(),
-                testapp.cfg.azure_ad_client_id.clone(),
+                testapp.cfg.azure_ad.clone().unwrap().issuer.clone(),
+                testapp.cfg.azure_ad.clone().unwrap().client_id.clone(),
                 address.to_string(),
                 IdentityProvider::AzureAD,
                 format.clone(),
@@ -130,8 +130,8 @@ mod tests {
             .await;
 
             token_exchange_token(
-                testapp.cfg.azure_ad_issuer.clone(),
-                testapp.cfg.azure_ad_client_id.clone(),
+                testapp.cfg.azure_ad.clone().unwrap().issuer.clone(),
+                testapp.cfg.azure_ad.clone().unwrap().client_id.clone(),
                 address.to_string(),
                 identity_provider_address.to_string(),
                 IdentityProvider::AzureAD,
@@ -140,8 +140,8 @@ mod tests {
             .await;
 
             token_exchange_token(
-                testapp.cfg.token_x_issuer.clone(),
-                testapp.cfg.token_x_client_id.clone(),
+                testapp.cfg.token_x.clone().unwrap().issuer.clone(),
+                testapp.cfg.token_x.clone().unwrap().client_id.clone(),
                 address.to_string(),
                 identity_provider_address.to_string(),
                 IdentityProvider::TokenX,
@@ -671,6 +671,7 @@ mod tests {
     }
 
     impl DockerRuntimeParams {
+        #[cfg(feature = "docker")]
         const MOCK_OAUTH_SERVER_JSON_CONFIG: &'static str = r#"{
         "tokenProvider" : {
             "keyProvider" : {

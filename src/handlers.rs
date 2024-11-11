@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
+use crate::handlers::ApiError::UnsupportedIdentityProvider;
 
 #[utoipa::path(
     post,
@@ -58,27 +59,30 @@ use tokio::sync::RwLock;
 pub async fn token(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => state
+        IdentityProvider::AzureAD => Ok(state
             .azure_ad_cc
+            .ok_or(UnsupportedIdentityProvider(request.identity_provider.clone()))?
             .read()
             .await
             .get_token(request)
             .await
-            .into_response(),
-        IdentityProvider::Maskinporten => state
+            .into_response()),
+        IdentityProvider::Maskinporten => Ok(state
             .maskinporten
+            .ok_or(UnsupportedIdentityProvider(request.identity_provider.clone()))?
             .read()
             .await
             .get_token(request)
             .await
-            .into_response(),
-        IdentityProvider::TokenX => (
-            StatusCode::BAD_REQUEST,
-            "TokenX does not support machine-to-machine tokens".to_string(),
-        )
-            .into_response(),
+            .into_response()),
+        IdentityProvider::TokenX => {
+            Ok((
+                StatusCode::BAD_REQUEST,
+                "TokenX does not support machine-to-machine tokens".to_string(),
+            ).into_response())
+        }
     }
 }
 
@@ -120,27 +124,28 @@ pub async fn token(
 pub async fn token_exchange(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     match &request.identity_provider {
-        IdentityProvider::AzureAD => state
+        IdentityProvider::AzureAD => Ok(state
             .azure_ad_obo
+            .ok_or(UnsupportedIdentityProvider(request.identity_provider.clone()))?
             .read()
             .await
             .exchange_token(request)
             .await
-            .into_response(),
-        IdentityProvider::Maskinporten => (
+            .into_response()),
+        IdentityProvider::Maskinporten => Ok((
             StatusCode::BAD_REQUEST,
             "Maskinporten does not support token exchange".to_string(),
-        )
-            .into_response(),
-        IdentityProvider::TokenX => state
+        ).into_response()),
+        IdentityProvider::TokenX => Ok(state
             .token_x
+            .ok_or(UnsupportedIdentityProvider(request.identity_provider.clone()))?
             .read()
             .await
             .exchange_token(request)
             .await
-            .into_response(),
+            .into_response()),
     }
 }
 
@@ -203,6 +208,7 @@ pub async fn introspect(
         Some(IdentityProvider::Maskinporten) => {
             state
                 .maskinporten
+                .ok_or(IntrospectResponse::new_invalid("FIXME"))?
                 .write()
                 .await
                 .introspect(request.token)
@@ -211,13 +217,20 @@ pub async fn introspect(
         Some(IdentityProvider::AzureAD) => {
             state
                 .azure_ad_obo
+                .ok_or(IntrospectResponse::new_invalid("FIXME"))?
                 .write()
                 .await
                 .introspect(request.token)
                 .await
         }
         Some(IdentityProvider::TokenX) => {
-            state.token_x.write().await.introspect(request.token).await
+            state
+                .token_x
+                .ok_or(IntrospectResponse::new_invalid("FIXME"))?
+                .write()
+                .await
+                .introspect(request.token)
+                .await
         }
         None => IntrospectResponse::new_invalid(format!(
             "token has unknown issuer: {}",
@@ -231,10 +244,10 @@ pub async fn introspect(
 #[derive(Clone)]
 pub struct HandlerState {
     pub cfg: Config,
-    pub maskinporten: Arc<RwLock<Provider<JWTBearer, JWTBearerAssertion>>>,
-    pub azure_ad_obo: Arc<RwLock<Provider<OnBehalfOf, ClientAssertion>>>,
-    pub azure_ad_cc: Arc<RwLock<Provider<ClientCredentials, ClientAssertion>>>,
-    pub token_x: Arc<RwLock<Provider<TokenExchange, ClientAssertion>>>,
+    pub maskinporten: Option<Arc<RwLock<Provider<JWTBearer, JWTBearerAssertion>>>>,
+    pub azure_ad_obo: Option<Arc<RwLock<Provider<OnBehalfOf, ClientAssertion>>>>,
+    pub azure_ad_cc: Option<Arc<RwLock<Provider<ClientCredentials, ClientAssertion>>>>,
+    pub token_x: Option<Arc<RwLock<Provider<TokenExchange, ClientAssertion>>>>,
 }
 
 #[derive(Error, Debug)]
@@ -247,80 +260,92 @@ pub enum InitError {
 }
 
 impl HandlerState {
+    // FIXME
     pub fn identity_provider_from_issuer(&self, iss: &str) -> Option<IdentityProvider> {
-        match iss {
-            s if s == self.cfg.maskinporten_issuer => Some(IdentityProvider::Maskinporten),
-            s if s == self.cfg.azure_ad_issuer => Some(IdentityProvider::AzureAD),
-            s if s == self.cfg.token_x_issuer => Some(IdentityProvider::TokenX),
-            _ => None,
+        if let Some(cfg) = &self.cfg.maskinporten {
+            if iss == &cfg.issuer {
+                return Some(IdentityProvider::Maskinporten);
+            }
         }
+        if let Some(cfg) = &self.cfg.azure_ad {
+            if iss == &cfg.issuer {
+                return Some(IdentityProvider::AzureAD);
+            }
+        }
+        if let Some(cfg) = &self.cfg.token_x {
+            if iss == &cfg.issuer {
+                return Some(IdentityProvider::TokenX);
+            }
+        }
+        None
     }
 
     pub async fn from_config(cfg: Config) -> Result<Self, InitError> {
-        // TODO: we should be able to conditionally enable certain providers based on the configuration
-        info!("Fetch JWKS for Maskinporten...");
-        let maskinporten: Provider<JWTBearer, JWTBearerAssertion> = Provider::new(
-            cfg.maskinporten_client_id.clone(),
-            cfg.maskinporten_token_endpoint.clone(),
-            cfg.maskinporten_client_jwk.clone(),
-            jwks::Jwks::new(
-                &cfg.maskinporten_issuer.clone(),
-                &cfg.maskinporten_jwks_uri.clone(),
-                None,
-            )
-            .await?,
-        )
-        .ok_or(InitError::Jwk)?;
+        let mut maskinporten: Option<Provider<_, _>> = None;
+        let mut azure_ad_obo: Option<Provider<_, _>> = None;
+        let mut azure_ad_cc: Option<Provider<_, _>> = None;
+        let mut token_x: Option<Provider<_, _>> = None;
 
-        // TODO: these two AAD providers should be a single provider, but we need to figure out how to handle the different token requests
-        info!("Fetch JWKS for Azure AD (on behalf of)...");
-        let azure_ad_obo: Provider<OnBehalfOf, ClientAssertion> = Provider::new(
-            cfg.azure_ad_client_id.clone(),
-            cfg.azure_ad_token_endpoint.clone(),
-            cfg.azure_ad_client_jwk.clone(),
-            jwks::Jwks::new(
-                &cfg.azure_ad_issuer.clone(),
-                &cfg.azure_ad_jwks_uri.clone(),
-                Some(cfg.azure_ad_client_id.clone()),
-            )
-            .await?,
-        )
-        .ok_or(InitError::Jwk)?;
+        if let Some(provider_cfg) = &cfg.maskinporten {
+            info!("Fetch JWKS for Maskinporten...");
+            maskinporten = Some(Provider::new(
+                provider_cfg.client_id.clone(),
+                provider_cfg.token_endpoint.clone(),
+                provider_cfg.client_jwk.clone(),
+                jwks::Jwks::new(
+                    &provider_cfg.issuer.clone(),
+                    &provider_cfg.jwks_uri.clone(),
+                    None,
+                ).await?,
+            ).ok_or(InitError::Jwk)?);
+        }
 
-        info!("Fetch JWKS for Azure AD (client credentials)...");
-        let azure_ad_cc: Provider<ClientCredentials, ClientAssertion> = Provider::new(
-            cfg.azure_ad_client_id.clone(),
-            cfg.azure_ad_token_endpoint.clone(),
-            cfg.azure_ad_client_jwk.clone(),
-            jwks::Jwks::new(
-                &cfg.azure_ad_issuer.clone(),
-                &cfg.azure_ad_jwks_uri.clone(),
-                Some(cfg.azure_ad_client_id.clone()),
-            )
-            .await?,
-        )
-        .ok_or(InitError::Jwk)?;
+        if let Some(provider_cfg) = &cfg.azure_ad {
+            info!("Fetch JWKS for Azure AD (on behalf of)...");
+            azure_ad_obo = Some(Provider::new(
+                provider_cfg.client_id.clone(),
+                provider_cfg.token_endpoint.clone(),
+                provider_cfg.client_jwk.clone(),
+                jwks::Jwks::new(
+                    &provider_cfg.issuer.clone(),
+                    &provider_cfg.jwks_uri.clone(),
+                    Some(provider_cfg.client_id.clone()),
+                ).await?,
+            ).ok_or(InitError::Jwk)?);
 
-        info!("Fetch JWKS for TokenX...");
-        let token_x: Provider<TokenExchange, ClientAssertion> = Provider::new(
-            cfg.token_x_client_id.clone(),
-            cfg.token_x_token_endpoint.clone(),
-            cfg.token_x_client_jwk.clone(),
-            jwks::Jwks::new(
-                &cfg.token_x_issuer.clone(),
-                &cfg.token_x_jwks_uri.clone(),
-                Some(cfg.token_x_client_id.clone()),
-            )
-            .await?,
-        )
-        .ok_or(InitError::Jwk)?;
+            info!("Fetch JWKS for Azure AD (client credentials)...");
+            azure_ad_cc = Some(Provider::new(
+                provider_cfg.client_id.clone(),
+                provider_cfg.token_endpoint.clone(),
+                provider_cfg.client_jwk.clone(),
+                jwks::Jwks::new(
+                    &provider_cfg.issuer.clone(),
+                    &provider_cfg.jwks_uri.clone(),
+                    Some(provider_cfg.client_id.clone()),
+                ).await?,
+            ).ok_or(InitError::Jwk)?);
+        }
+
+        if let Some(provider_cfg) = &cfg.token_x {
+            info!("Fetch JWKS for TokenX...");
+            token_x = Some(Provider::new(
+                provider_cfg.client_id.clone(),
+                provider_cfg.token_endpoint.clone(),
+                provider_cfg.client_jwk.clone(),
+                jwks::Jwks::new(
+                    &provider_cfg.issuer.clone(),
+                    &provider_cfg.jwks_uri.clone(),
+                    Some(provider_cfg.client_id.clone()),
+                ).await?,
+            ).ok_or(InitError::Jwk)?);
+        }
 
         Ok(Self {
             cfg,
-            maskinporten: Arc::new(RwLock::new(maskinporten)),
-            azure_ad_obo: Arc::new(RwLock::new(azure_ad_obo)),
-            azure_ad_cc: Arc::new(RwLock::new(azure_ad_cc)),
-            token_x: Arc::new(RwLock::new(token_x)),
+            maskinporten: maskinporten.map(|m| Arc::new(RwLock::new(m))),
+            azure_ad_obo: azure_ad_obo.map(|m| Arc::new(RwLock::new(m))),
+            azure_ad_cc: azure_ad_cc.map(|m| Arc::new(RwLock::new(m))),
+            token_x: token_x.map(|m| Arc::new(RwLock::new(m))),
         })
     }
 }
@@ -350,6 +375,9 @@ pub enum ApiError {
 
     #[error("{0}")]
     UnprocessableContent(String),
+
+    #[error("identity provider '{0}' is not configured")]
+    UnsupportedIdentityProvider(IdentityProvider),
 }
 
 impl IntoResponse for ApiError {
@@ -367,8 +395,8 @@ impl<S, T> FromRequest<S> for JsonOrForm<T>
 where
     S: Send + Sync,
     T: 'static,
-    Json<T>: FromRequest<S, Rejection = JsonRejection>,
-    Form<T>: FromRequest<S, Rejection = FormRejection>,
+    Json<T>: FromRequest<S, Rejection=JsonRejection>,
+    Form<T>: FromRequest<S, Rejection=FormRejection>,
 {
     type Rejection = ApiError;
 

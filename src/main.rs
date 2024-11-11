@@ -7,10 +7,9 @@ pub mod identity_provider;
 pub mod jwks;
 
 use crate::app::App;
-use clap::Parser;
 use config::Config;
 use dotenv::dotenv;
-use log::{info, LevelFilter};
+use log::{error, info, LevelFilter};
 
 #[tokio::main]
 async fn main() {
@@ -22,7 +21,15 @@ async fn main() {
     info!("Starting up");
 
     let _ = dotenv(); // load .env if present
-    let cfg = Config::parse();
+
+    let cfg = match Config::new_from_env() {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            error!("configuration: {}", err);
+            return;
+        }
+    };
+
     let app = App::new(cfg).await;
     app.run().await.unwrap()
 }
