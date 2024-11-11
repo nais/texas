@@ -318,7 +318,7 @@ where
     pub async fn get_token(&self, request: TokenRequest) -> Result<impl IntoResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target.clone()),
+            assertion: self.create_assertion(request.target),
             client_id: Some(self.client_id.clone()),
             user_token: None,
         };
@@ -331,7 +331,7 @@ where
     ) -> Result<impl IntoResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target.clone()),
+            assertion: self.create_assertion(request.target),
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
         };
