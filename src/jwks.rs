@@ -1,10 +1,12 @@
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use jsonwebtoken::Validation;
+use jsonwebtoken::{errors, Validation};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use log::error;
 use thiserror::Error;
+use crate::claims::epoch_now_secs;
 
 #[derive(Clone, Debug)]
 pub struct Jwks {
@@ -112,12 +114,21 @@ impl Jwks {
             Some(key) => key,
         };
 
-        Ok(jwt::decode::<HashMap<String, Value>>(
+        let claims = jwt::decode::<HashMap<String, Value>>(
             token,
             &signing_key.key.to_decoding_key(),
             &self.validation,
-        )
-        .map_err(Error::InvalidToken)?
-        .claims)
+        ).map_err(Error::InvalidToken)?.claims;
+
+        // validate the `iat` claim manually as the jsonwebtoken crate does not do this
+        let iat = claims.get("iat").and_then(|v| v.as_u64()).ok_or_else(|| {
+            Error::InvalidToken(errors::ErrorKind::MissingRequiredClaim("iat".to_string()).into())
+        })?;
+
+        if iat > epoch_now_secs() + self.validation.leeway {
+            return Err(Error::InvalidToken(errors::ErrorKind::ImmatureSignature.into()));
+        }
+
+        Ok(claims)
     }
 }

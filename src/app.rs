@@ -158,10 +158,8 @@ mod tests {
         test_introspect_token_missing_kid(&address, &identity_provider_address).await;
         test_introspect_token_missing_key_in_jwks(&address, &identity_provider_address).await;
         test_introspect_token_is_expired(&address, &identity_provider_address).await;
-
-        // FIXME: these tests don't fail as expected; validation crate not working?
-        //test_introspect_token_is_issued_in_the_future(&address, &identity_provider_address).await;
-        //test_introspect_token_has_not_before_in_the_future(&address, &identity_provider_address).await;
+        test_introspect_token_is_issued_in_the_future(&address, &identity_provider_address).await;
+        test_introspect_token_has_not_before_in_the_future(&address, &identity_provider_address).await;
 
         // TODO: implement these tests:
         // * /token
@@ -185,7 +183,7 @@ mod tests {
         //   * [x] token is issued by unrecognized issuer
         //   * [x] token does not have kid (key id) in header
         //   * [x] token is signed with a key that is not in the jwks
-        //   * [ ] invalid or expired timestamps in nbf, iat, exp
+        //   * [x] invalid or expired timestamps in nbf, iat, exp
         //   * [ ] invalid or missing aud (for certain providers)
         //   * [ ] refreshing jwks fails
         //     * [ ] fetch / network error / reqwest error
@@ -291,7 +289,6 @@ mod tests {
         .await;
     }
 
-    // FIXME: this test doesn't fail as expected; validation crate not working?
     async fn test_introspect_token_is_issued_in_the_future(
         address: &str,
         identity_provider_address: &str,
@@ -312,13 +309,12 @@ mod tests {
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
             IntrospectRequest { token },
-            IntrospectResponse::new_invalid("token is issued in the future"),
+            IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
             StatusCode::OK,
         )
         .await;
     }
 
-    // FIXME: this test doesn't fail as expected; validation crate not working?
     async fn test_introspect_token_has_not_before_in_the_future(
         address: &str,
         identity_provider_address: &str,
@@ -329,18 +325,17 @@ mod tests {
                     "iss".into(),
                     format!("http://{}/maskinporten", identity_provider_address).into(),
                 ),
-                ("nbf".into(), (epoch_now_secs() - 120).into()),
+                ("nbf".into(), (epoch_now_secs() + 120).into()),
                 ("iat".into(), (epoch_now_secs()).into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
             ]),
             "maskinporten",
         );
-        println!("{}", token);
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
             IntrospectRequest { token },
-            IntrospectResponse::new_invalid("token has not before in the future"),
+            IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
             StatusCode::OK,
         )
         .await;
