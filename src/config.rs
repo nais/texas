@@ -45,11 +45,11 @@ impl Provider {
             return Ok(None);
         }
         Ok(Some(Self {
-            client_id: Self::read_env_with_error(&format!("{prefix}_CLIENT_ID"))?,
-            client_jwk: Self::read_env_with_error(&format!("{prefix}_CLIENT_JWK"))?,
-            jwks_uri: Self::read_env_with_error(&format!("{prefix}_JWKS_URI"))?,
-            issuer: Self::read_env_with_error(&format!("{prefix}_ISSUER"))?,
-            token_endpoint: Self::read_env_with_error(&format!("{prefix}_TOKEN_ENDPOINT"))?,
+            client_id: Self::must_read_env(&format!("{prefix}_CLIENT_ID"))?,
+            client_jwk: Self::must_read_env(&format!("{prefix}_CLIENT_JWK"))?,
+            jwks_uri: Self::must_read_env(&format!("{prefix}_JWKS_URI"))?,
+            issuer: Self::must_read_env(&format!("{prefix}_ISSUER"))?,
+            token_endpoint: Self::must_read_env(&format!("{prefix}_TOKEN_ENDPOINT"))?,
         }))
     }
 
@@ -58,16 +58,16 @@ impl Provider {
             return Ok(None);
         }
         Ok(Some(Self {
-            client_id: Self::read_env_with_error("AZURE_APP_CLIENT_ID")?,
-            client_jwk: Self::read_env_with_error("AZURE_APP_CLIENT_JWK")?,
-            jwks_uri: Self::read_env_with_error("AZURE_OPENID_CONFIG_JWKS_URI")?,
-            issuer: Self::read_env_with_error("AZURE_OPENID_CONFIG_ISSUER")?,
-            token_endpoint: Self::read_env_with_error("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT")?,
+            client_id: Self::must_read_env("AZURE_APP_CLIENT_ID")?,
+            client_jwk: Self::must_read_env("AZURE_APP_CLIENT_JWK")?,
+            jwks_uri: Self::must_read_env("AZURE_OPENID_CONFIG_JWKS_URI")?,
+            issuer: Self::must_read_env("AZURE_OPENID_CONFIG_ISSUER")?,
+            token_endpoint: Self::must_read_env("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT")?,
         }))
     }
 
-    fn read_env_with_error(env: &str) -> Result<String, Error> {
-        std::env::var(env).map_err(|_| MissingEnv(format!("environment variable '{env}' not found")))
+    fn must_read_env(env: &str) -> Result<String, Error> {
+        std::env::var(env).map_err(|_| MissingEnv(env.to_string()))
     }
 }
 
