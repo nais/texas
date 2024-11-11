@@ -263,17 +263,17 @@ impl HandlerState {
     // FIXME
     pub fn identity_provider_from_issuer(&self, iss: &str) -> Option<IdentityProvider> {
         if let Some(cfg) = &self.cfg.maskinporten {
-            if iss == &cfg.issuer {
+            if iss == cfg.issuer {
                 return Some(IdentityProvider::Maskinporten);
             }
         }
         if let Some(cfg) = &self.cfg.azure_ad {
-            if iss == &cfg.issuer {
+            if iss == cfg.issuer {
                 return Some(IdentityProvider::AzureAD);
             }
         }
         if let Some(cfg) = &self.cfg.token_x {
-            if iss == &cfg.issuer {
+            if iss == cfg.issuer {
                 return Some(IdentityProvider::TokenX);
             }
         }
