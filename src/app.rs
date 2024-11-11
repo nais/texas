@@ -69,6 +69,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use crate::app::tests::RequestFormat::Json;
     use crate::app::App;
     use crate::claims::epoch_now_secs;
     use crate::config::Config;
@@ -160,7 +161,7 @@ mod tests {
         test_introspect_token_is_expired(&address, &identity_provider_address).await;
         test_introspect_token_is_issued_in_the_future(&address, &identity_provider_address).await;
         test_introspect_token_has_not_before_in_the_future(&address, &identity_provider_address).await;
-
+        test_introspect_token_invalid_audience(&address).await;
         // TODO: implement these tests:
         // * /token
         //   * [ ] upstream network error / reqwest error
@@ -184,7 +185,7 @@ mod tests {
         //   * [x] token does not have kid (key id) in header
         //   * [x] token is signed with a key that is not in the jwks
         //   * [x] invalid or expired timestamps in nbf, iat, exp
-        //   * [ ] invalid or missing aud (for certain providers)
+        //   * [x] invalid or missing aud (for certain providers)
         //   * [ ] refreshing jwks fails
         //     * [ ] fetch / network error / reqwest error
         //     * [ ] decode error
@@ -336,6 +337,40 @@ mod tests {
             &format!("http://{}/api/v1/introspect", address),
             IntrospectRequest { token },
             IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
+            StatusCode::OK,
+        )
+        .await;
+    }
+
+    async fn test_introspect_token_invalid_audience(address: &str) {
+        let response = post_request(
+            format!("http://{}/api/v1/token", address.to_string()),
+            TokenRequest {
+                target: "invalid".to_string(),
+                identity_provider: IdentityProvider::AzureAD,
+            },
+            Json,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            response.status(),
+            200,
+            "failed to get token: {:?}",
+            response.text().await.unwrap()
+        );
+
+        let body: TokenResponse = response.json().await.unwrap();
+        assert!(body.expires_in_seconds > 0);
+        assert!(!body.access_token.is_empty());
+
+        test_well_formed_json_request(
+            &format!("http://{}/api/v1/introspect", address),
+            IntrospectRequest {
+                token: body.access_token.clone(),
+            },
+            IntrospectResponse::new_invalid("invalid token: InvalidAudience"),
             StatusCode::OK,
         )
         .await;
