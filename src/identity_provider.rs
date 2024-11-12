@@ -1,9 +1,9 @@
+use std::cmp::PartialEq;
 use crate::claims::{serialize, Assertion};
-use crate::grants::{TokenRequestBuilder, TokenRequestBuilderParams};
+use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder, TokenRequestBuilderParams};
 use crate::handlers::ApiError;
 use crate::jwks;
-use axum::response::IntoResponse;
-use axum::Json;
+use axum::{async_trait};
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use log::error;
@@ -142,7 +142,15 @@ impl From<ApiError> for ErrorResponse {
             ApiError::UnsupportedIdentityProvider(_) => ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,
                 description: err.to_string(),
-            }
+            },
+            ApiError::TokenExchangeUnsupported(_) => ErrorResponse {
+                error: OAuthErrorCode::InvalidRequest,
+                description: err.to_string(),
+            },
+            ApiError::TokenRequestUnsupported(_) => ErrorResponse {
+                error: OAuthErrorCode::InvalidRequest,
+                description: err.to_string(),
+            },
         }
     }
 }
@@ -183,7 +191,7 @@ impl From<OAuthErrorCode> for StatusCode {
 /// Identity providers for use with token fetch, exchange and introspection.
 ///
 /// Each identity provider is enabled when appropriately configured in `nais.yaml`.
-#[derive(Deserialize, Serialize, ToSchema, Clone, Debug)]
+#[derive(Deserialize, Serialize, ToSchema, Clone, Debug, PartialEq)]
 pub enum IdentityProvider {
     #[serde(rename = "azuread")]
     AzureAD,
@@ -234,10 +242,34 @@ pub struct IntrospectRequest {
     pub token: String,
 }
 
+impl IntrospectRequest {
+    /// Decode the token to get the issuer of the request.
+    pub fn issuer(&self) -> Option<String> {
+        #[derive(serde::Deserialize)]
+        struct IssuerClaim {
+            iss: String,
+        }
+
+        let mut validation = jwt::Validation::new(jwt::Algorithm::RS512);
+        validation.validate_exp = false;
+        validation.set_required_spec_claims::<&str>(&[]);
+
+        // To decode the issuer, we have to disable validation.
+        // Validation is done in the Provider.
+        validation.insecure_disable_signature_validation();
+
+        let key = jwt::DecodingKey::from_secret(&[]);
+        jwt::decode::<IssuerClaim>(&self.token, &key, &validation).ok()
+            .map(|data| data.claims.iss)
+    }
+}
+
 #[derive(Clone)]
 pub struct Provider<R, A> {
     client_id: String,
     pub token_endpoint: String,
+    identity_provider_kind: IdentityProvider,
+    issuer: String,
     private_jwk: jwt::EncodingKey,
     client_assertion_header: jwt::Header,
     upstream_jwks: jwks::Jwks,
@@ -247,10 +279,12 @@ pub struct Provider<R, A> {
 
 impl<R, A> Provider<R, A>
 where
-    R: Serialize + TokenRequestBuilder,
-    A: Serialize + Assertion,
+    R: TokenRequestBuilder,
+    A: Assertion,
 {
     pub fn new(
+        kind: IdentityProvider,
+        issuer: String,
         client_id: String,
         token_endpoint: String,
         private_jwk: String,
@@ -261,18 +295,55 @@ where
         let kid: String = client_private_jwk.key_id.clone()?;
         let mut client_assertion_header = jwt::Header::new(alg);
         client_assertion_header.kid = Some(kid);
+
         Some(Self {
             client_id,
             token_endpoint,
             client_assertion_header,
             upstream_jwks,
+            issuer,
+            identity_provider_kind: kind,
             private_jwk: client_private_jwk.key.to_encoding_key(),
             _fake_request: Default::default(),
             _fake_assertion: Default::default(),
         })
     }
 
-    pub async fn introspect(&mut self, token: String) -> IntrospectResponse {
+    fn create_assertion(&self, target: String) -> String {
+        let assertion = A::new(self.token_endpoint.clone(), self.client_id.clone(), target);
+        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
+        // FIXME: don't unwrap
+    }
+}
+
+#[async_trait]
+impl<R, A> ProviderHandler for Provider<R, A>
+where
+    R: TokenRequestBuilder,
+    A: Assertion,
+    Provider<R, A>: ShouldHandler,
+{
+    async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError> {
+        let token_request = TokenRequestBuilderParams {
+            target: request.target.clone(),
+            assertion: self.create_assertion(request.target),
+            client_id: Some(self.client_id.clone()),
+            user_token: None,
+        };
+        self.get_token_with_config(token_request).await
+    }
+
+    async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError> {
+        let token_request = TokenRequestBuilderParams {
+            target: request.target.clone(),
+            assertion: self.create_assertion(request.target),
+            client_id: Some(self.client_id.clone()),
+            user_token: Some(request.user_token),
+        };
+        self.get_token_with_config(token_request).await
+    }
+
+    async fn introspect(&mut self, token: String) -> IntrospectResponse {
         self.upstream_jwks
             .validate(&token)
             .await
@@ -283,7 +354,7 @@ where
     async fn get_token_with_config(
         &self,
         config: TokenRequestBuilderParams,
-    ) -> Result<impl IntoResponse, ApiError> {
+    ) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
         let client = reqwest::Client::new();
@@ -306,41 +377,108 @@ where
             return Err(err);
         }
 
-        let res: TokenResponse = response
+        Ok(response
             .json()
             .await
             .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-            .map_err(ApiError::JSON)?;
+            .map_err(ApiError::JSON)?)
+    }
+}
 
-        Ok((StatusCode::OK, Json(res)))
+#[async_trait]
+pub trait ProviderHandler: ShouldHandler + Send + Sync {
+    async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError>;
+    async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError>;
+    async fn introspect(&mut self, token: String) -> IntrospectResponse;
+    async fn get_token_with_config(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError>;
+}
+pub trait ShouldHandler: Send + Sync {
+    fn should_handle_token_request(&self, _request: &TokenRequest) -> bool {
+        false
     }
 
-    pub async fn get_token(&self, request: TokenRequest) -> Result<impl IntoResponse, ApiError> {
-        let token_request = TokenRequestBuilderParams {
-            target: request.target.clone(),
-            assertion: self.create_assertion(request.target),
-            client_id: Some(self.client_id.clone()),
-            user_token: None,
-        };
-        self.get_token_with_config(token_request).await
+    fn should_handle_token_exchange_request(&self, _request: &TokenExchangeRequest) -> bool {
+        false
     }
 
-    pub async fn exchange_token(
-        &self,
-        request: TokenExchangeRequest,
-    ) -> Result<impl IntoResponse, ApiError> {
-        let token_request = TokenRequestBuilderParams {
-            target: request.target.clone(),
-            assertion: self.create_assertion(request.target),
-            client_id: Some(self.client_id.clone()),
-            user_token: Some(request.user_token),
-        };
-        self.get_token_with_config(token_request).await
+    fn should_handle_introspect_request(&self, _request: &IntrospectRequest) -> bool {
+        false
+    }
+}
+
+impl<A> ShouldHandler for Provider<JWTBearer, A>
+where
+    A: Serialize + Assertion,
+{
+    fn should_handle_token_request(&self, request: &TokenRequest) -> bool {
+        self.identity_provider_kind == request.identity_provider
     }
 
-    fn create_assertion(&self, target: String) -> String {
-        let assertion = A::new(self.token_endpoint.clone(), self.client_id.clone(), target);
-        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
-        // FIXME: don't unwrap
+    fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
+        match request.issuer() {
+            Some(iss) if iss == self.issuer => true,
+            Some(_) => false,
+            None => false,
+        }
     }
+
+    // JWTBearer grant does not support exchanging tokens.
+}
+
+impl<A> ShouldHandler for Provider<ClientCredentials, A>
+where
+    A: Serialize + Assertion,
+{
+    fn should_handle_token_request(&self, request: &TokenRequest) -> bool {
+        self.identity_provider_kind == request.identity_provider
+    }
+
+    fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
+        match request.issuer() {
+            Some(iss) if iss == self.issuer => true,
+            Some(_) => false,
+            None => false,
+        }
+    }
+
+    // ClientCredentials grant does not support exchanging tokens.
+}
+
+impl<A> ShouldHandler for Provider<TokenExchange, A>
+where
+    A: Serialize + Assertion,
+{
+    // TokenExchange grant does not support getting a machine-to-machine token.
+
+    fn should_handle_token_exchange_request(&self, request: &TokenExchangeRequest) -> bool {
+        self.identity_provider_kind == request.identity_provider
+    }
+
+    fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
+        match request.issuer() {
+            Some(iss) if iss == self.issuer => true,
+            Some(_) => false,
+            None => false,
+        }
+    }
+
+}
+
+impl<A> ShouldHandler for Provider<OnBehalfOf, A>
+where
+    A: Serialize + Assertion,
+{
+    // OnBehalfOf grant does not support getting a machine-to-machine token.
+
+    fn should_handle_token_exchange_request(&self, request: &TokenExchangeRequest) -> bool {
+        self.identity_provider_kind == request.identity_provider
+    }
+    fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
+        match request.issuer() {
+            Some(iss) if iss == self.issuer => true,
+            Some(_) => false,
+            None => false,
+        }
+    }
+
 }

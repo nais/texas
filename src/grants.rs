@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-pub trait TokenRequestBuilder {
+pub trait TokenRequestBuilder: Send + Sync + Serialize {
     fn token_request(config: TokenRequestBuilderParams) -> Option<Self>
     where
         Self: Sized;

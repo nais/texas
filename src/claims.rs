@@ -3,7 +3,7 @@ use serde::Serialize;
 
 const EXPIRY_LEEWAY_SECONDS: usize = 30;
 
-pub trait Assertion {
+pub trait Assertion: Send + Sync + Serialize {
     fn new(token_endpoint: String, client_id: String, target: String) -> Self;
 }
 
