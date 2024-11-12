@@ -199,6 +199,8 @@ pub enum IdentityProvider {
     TokenX,
     #[serde(rename = "maskinporten")]
     Maskinporten,
+    #[serde(rename = "idporten")]
+    IDPorten,
 }
 
 impl Display for IdentityProvider {
@@ -267,11 +269,11 @@ impl IntrospectRequest {
 #[derive(Clone)]
 pub struct Provider<R, A> {
     client_id: String,
-    pub token_endpoint: String,
+    pub token_endpoint: Option<String>,
     identity_provider_kind: IdentityProvider,
     issuer: String,
-    private_jwk: jwt::EncodingKey,
-    client_assertion_header: jwt::Header,
+    private_jwk: Option<jwt::EncodingKey>,
+    client_assertion_header: Option<jwt::Header>,
     upstream_jwks: jwks::Jwks,
     _fake_request: PhantomData<R>,
     _fake_assertion: PhantomData<A>,
@@ -286,15 +288,22 @@ where
         kind: IdentityProvider,
         issuer: String,
         client_id: String,
-        token_endpoint: String,
-        private_jwk: String,
+        token_endpoint: Option<String>,
+        private_jwk: Option<String>,
         upstream_jwks: jwks::Jwks,
     ) -> Option<Self> {
-        let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().ok()?;
-        let alg: jwt::Algorithm = client_private_jwk.algorithm?.into();
-        let kid: String = client_private_jwk.key_id.clone()?;
-        let mut client_assertion_header = jwt::Header::new(alg);
-        client_assertion_header.kid = Some(kid);
+        let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
+            let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().ok()?;
+            let alg: jwt::Algorithm = client_private_jwk.algorithm?.into();
+            let kid: String = client_private_jwk.key_id.clone()?;
+
+            let mut header = jwt::Header::new(alg);
+            header.kid = Some(kid);
+
+            (Some(client_private_jwk.key.to_encoding_key()), Some(header))
+        } else {
+            (None, None)
+        };
 
         Some(Self {
             client_id,
@@ -303,16 +312,15 @@ where
             upstream_jwks,
             issuer,
             identity_provider_kind: kind,
-            private_jwk: client_private_jwk.key.to_encoding_key(),
+            private_jwk: client_private_jwk,
             _fake_request: Default::default(),
             _fake_assertion: Default::default(),
         })
     }
 
-    fn create_assertion(&self, target: String) -> String {
-        let assertion = A::new(self.token_endpoint.clone(), self.client_id.clone(), target);
-        serialize(assertion, &self.client_assertion_header, &self.private_jwk).unwrap()
-        // FIXME: don't unwrap
+    fn create_assertion(&self, target: String) -> Option<String> {
+        let assertion = A::new(self.token_endpoint.as_ref()?.clone(), self.client_id.clone(), target);
+        serialize(assertion, self.client_assertion_header.as_ref()?, self.private_jwk.as_ref()?).ok()
     }
 }
 
@@ -326,7 +334,7 @@ where
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target),
+            assertion: self.create_assertion(request.target).ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind.clone()))?,
             client_id: Some(self.client_id.clone()),
             user_token: None,
         };
@@ -336,7 +344,7 @@ where
     async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target),
+            assertion: self.create_assertion(request.target).ok_or(ApiError::TokenExchangeUnsupported(self.identity_provider_kind.clone()))?,
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
         };
@@ -359,7 +367,7 @@ where
 
         let client = reqwest::Client::new();
         let response = client
-            .post(self.token_endpoint.clone())
+            .post(self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind.clone()))?)
             .header("accept", "application/json")
             .form(&params)
             .send()
@@ -461,7 +469,6 @@ where
             None => false,
         }
     }
-
 }
 
 impl<A> ShouldHandler for Provider<OnBehalfOf, A>
@@ -480,5 +487,17 @@ where
             None => false,
         }
     }
+}
 
+impl<A> ShouldHandler for Provider<(), A>
+where
+    A: Serialize + Assertion,
+{
+    fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
+        match request.issuer() {
+            Some(iss) if iss == self.issuer => true,
+            Some(_) => false,
+            None => false,
+        }
+    }
 }

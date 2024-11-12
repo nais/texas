@@ -146,9 +146,16 @@ mod tests {
                 address.to_string(),
                 identity_provider_address.to_string(),
                 IdentityProvider::TokenX,
-                format,
+                format.clone(),
             )
             .await;
+
+            introspect_idporten_token(
+                testapp.cfg.idporten.clone().unwrap().issuer.clone(),
+                address.to_string(),
+                identity_provider_address.to_string(),
+                format,
+            ).await;
         }
 
         test_token_invalid_identity_provider(&address).await;
@@ -406,7 +413,7 @@ mod tests {
         assert_eq!(response.status(), 400);
         assert_eq!(
             response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten` at line 1 column 30"}"#
+            r#"{"error":"invalid_request","error_description":"Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten` at line 1 column 30"}"#
         );
 
         let response = post_request(
@@ -420,7 +427,7 @@ mod tests {
         assert_eq!(response.status(), 400);
         assert_eq!(
             response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`"}"#
+            r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten`"}"#
         );
     }
 
@@ -485,6 +492,10 @@ mod tests {
         assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
     }
 
+    /// this tests the full token exchange roundtrip:
+    ///  1. fetch user token from mock-oauth2-server
+    ///  2. exchange user token for on-behalf-of token at /token/exchange
+    ///  3. introspect the resulting token at /introspect
     async fn token_exchange_token(
         expected_issuer: String,
         target: String,
@@ -557,6 +568,55 @@ mod tests {
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
         assert_eq!(body["active"], Value::Bool(true));
+        assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
+        assert!(!body["sub"].to_string().is_empty());
+    }
+
+    async fn introspect_idporten_token(
+        expected_issuer: String,
+        address: String,
+        identity_provider_address: String,
+        request_format: RequestFormat,
+    ) {
+        #[derive(Serialize)]
+        struct AuthorizeRequest {
+            grant_type: String,
+            code: String,
+            client_id: String,
+            client_secret: String,
+        }
+
+        // This request goes directly to the mock oauth2 server, which only accepts form encoding
+        let user_token_response = post_request(
+            format!("http://{}/idporten/token", identity_provider_address),
+            AuthorizeRequest {
+                grant_type: "authorization_code".to_string(),
+                code: "mycode".to_string(),
+                client_id: "myclientid".to_string(),
+                client_secret: "myclientsecret".to_string(),
+            },
+            RequestFormat::Form,
+        )
+            .await
+            .unwrap();
+
+        assert_eq!(user_token_response.status(), 200);
+        let user_token: TokenResponse = user_token_response.json().await.unwrap();
+
+        let response = post_request(
+            format!("http://{}/api/v1/introspect", address.clone().to_string()),
+            IntrospectRequest {
+                token: user_token.access_token.clone(),
+            },
+            request_format,
+        )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+        let body: HashMap<String, Value> = response.json().await.unwrap();
+        assert_eq!(body["active"], Value::Bool(true));
+        assert_eq!(body.contains_key("error"), false);
         assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
         assert!(!body["sub"].to_string().is_empty());
     }

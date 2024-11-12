@@ -103,3 +103,9 @@ impl TokenRequestBuilder for TokenExchange {
         })
     }
 }
+
+impl TokenRequestBuilder for () {
+    fn token_request(_: TokenRequestBuilderParams) -> Option<Self> {
+        None
+    }
+}

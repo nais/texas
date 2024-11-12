@@ -257,6 +257,16 @@ impl HandlerState {
             providers.push(provider);
         }
 
+        if let Some(provider_cfg) = &cfg.idporten {
+            info!("Fetch JWKS for ID-porten...");
+            let provider = new::<(), ()>(
+                IdentityProvider::IDPorten,
+                provider_cfg,
+                Some(provider_cfg.client_id.clone()),
+            ).await?;
+            providers.push(provider);
+        }
+
         Ok(Self {
             cfg,
             providers,
