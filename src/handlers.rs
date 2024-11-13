@@ -57,11 +57,11 @@ pub async fn token(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    for x in state.providers {
-        if !x.read().await.should_handle_token_request(&request) {
+    for provider in state.providers {
+        if !provider.read().await.should_handle_token_request(&request) {
             continue;
         }
-        let response = x.read().await.get_token(request).await?;
+        let response = provider.read().await.get_token(request).await?;
         return Ok(Json(response));
     }
 
@@ -107,11 +107,11 @@ pub async fn token_exchange(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    for x in state.providers {
-        if !x.read().await.should_handle_token_exchange_request(&request) {
+    for provider in state.providers {
+        if !provider.read().await.should_handle_token_exchange_request(&request) {
             continue;
         }
-        let response = x.read().await.exchange_token(request).await?;
+        let response = provider.read().await.exchange_token(request).await?;
         return Ok(Json(response));
     }
 
@@ -158,11 +158,13 @@ pub async fn introspect(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<IntrospectRequest>,
 ) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
-    for x in state.providers {
-        if !x.read().await.should_handle_introspect_request(&request) {
+    for provider in state.providers {
+        if !provider.read().await.should_handle_introspect_request(&request) {
             continue;
         }
-        return Ok(Json(x.write().await.introspect(request.token).await));
+        // We need to acquire a write lock here because introspect
+        // might refresh its JWKS in-flight.
+        return Ok(Json(provider.write().await.introspect(request.token).await));
     }
 
     let error_message = match request.issuer() {
