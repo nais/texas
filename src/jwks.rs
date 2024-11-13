@@ -38,7 +38,6 @@ pub enum Error {
 }
 
 impl Jwks {
-    #[instrument(skip_all)]
     pub async fn new(issuer: &str, endpoint: &str, required_audience: Option<String>) -> Result<Jwks, Error> {
         #[derive(Deserialize)]
         struct Response {
