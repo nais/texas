@@ -28,15 +28,9 @@ impl App {
 
         info!("Serving on http://{:?}", listener.local_addr().unwrap());
         #[cfg(feature = "openapi")]
-        info!(
-            "Swagger API documentation: http://{:?}/swagger-ui",
-            listener.local_addr().unwrap()
-        );
+        info!("Swagger API documentation: http://{:?}/swagger-ui", listener.local_addr().unwrap());
 
-        Self {
-            router: app,
-            listener,
-        }
+        Self { router: app, listener }
     }
 
     pub async fn run(self) -> std::io::Result<()> {
@@ -60,8 +54,7 @@ impl App {
         #[cfg(feature = "openapi")]
         use utoipa_swagger_ui::SwaggerUi;
         #[cfg(feature = "openapi")]
-        let router = router
-            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()));
+        let router = router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()));
 
         router
     }
@@ -73,10 +66,7 @@ mod tests {
     use crate::app::App;
     use crate::claims::epoch_now_secs;
     use crate::config::Config;
-    use crate::identity_provider::{
-        ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode,
-        TokenExchangeRequest, TokenRequest, TokenResponse,
-    };
+    use crate::identity_provider::{ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode, TokenExchangeRequest, TokenRequest, TokenResponse};
     use jsonwebkey as jwk;
     use jsonwebtoken as jwt;
     use log::{info, LevelFilter};
@@ -107,8 +97,7 @@ mod tests {
         let join_handler = tokio::spawn(async move {
             testapp.app.run().await.unwrap();
         });
-        let identity_provider_address =
-            format!("{}:{}", testapp.docker.host.clone(), testapp.docker.port);
+        let identity_provider_address = format!("{}:{}", testapp.docker.host.clone(), testapp.docker.port);
 
         // All happy cases
         for format in [RequestFormat::Form, RequestFormat::Json] {
@@ -150,12 +139,7 @@ mod tests {
             )
             .await;
 
-            introspect_idporten_token(
-                testapp.cfg.idporten.clone().unwrap().issuer.clone(),
-                address.to_string(),
-                identity_provider_address.to_string(),
-                format,
-            ).await;
+            introspect_idporten_token(testapp.cfg.idporten.clone().unwrap().issuer.clone(), address.to_string(), identity_provider_address.to_string(), format).await;
         }
 
         test_token_invalid_identity_provider(&address).await;
@@ -203,10 +187,7 @@ mod tests {
     }
 
     async fn test_introspect_token_unrecognized_issuer(address: &str) {
-        let token = Token::sign(TokenClaims::from([(
-            "iss".into(),
-            Value::String("snafu".into()),
-        )]));
+        let token = Token::sign(TokenClaims::from([("iss".into(), Value::String("snafu".into()))]));
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
             IntrospectRequest { token },
@@ -240,10 +221,7 @@ mod tests {
     }
 
     async fn test_introspect_token_missing_kid(address: &str, identity_provider_address: &str) {
-        let token = Token::sign(TokenClaims::from([(
-            "iss".into(),
-            format!("http://{}/maskinporten", identity_provider_address).into(),
-        )]));
+        let token = Token::sign(TokenClaims::from([("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into())]));
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
             IntrospectRequest { token },
@@ -253,17 +231,8 @@ mod tests {
         .await;
     }
 
-    async fn test_introspect_token_missing_key_in_jwks(
-        address: &str,
-        identity_provider_address: &str,
-    ) {
-        let token = Token::sign_with_kid(
-            TokenClaims::from([(
-                "iss".into(),
-                format!("http://{}/maskinporten", identity_provider_address).into(),
-            )]),
-            "missing-key",
-        );
+    async fn test_introspect_token_missing_key_in_jwks(address: &str, identity_provider_address: &str) {
+        let token = Token::sign_with_kid(TokenClaims::from([("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into())]), "missing-key");
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
@@ -278,10 +247,7 @@ mod tests {
         // token is expired
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                (
-                    "iss".into(),
-                    format!("http://{}/maskinporten", identity_provider_address).into(),
-                ),
+                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
                 ("nbf".into(), (epoch_now_secs()).into()),
                 ("iat".into(), (epoch_now_secs()).into()),
                 ("exp".into(), (epoch_now_secs() - 120).into()),
@@ -298,16 +264,10 @@ mod tests {
         .await;
     }
 
-    async fn test_introspect_token_is_issued_in_the_future(
-        address: &str,
-        identity_provider_address: &str,
-    ) {
+    async fn test_introspect_token_is_issued_in_the_future(address: &str, identity_provider_address: &str) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                (
-                    "iss".into(),
-                    format!("http://{}/maskinporten", identity_provider_address).into(),
-                ),
+                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
                 ("nbf".into(), (epoch_now_secs()).into()),
                 ("iat".into(), (epoch_now_secs() + 120).into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
@@ -324,16 +284,10 @@ mod tests {
         .await;
     }
 
-    async fn test_introspect_token_has_not_before_in_the_future(
-        address: &str,
-        identity_provider_address: &str,
-    ) {
+    async fn test_introspect_token_has_not_before_in_the_future(address: &str, identity_provider_address: &str) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                (
-                    "iss".into(),
-                    format!("http://{}/maskinporten", identity_provider_address).into(),
-                ),
+                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
                 ("nbf".into(), (epoch_now_secs() + 120).into()),
                 ("iat".into(), (epoch_now_secs()).into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
@@ -362,12 +316,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(
-            response.status(),
-            200,
-            "failed to get token: {:?}",
-            response.text().await.unwrap()
-        );
+        assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
 
         let body: TokenResponse = response.json().await.unwrap();
         assert!(body.expires_in_seconds > 0);
@@ -375,9 +324,7 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token: body.access_token.clone(),
-            },
+            IntrospectRequest { token: body.access_token.clone() },
             IntrospectResponse::new_invalid("invalid token: InvalidAudience"),
             StatusCode::OK,
         )
@@ -447,30 +394,16 @@ mod tests {
         );
     }
 
-    async fn machine_to_machine_token(
-        expected_issuer: String,
-        target: String,
-        address: String,
-        identity_provider: IdentityProvider,
-        request_format: RequestFormat,
-    ) {
+    async fn machine_to_machine_token(expected_issuer: String, target: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
         let response = post_request(
             format!("http://{}/api/v1/token", address.clone().to_string()),
-            TokenRequest {
-                target,
-                identity_provider,
-            },
+            TokenRequest { target, identity_provider },
             request_format.clone(),
         )
         .await
         .unwrap();
 
-        assert_eq!(
-            response.status(),
-            200,
-            "failed to get token: {:?}",
-            response.text().await.unwrap()
-        );
+        assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
 
         let body: TokenResponse = response.json().await.unwrap();
         assert!(body.expires_in_seconds > 0);
@@ -478,9 +411,7 @@ mod tests {
 
         let response = post_request(
             format!("http://{}/api/v1/introspect", address.clone().to_string()),
-            IntrospectRequest {
-                token: body.access_token.clone(),
-            },
+            IntrospectRequest { token: body.access_token.clone() },
             request_format,
         )
         .await
@@ -496,14 +427,7 @@ mod tests {
     ///  1. fetch user token from mock-oauth2-server
     ///  2. exchange user token for on-behalf-of token at /token/exchange
     ///  3. introspect the resulting token at /introspect
-    async fn token_exchange_token(
-        expected_issuer: String,
-        target: String,
-        address: String,
-        identity_provider_address: String,
-        identity_provider: IdentityProvider,
-        request_format: RequestFormat,
-    ) {
+    async fn token_exchange_token(expected_issuer: String, target: String, address: String, identity_provider_address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
         #[derive(Serialize)]
         struct AuthorizeRequest {
             grant_type: String,
@@ -530,10 +454,7 @@ mod tests {
         let user_token: TokenResponse = user_token_response.json().await.unwrap();
 
         let response = post_request(
-            format!(
-                "http://{}/api/v1/token/exchange",
-                address.clone().to_string()
-            ),
+            format!("http://{}/api/v1/token/exchange", address.clone().to_string()),
             TokenExchangeRequest {
                 target,
                 identity_provider,
@@ -544,12 +465,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(
-            response.status(),
-            200,
-            "failed to exchange token: {:?}",
-            response.text().await.unwrap()
-        );
+        assert_eq!(response.status(), 200, "failed to exchange token: {:?}", response.text().await.unwrap());
 
         let body: TokenResponse = response.json().await.unwrap();
         assert!(body.expires_in_seconds > 0);
@@ -557,9 +473,7 @@ mod tests {
 
         let response = post_request(
             format!("http://{}/api/v1/introspect", address.clone().to_string()),
-            IntrospectRequest {
-                token: body.access_token.clone(),
-            },
+            IntrospectRequest { token: body.access_token.clone() },
             request_format,
         )
         .await
@@ -572,12 +486,7 @@ mod tests {
         assert!(!body["sub"].to_string().is_empty());
     }
 
-    async fn introspect_idporten_token(
-        expected_issuer: String,
-        address: String,
-        identity_provider_address: String,
-        request_format: RequestFormat,
-    ) {
+    async fn introspect_idporten_token(expected_issuer: String, address: String, identity_provider_address: String, request_format: RequestFormat) {
         #[derive(Serialize)]
         struct AuthorizeRequest {
             grant_type: String,
@@ -597,8 +506,8 @@ mod tests {
             },
             RequestFormat::Form,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(user_token_response.status(), 200);
         let user_token: TokenResponse = user_token_response.json().await.unwrap();
@@ -610,8 +519,8 @@ mod tests {
             },
             request_format,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
@@ -627,11 +536,7 @@ mod tests {
         Form,
     }
 
-    async fn post_request(
-        url: String,
-        params: impl Serialize,
-        format: RequestFormat,
-    ) -> Result<Response, Error> {
+    async fn post_request(url: String, params: impl Serialize, format: RequestFormat) -> Result<Response, Error> {
         let client = reqwest::Client::new();
         let request = client.post(url).header("accept", "application/json");
         let request = match format {
@@ -641,18 +546,8 @@ mod tests {
         request.send().await
     }
 
-    async fn test_well_formed_json_request<
-        T: Serialize,
-        U: DeserializeOwned + PartialEq + Debug,
-    >(
-        url: &str,
-        request: T,
-        response: U,
-        status_code: StatusCode,
-    ) {
-        let http_response = post_request(url.to_string(), request, RequestFormat::Json)
-            .await
-            .unwrap();
+    async fn test_well_formed_json_request<T: Serialize, U: DeserializeOwned + PartialEq + Debug>(url: &str, request: T, response: U, status_code: StatusCode) {
+        let http_response = post_request(url.to_string(), request, RequestFormat::Json).await.unwrap();
 
         assert_eq!(http_response.status(), status_code);
         assert_eq!(http_response.json::<U>().await.unwrap(), response);
@@ -671,13 +566,8 @@ mod tests {
             let docker = DockerRuntimeParams::init().await;
 
             match docker.container {
-                None => info!(
-                    "Expecting mock-oauth2-server natively in docker-compose on localhost:8080"
-                ),
-                Some(_) => info!(
-                    "Running mock-oauth2-server on {}:{}",
-                    docker.host, docker.port,
-                ),
+                None => info!("Expecting mock-oauth2-server natively in docker-compose on localhost:8080"),
+                Some(_) => info!("Running mock-oauth2-server on {}:{}", docker.host, docker.port,),
             }
 
             // Set up Texas
@@ -755,8 +645,7 @@ mod tests {
             let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
                 .with_exposed_port(8080.tcp())
                 .with_wait_for(WaitFor::Http(
-                    HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration")
-                        .with_expected_status_code(StatusCode::OK),
+                    HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK),
                 ))
                 .with_env_var("JSON_CONFIG", Self::MOCK_OAUTH_SERVER_JSON_CONFIG)
                 .start()

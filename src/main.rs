@@ -8,10 +8,10 @@ pub mod jwks;
 mod tracing;
 
 use crate::app::App;
+use crate::tracing::{init_tracing_subscriber, test};
 use config::Config;
 use dotenv::dotenv;
 use log::{error, info};
-use crate::tracing::{init_tracing_subscriber, test};
 
 #[tokio::main]
 async fn main() {
@@ -20,14 +20,13 @@ async fn main() {
     test().await;
 
     /*env_logger::builder()
-        .filter_level(LevelFilter::Debug)
-        .init();
-*/
+            .filter_level(LevelFilter::Debug)
+            .init();
+    */
     config::print_texas_logo();
     info!("Starting up");
 
     let _ = dotenv(); // load .env if present
-
 
     let cfg = match Config::new_from_env() {
         Ok(cfg) => cfg,

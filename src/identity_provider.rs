@@ -1,15 +1,15 @@
-use std::cmp::PartialEq;
 use crate::claims::{serialize, Assertion};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder, TokenRequestBuilderParams};
 use crate::handlers::ApiError;
 use crate::jwks;
-use axum::{async_trait};
+use axum::async_trait;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use log::error;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
@@ -96,12 +96,7 @@ pub struct ErrorResponse {
 
 impl Display for ErrorResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}: {}",
-            serde_json::to_string(&self.error).unwrap(),
-            self.description
-        )
+        write!(f, "{}: {}", serde_json::to_string(&self.error).unwrap(), self.description)
     }
 }
 
@@ -120,10 +115,7 @@ impl From<ApiError> for ErrorResponse {
                 error: OAuthErrorCode::ServerError,
                 description: format!("Failed to parse JSON: {}", err),
             },
-            ApiError::Upstream {
-                status_code: _status_code,
-                error,
-            } => ErrorResponse {
+            ApiError::Upstream { status_code: _status_code, error } => ErrorResponse {
                 error: error.error,
                 description: error.description,
             },
@@ -261,8 +253,7 @@ impl IntrospectRequest {
         validation.insecure_disable_signature_validation();
 
         let key = jwt::DecodingKey::from_secret(&[]);
-        jwt::decode::<IssuerClaim>(&self.token, &key, &validation).ok()
-            .map(|data| data.claims.iss)
+        jwt::decode::<IssuerClaim>(&self.token, &key, &validation).ok().map(|data| data.claims.iss)
     }
 }
 
@@ -284,14 +275,7 @@ where
     R: TokenRequestBuilder,
     A: Assertion,
 {
-    pub fn new(
-        kind: IdentityProvider,
-        issuer: String,
-        client_id: String,
-        token_endpoint: Option<String>,
-        private_jwk: Option<String>,
-        upstream_jwks: jwks::Jwks,
-    ) -> Option<Self> {
+    pub fn new(kind: IdentityProvider, issuer: String, client_id: String, token_endpoint: Option<String>, private_jwk: Option<String>, upstream_jwks: jwks::Jwks) -> Option<Self> {
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
             let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().ok()?;
             let alg: jwt::Algorithm = client_private_jwk.algorithm?.into();
@@ -352,17 +336,10 @@ where
     }
 
     async fn introspect(&mut self, token: String) -> IntrospectResponse {
-        self.upstream_jwks
-            .validate(&token)
-            .await
-            .map(IntrospectResponse::new)
-            .unwrap_or_else(IntrospectResponse::new_invalid)
+        self.upstream_jwks.validate(&token).await.map(IntrospectResponse::new).unwrap_or_else(IntrospectResponse::new_invalid)
     }
 
-    async fn get_token_with_config(
-        &self,
-        config: TokenRequestBuilderParams,
-    ) -> Result<TokenResponse, ApiError> {
+    async fn get_token_with_config(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
         let client = reqwest::Client::new();
@@ -377,10 +354,7 @@ where
         let status = response.status();
         if status >= StatusCode::BAD_REQUEST {
             let err: ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
-            let err = ApiError::Upstream {
-                status_code: status,
-                error: err,
-            };
+            let err = ApiError::Upstream { status_code: status, error: err };
             error!("get_token_with_config: {}", err);
             return Err(err);
         }

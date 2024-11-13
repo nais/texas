@@ -1,8 +1,8 @@
-use std::str::ParseBoolError;
+use crate::config::Error::{MissingEnv, ParseBool};
 use log::info;
 use serde::Serialize;
+use std::str::ParseBoolError;
 use thiserror::Error;
-use crate::config::Error::{ParseBool, MissingEnv};
 
 #[derive(Serialize, Debug, Clone)]
 pub struct Config {
@@ -34,9 +34,7 @@ pub enum Error {
 impl Provider {
     fn is_provider_enabled(prefix: &str) -> Result<bool, Error> {
         let key = format!("{prefix}_ENABLED");
-        let Ok(envvar) = std::env::var(&key) else {
-            return Ok(false)
-        };
+        let Ok(envvar) = std::env::var(&key) else { return Ok(false) };
 
         envvar.parse().map_err(|err| ParseBool(key, err))
     }

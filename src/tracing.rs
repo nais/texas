@@ -19,9 +19,7 @@ pub fn init_tracing_subscriber() -> OtelGuard {
     let meter_provider = init_meter_provider();
     let tracer = init_tracer();
     tracing_subscriber::registry()
-        .with(tracing_subscriber::filter::LevelFilter::from_level(
-            Level::INFO,
-        ))
+        .with(tracing_subscriber::filter::LevelFilter::from_level(Level::INFO))
         .with(MetricsLayer::new(meter_provider.clone()))
         .with(tracing_subscriber::fmt::layer())
         .with(OpenTelemetryLayer::new(tracer))
@@ -43,28 +41,18 @@ impl Drop for OtelGuard {
     }
 }
 
-
 // Construct MeterProvider for MetricsLayer
 fn init_meter_provider() -> SdkMeterProvider {
-    let exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
-        .build_metrics_exporter(Box::new(DefaultTemporalitySelector::new()))
-        .unwrap();
+    let exporter = opentelemetry_otlp::new_exporter().tonic().build_metrics_exporter(Box::new(DefaultTemporalitySelector::new())).unwrap();
 
-    let reader = PeriodicReader::builder(exporter, runtime::Tokio)
-        .with_interval(std::time::Duration::from_secs(2))
-        .build();
+    let reader = PeriodicReader::builder(exporter, runtime::Tokio).with_interval(std::time::Duration::from_secs(2)).build();
 
-    let meter_provider = MeterProviderBuilder::default()
-        .with_resource(resource())
-        .with_reader(reader)
-        .build();
+    let meter_provider = MeterProviderBuilder::default().with_resource(resource()).with_reader(reader).build();
 
     global::set_meter_provider(meter_provider.clone());
 
     meter_provider
 }
-
 
 fn init_tracer() -> Tracer {
     let provider = opentelemetry_otlp::new_pipeline()
@@ -72,9 +60,7 @@ fn init_tracer() -> Tracer {
         .with_trace_config(
             opentelemetry_sdk::trace::Config::default()
                 // Customize sampling strategy
-                .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-                    1.0,
-                ))))
+                .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(1.0))))
                 // If export trace to AWS X-Ray, you can use XrayIdGenerator
                 .with_id_generator(RandomIdGenerator::default())
                 .with_resource(resource()),
@@ -92,12 +78,7 @@ fn init_tracer() -> Tracer {
 pub async fn test() {
     info!("Hello, world!");
     yolo("hello");
-    tracing::info!(
-        monotonic_counter.foo = 1_u64,
-        key_1 = "bar",
-        key_2 = 10,
-        "handle foo",
-    );
+    tracing::info!(monotonic_counter.foo = 1_u64, key_1 = "bar", key_2 = 10, "handle foo",);
 }
 
 #[instrument(fields(span.kind = "server", yoloparam=test), skip_all)]

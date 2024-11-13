@@ -1,13 +1,15 @@
+use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
 use crate::config::Config;
+use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 use crate::identity_provider::*;
 use crate::{config, jwks};
 use axum::extract::rejection::{FormRejection, JsonRejection};
+use axum::extract::FromRequest;
 use axum::extract::State;
-use axum::extract::{FromRequest};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::{Json};
+use axum::Json;
 use axum::{async_trait, Form};
 use jsonwebtoken as jwt;
 use log::{error, info};
@@ -17,8 +19,6 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::instrument;
-use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
-use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 
 #[utoipa::path(
     post,
@@ -55,10 +55,7 @@ use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, Tok
     )
 )]
 #[instrument(skip_all)]
-pub async fn token(
-    State(state): State<HandlerState>,
-    JsonOrForm(request): JsonOrForm<TokenRequest>,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
     for provider in state.providers {
         if !provider.read().await.should_handle_token_request(&request) {
             continue;
@@ -106,10 +103,7 @@ pub async fn token(
     )
 )]
 #[instrument(skip_all)]
-pub async fn token_exchange(
-    State(state): State<HandlerState>,
-    JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenExchangeRequest>) -> Result<impl IntoResponse, ApiError> {
     for provider in state.providers {
         if !provider.read().await.should_handle_token_exchange_request(&request) {
             continue;
@@ -158,10 +152,7 @@ pub async fn token_exchange(
     )
 )]
 #[instrument(skip_all)]
-pub async fn introspect(
-    State(state): State<HandlerState>,
-    JsonOrForm(request): JsonOrForm<IntrospectRequest>,
-) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
+pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
     for provider in state.providers {
         if !provider.read().await.should_handle_introspect_request(&request) {
             continue;
@@ -194,31 +185,23 @@ pub enum InitError {
     Jwks(#[from] jwks::Error),
 }
 
-async fn new<R, A>
-(
-    kind: IdentityProvider,
-    provider_cfg: &config::Provider,
-    audience: Option<String>,
-) -> Result<Arc<RwLock<Box<dyn ProviderHandler>>>, InitError>
+async fn new<R, A>(kind: IdentityProvider, provider_cfg: &config::Provider, audience: Option<String>) -> Result<Arc<RwLock<Box<dyn ProviderHandler>>>, InitError>
 where
     R: TokenRequestBuilder + 'static,
     A: Assertion + 'static,
     Provider<R, A>: ShouldHandler,
 {
-    Ok(
-        Arc::new(RwLock::new(
-            Box::new(Provider::<R, A>::new(
-                kind,
-                provider_cfg.issuer.clone(),
-                provider_cfg.client_id.clone(),
-                provider_cfg.token_endpoint.clone(),
-                provider_cfg.client_jwk.clone(),
-                jwks::Jwks::new(
-                    &provider_cfg.issuer.clone(),
-                    &provider_cfg.jwks_uri.clone(),
-                    audience,
-                ).await?,
-            ).ok_or(InitError::Jwk)?))))
+    Ok(Arc::new(RwLock::new(Box::new(
+        Provider::<R, A>::new(
+            kind,
+            provider_cfg.issuer.clone(),
+            provider_cfg.client_id.clone(),
+            provider_cfg.token_endpoint.clone(),
+            provider_cfg.client_jwk.clone(),
+            jwks::Jwks::new(&provider_cfg.issuer.clone(), &provider_cfg.jwks_uri.clone(), audience).await?,
+        )
+        .ok_or(InitError::Jwk)?,
+    ))))
 }
 
 impl HandlerState {
@@ -227,56 +210,33 @@ impl HandlerState {
 
         if let Some(provider_cfg) = &cfg.maskinporten {
             info!("Fetch JWKS for Maskinporten...");
-            let provider = new::<JWTBearer, JWTBearerAssertion>(
-                IdentityProvider::Maskinporten,
-                provider_cfg,
-                None,
-            ).await?;
+            let provider = new::<JWTBearer, JWTBearerAssertion>(IdentityProvider::Maskinporten, provider_cfg, None).await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.azure_ad {
             info!("Fetch JWKS for Azure AD (on behalf of)...");
-            let provider = new::<OnBehalfOf, ClientAssertion>(
-                IdentityProvider::AzureAD,
-                provider_cfg,
-                Some(provider_cfg.client_id.clone()),
-            ).await?;
+            let provider = new::<OnBehalfOf, ClientAssertion>(IdentityProvider::AzureAD, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
             providers.push(provider);
 
             info!("Fetch JWKS for Azure AD (client credentials)...");
-            let provider = new::<ClientCredentials, ClientAssertion>(
-                IdentityProvider::AzureAD,
-                provider_cfg,
-                Some(provider_cfg.client_id.clone()),
-            ).await?;
+            let provider = new::<ClientCredentials, ClientAssertion>(IdentityProvider::AzureAD, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.token_x {
             info!("Fetch JWKS for TokenX...");
-            let provider = new::<TokenExchange, ClientAssertion>(
-                IdentityProvider::TokenX,
-                provider_cfg,
-                Some(provider_cfg.client_id.clone()),
-            ).await?;
+            let provider = new::<TokenExchange, ClientAssertion>(IdentityProvider::TokenX, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.idporten {
             info!("Fetch JWKS for ID-porten...");
-            let provider = new::<(), ()>(
-                IdentityProvider::IDPorten,
-                provider_cfg,
-                Some(provider_cfg.client_id.clone()),
-            ).await?;
+            let provider = new::<(), ()>(IdentityProvider::IDPorten, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
             providers.push(provider);
         }
 
-        Ok(Self {
-            cfg,
-            providers,
-        })
+        Ok(Self { cfg, providers })
     }
 }
 
@@ -286,10 +246,7 @@ pub enum ApiError {
     UpstreamRequest(reqwest::Error),
 
     #[error("upstream: status code {status_code}: {error}")]
-    Upstream {
-        status_code: StatusCode,
-        error: ErrorResponse,
-    },
+    Upstream { status_code: StatusCode, error: ErrorResponse },
 
     #[error("invalid JSON in token response: {0}")]
     JSON(reqwest::Error),
@@ -331,8 +288,8 @@ impl<S, T> FromRequest<S> for JsonOrForm<T>
 where
     S: Send + Sync,
     T: 'static,
-    Json<T>: FromRequest<S, Rejection=JsonRejection>,
-    Form<T>: FromRequest<S, Rejection=FormRejection>,
+    Json<T>: FromRequest<S, Rejection = JsonRejection>,
+    Form<T>: FromRequest<S, Rejection = FormRejection>,
 {
     type Rejection = ApiError;
 
@@ -345,18 +302,10 @@ where
                 return match Json::<T>::from_request(req, state).await {
                     Ok(payload) => Ok(Self(payload.0)),
                     Err(rejection) => Err(match rejection {
-                        JsonRejection::MissingJsonContentType(err) => {
-                            ApiError::UnsupportedMediaType(err.body_text())
-                        }
-                        JsonRejection::JsonDataError(err) => {
-                            ApiError::UnprocessableContent(err.body_text())
-                        }
-                        JsonRejection::JsonSyntaxError(err) => {
-                            ApiError::UnprocessableContent(err.body_text())
-                        }
-                        JsonRejection::BytesRejection(err) => {
-                            ApiError::UnprocessableContent(err.body_text())
-                        }
+                        JsonRejection::MissingJsonContentType(err) => ApiError::UnsupportedMediaType(err.body_text()),
+                        JsonRejection::JsonDataError(err) => ApiError::UnprocessableContent(err.body_text()),
+                        JsonRejection::JsonSyntaxError(err) => ApiError::UnprocessableContent(err.body_text()),
+                        JsonRejection::BytesRejection(err) => ApiError::UnprocessableContent(err.body_text()),
                         err => ApiError::UnprocessableContent(err.body_text()),
                     }),
                 };
@@ -366,24 +315,19 @@ where
                 return match Form::<T>::from_request(req, state).await {
                     Ok(payload) => Ok(Self(payload.0)),
                     Err(rejection) => Err(match rejection {
-                        FormRejection::InvalidFormContentType(err) => {
-                            ApiError::UnsupportedMediaType(err.body_text())
-                        }
-                        FormRejection::FailedToDeserializeForm(err) => {
-                            ApiError::UnprocessableContent(err.body_text())
-                        }
-                        FormRejection::FailedToDeserializeFormBody(err) => {
-                            ApiError::UnprocessableContent(err.body_text())
-                        }
-                        FormRejection::BytesRejection(err) => {
-                            ApiError::UnprocessableContent(err.body_text())
-                        }
+                        FormRejection::InvalidFormContentType(err) => ApiError::UnsupportedMediaType(err.body_text()),
+                        FormRejection::FailedToDeserializeForm(err) => ApiError::UnprocessableContent(err.body_text()),
+                        FormRejection::FailedToDeserializeFormBody(err) => ApiError::UnprocessableContent(err.body_text()),
+                        FormRejection::BytesRejection(err) => ApiError::UnprocessableContent(err.body_text()),
                         err => ApiError::UnprocessableContent(err.body_text()),
                     }),
                 };
             }
         }
 
-        Err(ApiError::UnsupportedMediaType(format!("unsupported media type: {}: expected one of `application/json`, `application/x-www-form-urlencoded`", content_type.unwrap_or(""))))
+        Err(ApiError::UnsupportedMediaType(format!(
+            "unsupported media type: {}: expected one of `application/json`, `application/x-www-form-urlencoded`",
+            content_type.unwrap_or("")
+        )))
     }
 }
