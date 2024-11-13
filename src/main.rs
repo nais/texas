@@ -8,7 +8,7 @@ pub mod jwks;
 mod tracing;
 
 use crate::app::App;
-use crate::tracing::{init_tracing_subscriber, test};
+use crate::tracing::{init_tracing_subscriber};
 use config::Config;
 use dotenv::dotenv;
 use log::{error, info};
@@ -17,12 +17,6 @@ use log::{error, info};
 async fn main() {
     let _guard = init_tracing_subscriber();
 
-    test().await;
-
-    /*env_logger::builder()
-            .filter_level(LevelFilter::Debug)
-            .init();
-    */
     config::print_texas_logo();
     info!("Starting up");
 
