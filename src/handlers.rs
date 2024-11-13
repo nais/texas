@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
+use tracing::instrument;
 use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 
@@ -53,6 +54,7 @@ use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, Tok
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
+#[instrument(skip_all)]
 pub async fn token(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenRequest>,
@@ -103,6 +105,7 @@ pub async fn token(
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
+#[instrument(skip_all)]
 pub async fn token_exchange(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
@@ -154,6 +157,7 @@ pub async fn token_exchange(
         ),
     )
 )]
+#[instrument(skip_all)]
 pub async fn introspect(
     State(state): State<HandlerState>,
     JsonOrForm(request): JsonOrForm<IntrospectRequest>,
