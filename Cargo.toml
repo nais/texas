@@ -23,11 +23,6 @@ serde_json = "1.0.132"
 utoipa = { version = "5.2.0", features = ["axum_extras", "openapi_extensions"] }
 utoipa-axum = "0.1.2"
 utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
-opentelemetry = "0.27.0"
-opentelemetry_sdk = { version = "0.27.0", features = ["tokio", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.27.0", features = ["http-proto"] }
-opentelemetry-http = { version = "0.27.0", features = ["reqwest-rustls"] }
-opentelemetry-stdout = "0.27.0"
 
 [dev-dependencies]
 testcontainers = { version = "0.23.1", features = ["http_wait", "properties-config"] }
