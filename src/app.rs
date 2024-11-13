@@ -1,3 +1,8 @@
+use std::time::Duration;
+use axum::body::Bytes;
+use axum::extract::MatchedPath;
+use axum::http::{HeaderMap, Request};
+use axum::response::Response;
 use crate::config::Config;
 use crate::handlers::__path_introspect;
 use crate::handlers::__path_token;
@@ -6,6 +11,9 @@ use crate::handlers::{introspect, token, token_exchange, HandlerState};
 use axum::Router;
 use log::info;
 use tokio::net::TcpListener;
+use tower_http::classify::ServerErrorsFailureClass;
+use tower_http::trace::TraceLayer;
+use tracing::{info_span, Span};
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -48,6 +56,46 @@ impl App {
             .routes(routes!(token))
             .routes(routes!(token_exchange))
             .routes(routes!(introspect))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(|request: &Request<_>| {
+                        // Log the matched route's path (with placeholders not filled in).
+                        // Use request.uri() or OriginalUri if you want the real path.
+                        let matched_path = request
+                            .extensions()
+                            .get::<MatchedPath>()
+                            .map(MatchedPath::as_str);
+
+                        info_span!(
+                        "http_request",
+                        method = ?request.method(),
+                        matched_path,
+                        some_other_field = tracing::field::Empty,
+                    )
+                    })
+                    .on_request(|_request: &Request<_>, _span: &Span| {
+                        // You can use `_span.record("some_other_field", value)` in one of these
+                        // closures to attach a value to the initially empty field in the info_span
+                        // created above.
+                    })
+                    .on_response(|response: &Response, latency: Duration, span: &Span| {
+                        tracing::info!(histogram.http_response_secs = latency.as_secs_f64(), code = %response.status().as_u16());
+                        tracing::info!(monotonic_counter.response_code = 1, response_code = response.status().as_u16());
+                    })
+                    .on_body_chunk(|_chunk: &Bytes, _latency: Duration, _span: &Span| {
+                        // ...
+                    })
+                    .on_eos(
+                        |_trailers: Option<&HeaderMap>, _stream_duration: Duration, _span: &Span| {
+                            // ...
+                        },
+                    )
+                    .on_failure(
+                        |_error: ServerErrorsFailureClass, _latency: Duration, _span: &Span| {
+                            // ...
+                        },
+                    ),
+            )
             .with_state(state)
             .split_for_parts();
 
@@ -108,7 +156,7 @@ mod tests {
                 IdentityProvider::Maskinporten,
                 format.clone(),
             )
-            .await;
+                .await;
 
             machine_to_machine_token(
                 testapp.cfg.azure_ad.clone().unwrap().issuer.clone(),
@@ -117,7 +165,7 @@ mod tests {
                 IdentityProvider::AzureAD,
                 format.clone(),
             )
-            .await;
+                .await;
 
             token_exchange_token(
                 testapp.cfg.azure_ad.clone().unwrap().issuer.clone(),
@@ -127,7 +175,7 @@ mod tests {
                 IdentityProvider::AzureAD,
                 format.clone(),
             )
-            .await;
+                .await;
 
             token_exchange_token(
                 testapp.cfg.token_x.clone().unwrap().issuer.clone(),
@@ -137,7 +185,7 @@ mod tests {
                 IdentityProvider::TokenX,
                 format.clone(),
             )
-            .await;
+                .await;
 
             introspect_idporten_token(testapp.cfg.idporten.clone().unwrap().issuer.clone(), address.to_string(), identity_provider_address.to_string(), format).await;
         }
@@ -194,7 +242,7 @@ mod tests {
             IntrospectResponse::new_invalid("unrecognized issuer: 'snafu'"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_introspect_token_missing_issuer(address: &str) {
@@ -205,7 +253,7 @@ mod tests {
             IntrospectResponse::new_invalid("token is invalid"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_introspect_token_is_not_a_jwt(address: &str) {
@@ -217,7 +265,7 @@ mod tests {
             IntrospectResponse::new_invalid("token is invalid"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_introspect_token_missing_kid(address: &str, identity_provider_address: &str) {
@@ -228,7 +276,7 @@ mod tests {
             IntrospectResponse::new_invalid("missing key id from token header"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_introspect_token_missing_key_in_jwks(address: &str, identity_provider_address: &str) {
@@ -240,7 +288,7 @@ mod tests {
             IntrospectResponse::new_invalid("signing key with missing-key not in json web key set"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_introspect_token_is_expired(address: &str, identity_provider_address: &str) {
@@ -261,7 +309,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: ExpiredSignature"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_introspect_token_is_issued_in_the_future(address: &str, identity_provider_address: &str) {
@@ -281,7 +329,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_introspect_token_has_not_before_in_the_future(address: &str, identity_provider_address: &str) {
@@ -301,7 +349,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_introspect_token_invalid_audience(address: &str) {
@@ -313,8 +361,8 @@ mod tests {
             },
             Json,
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
 
@@ -328,7 +376,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: InvalidAudience"),
             StatusCode::OK,
         )
-        .await;
+            .await;
     }
 
     async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
@@ -345,7 +393,7 @@ mod tests {
             },
             StatusCode::BAD_REQUEST,
         )
-        .await;
+            .await;
     }
 
     async fn test_token_invalid_identity_provider(address: &str) {
@@ -354,8 +402,8 @@ mod tests {
             json!({"target":"dontcare","identity_provider":"invalid"}),
             RequestFormat::Json,
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), 400);
         assert_eq!(
@@ -368,8 +416,8 @@ mod tests {
             HashMap::from([("target", "dontcare"), ("identity_provider", "invalid")]),
             RequestFormat::Form,
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), 400);
         assert_eq!(
@@ -400,8 +448,8 @@ mod tests {
             TokenRequest { target, identity_provider },
             request_format.clone(),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
 
@@ -414,8 +462,8 @@ mod tests {
             IntrospectRequest { token: body.access_token.clone() },
             request_format,
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
@@ -447,8 +495,8 @@ mod tests {
             },
             RequestFormat::Form,
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(user_token_response.status(), 200);
         let user_token: TokenResponse = user_token_response.json().await.unwrap();
@@ -462,8 +510,8 @@ mod tests {
             },
             request_format.clone(),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), 200, "failed to exchange token: {:?}", response.text().await.unwrap());
 
@@ -476,8 +524,8 @@ mod tests {
             IntrospectRequest { token: body.access_token.clone() },
             request_format,
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
@@ -506,8 +554,8 @@ mod tests {
             },
             RequestFormat::Form,
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(user_token_response.status(), 200);
         let user_token: TokenResponse = user_token_response.json().await.unwrap();
@@ -519,8 +567,8 @@ mod tests {
             },
             request_format,
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
