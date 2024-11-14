@@ -10,10 +10,14 @@ use crate::handlers::__path_token_exchange;
 use crate::handlers::{introspect, token, token_exchange, HandlerState};
 use axum::Router;
 use log::info;
+use opentelemetry::propagation::TextMapPropagator;
+use opentelemetry_http::HeaderExtractor;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::TraceLayer;
 use tracing::{info_span, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -66,12 +70,17 @@ impl App {
                             .get::<MatchedPath>()
                             .map(MatchedPath::as_str);
 
-                        info_span!(
-                        "http_request",
-                        method = ?request.method(),
-                        matched_path,
-                        some_other_field = tracing::field::Empty,
-                    )
+                        // get tracing context from request
+                        let propagator = TraceContextPropagator::new();
+                        let parent_context = propagator.extract(&HeaderExtractor(request.headers()));
+
+                        let root_span = info_span!(
+                            "http_request",
+                            method = ?request.method(),
+                            matched_path,
+                        );
+                        root_span.set_parent(parent_context.clone());
+                        root_span
                     })
                     .on_request(|_request: &Request<_>, _span: &Span| {
                         // You can use `_span.record("some_other_field", value)` in one of these
@@ -79,8 +88,10 @@ impl App {
                         // created above.
                     })
                     .on_response(|response: &Response, latency: Duration, span: &Span| {
-                        tracing::info!(histogram.http_response_secs = latency.as_secs_f64(), code = %response.status().as_u16());
-                        tracing::info!(monotonic_counter.response_code = 1, response_code = response.status().as_u16());
+                        tracing::info!(
+                            histogram.http_response_secs = latency.as_secs_f64(),
+                            status_code = response.status().as_u16(),
+                        );
                     })
                     .on_body_chunk(|_chunk: &Bytes, _latency: Duration, _span: &Span| {
                         // ...
