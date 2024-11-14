@@ -29,8 +29,8 @@ pub enum Error {
     MissingKeyID,
     #[error("missing key id from token header")]
     MissingKeyIDInTokenHeader,
-    #[error("signing key with {0} not in json web key set")]
-    KeyNotInJWKS(String),
+    #[error("token can not be validated with this identity provider")]
+    KeyNotInJWKS,
     #[error("invalid token header: {0}")]
     InvalidTokenHeader(jwt::errors::Error),
     #[error("invalid token: {0}")]
@@ -59,11 +59,11 @@ impl Jwks {
             endpoint: endpoint.to_string(),
             issuer: issuer.to_string(),
             required_audience: required_audience.clone(),
-            validation: Self::validate_with(issuer.to_string(), required_audience),
+            validation: Self::validator(issuer.to_string(), required_audience),
         })
     }
 
-    fn validate_with(issuer: String, audience: Option<String>) -> Validation {
+    fn validator(issuer: String, audience: Option<String>) -> Validation {
         let alg = jwt::Algorithm::RS256;
         let mut validation = Validation::new(alg);
 
@@ -98,7 +98,7 @@ impl Jwks {
         let signing_key = match self.keys.get(&key_id) {
             None => {
                 self.refresh().await?;
-                self.keys.get(&key_id).ok_or(Error::KeyNotInJWKS(key_id))?
+                self.keys.get(&key_id).ok_or(Error::KeyNotInJWKS)?
             }
             Some(key) => key,
         };

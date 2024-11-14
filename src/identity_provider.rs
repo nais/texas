@@ -183,7 +183,7 @@ impl From<OAuthErrorCode> for StatusCode {
 /// Identity providers for use with token fetch, exchange and introspection.
 ///
 /// Each identity provider is enabled when appropriately configured in `nais.yaml`.
-#[derive(Deserialize, Serialize, ToSchema, Clone, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, ToSchema, Clone, Debug, PartialEq, Copy)]
 pub enum IdentityProvider {
     #[serde(rename = "azuread")]
     AzureAD,
@@ -234,6 +234,7 @@ pub struct TokenExchangeRequest {
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct IntrospectRequest {
     pub token: String,
+    pub identity_provider: IdentityProvider,
 }
 
 impl IntrospectRequest {
@@ -262,7 +263,6 @@ pub struct Provider<R, A> {
     client_id: String,
     pub token_endpoint: Option<String>,
     identity_provider_kind: IdentityProvider,
-    issuer: String,
     private_jwk: Option<jwt::EncodingKey>,
     client_assertion_header: Option<jwt::Header>,
     upstream_jwks: jwks::Jwks,
@@ -275,7 +275,7 @@ where
     R: TokenRequestBuilder,
     A: Assertion,
 {
-    pub fn new(kind: IdentityProvider, issuer: String, client_id: String, token_endpoint: Option<String>, private_jwk: Option<String>, upstream_jwks: jwks::Jwks) -> Option<Self> {
+    pub fn new(kind: IdentityProvider, client_id: String, token_endpoint: Option<String>, private_jwk: Option<String>, upstream_jwks: jwks::Jwks) -> Option<Self> {
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
             let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().ok()?;
             let alg: jwt::Algorithm = client_private_jwk.algorithm?.into();
@@ -294,7 +294,6 @@ where
             token_endpoint,
             client_assertion_header,
             upstream_jwks,
-            issuer,
             identity_provider_kind: kind,
             private_jwk: client_private_jwk,
             _fake_request: Default::default(),
@@ -318,7 +317,7 @@ where
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target).ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind.clone()))?,
+            assertion: self.create_assertion(request.target).ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?,
             client_id: Some(self.client_id.clone()),
             user_token: None,
         };
@@ -328,7 +327,7 @@ where
     async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target).ok_or(ApiError::TokenExchangeUnsupported(self.identity_provider_kind.clone()))?,
+            assertion: self.create_assertion(request.target).ok_or(ApiError::TokenExchangeUnsupported(self.identity_provider_kind))?,
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
         };
@@ -344,7 +343,7 @@ where
 
         let client = reqwest::Client::new();
         let response = client
-            .post(self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind.clone()))?)
+            .post(self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?)
             .header("accept", "application/json")
             .form(&params)
             .send()
@@ -397,13 +396,8 @@ where
     }
 
     fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
-        match request.issuer() {
-            Some(iss) if iss == self.issuer => true,
-            Some(_) => false,
-            None => false,
-        }
+        self.identity_provider_kind == request.identity_provider
     }
-
     // JWTBearer grant does not support exchanging tokens.
 }
 
@@ -416,11 +410,7 @@ where
     }
 
     fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
-        match request.issuer() {
-            Some(iss) if iss == self.issuer => true,
-            Some(_) => false,
-            None => false,
-        }
+        self.identity_provider_kind == request.identity_provider
     }
 
     // ClientCredentials grant does not support exchanging tokens.
@@ -437,11 +427,7 @@ where
     }
 
     fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
-        match request.issuer() {
-            Some(iss) if iss == self.issuer => true,
-            Some(_) => false,
-            None => false,
-        }
+        self.identity_provider_kind == request.identity_provider
     }
 }
 
@@ -455,11 +441,7 @@ where
         self.identity_provider_kind == request.identity_provider
     }
     fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
-        match request.issuer() {
-            Some(iss) if iss == self.issuer => true,
-            Some(_) => false,
-            None => false,
-        }
+        self.identity_provider_kind == request.identity_provider
     }
 }
 
@@ -468,10 +450,6 @@ where
     A: Serialize + Assertion,
 {
     fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
-        match request.issuer() {
-            Some(iss) if iss == self.issuer => true,
-            Some(_) => false,
-            None => false,
-        }
+        self.identity_provider_kind == request.identity_provider
     }
 }

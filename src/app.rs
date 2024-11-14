@@ -1,18 +1,18 @@
-use std::time::Duration;
-use axum::body::Bytes;
-use axum::extract::MatchedPath;
-use axum::http::{HeaderMap, Request};
-use axum::response::Response;
 use crate::config::Config;
 use crate::handlers::__path_introspect;
 use crate::handlers::__path_token;
 use crate::handlers::__path_token_exchange;
 use crate::handlers::{introspect, token, token_exchange, HandlerState};
+use axum::body::Bytes;
+use axum::extract::MatchedPath;
+use axum::http::{HeaderMap, Request};
+use axum::response::Response;
 use axum::Router;
 use log::info;
 use opentelemetry::propagation::TextMapPropagator;
 use opentelemetry_http::HeaderExtractor;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::TraceLayer;
@@ -207,6 +207,7 @@ mod tests {
         test_introspect_token_is_not_a_jwt(&address).await;
         test_introspect_token_missing_issuer(&address).await;
         test_introspect_token_unrecognized_issuer(&address).await;
+        test_introspect_token_issuer_mismatch(&address, &identity_provider_address).await;
         test_introspect_token_missing_kid(&address, &identity_provider_address).await;
         test_introspect_token_missing_key_in_jwks(&address, &identity_provider_address).await;
         test_introspect_token_is_expired(&address, &identity_provider_address).await;
@@ -246,22 +247,62 @@ mod tests {
     }
 
     async fn test_introspect_token_unrecognized_issuer(address: &str) {
-        let token = Token::sign(TokenClaims::from([("iss".into(), Value::String("snafu".into()))]));
+        let token = Token::sign_with_kid(
+            TokenClaims::from([
+                ("iss".into(), Value::String("snafu".into())),
+                ("nbf".into(), (epoch_now_secs()).into()),
+                ("iat".into(), (epoch_now_secs()).into()),
+                ("exp".into(), (epoch_now_secs() + 120).into()),
+            ]),
+            &IdentityProvider::Maskinporten.to_string(),
+        );
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest { token },
-            IntrospectResponse::new_invalid("unrecognized issuer: 'snafu'"),
+            IntrospectRequest {
+                token,
+                identity_provider: IdentityProvider::Maskinporten,
+            },
+            IntrospectResponse::new_invalid("invalid token: InvalidIssuer"),
+            StatusCode::OK,
+        )
+            .await;
+    }
+
+    async fn test_introspect_token_issuer_mismatch(address: &str, identity_provider_address: &str) {
+        let iss = format!("http://{}/maskinporten", identity_provider_address);
+        let token = Token::sign_with_kid(TokenClaims::from([
+            ("iss".into(), Value::String(iss)),
+            ("nbf".into(), (epoch_now_secs()).into()),
+            ("iat".into(), (epoch_now_secs()).into()),
+            ("exp".into(), (epoch_now_secs() + 120).into()),
+        ]), &IdentityProvider::Maskinporten.to_string());
+
+        test_well_formed_json_request(
+            &format!("http://{}/api/v1/introspect", address),
+            IntrospectRequest {
+                token,
+                identity_provider: IdentityProvider::AzureAD,
+            },
+            IntrospectResponse::new_invalid("token can not be validated with this identity provider"),
             StatusCode::OK,
         )
             .await;
     }
 
     async fn test_introspect_token_missing_issuer(address: &str) {
-        let token = Token::sign(TokenClaims::new());
+        let token = Token::sign_with_kid(TokenClaims::from([
+            ("nbf".into(), (epoch_now_secs()).into()),
+            ("iat".into(), (epoch_now_secs()).into()),
+            ("exp".into(), (epoch_now_secs() + 120).into()),
+        ]), &IdentityProvider::Maskinporten.to_string());
+
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest { token },
-            IntrospectResponse::new_invalid("token is invalid"),
+            IntrospectRequest {
+                token,
+                identity_provider: IdentityProvider::Maskinporten,
+            },
+            IntrospectResponse::new_invalid("invalid token: Missing required claim: iss"),
             StatusCode::OK,
         )
             .await;
@@ -271,9 +312,10 @@ mod tests {
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
             IntrospectRequest {
-                token: "this is not a token".to_string(),
+                token: "not a jwt".to_string(),
+                identity_provider: IdentityProvider::AzureAD,
             },
-            IntrospectResponse::new_invalid("token is invalid"),
+            IntrospectResponse::new_invalid("invalid token header: InvalidToken"),
             StatusCode::OK,
         )
             .await;
@@ -283,7 +325,10 @@ mod tests {
         let token = Token::sign(TokenClaims::from([("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into())]));
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest { token },
+            IntrospectRequest {
+                token,
+                identity_provider: IdentityProvider::AzureAD,
+            },
             IntrospectResponse::new_invalid("missing key id from token header"),
             StatusCode::OK,
         )
@@ -295,8 +340,11 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest { token },
-            IntrospectResponse::new_invalid("signing key with missing-key not in json web key set"),
+            IntrospectRequest {
+                token,
+                identity_provider: IdentityProvider::Maskinporten,
+            },
+            IntrospectResponse::new_invalid("token can not be validated with this identity provider"),
             StatusCode::OK,
         )
             .await;
@@ -316,7 +364,10 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest { token },
+            IntrospectRequest {
+                token,
+                identity_provider: IdentityProvider::Maskinporten,
+            },
             IntrospectResponse::new_invalid("invalid token: ExpiredSignature"),
             StatusCode::OK,
         )
@@ -336,7 +387,10 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest { token },
+            IntrospectRequest {
+                token,
+                identity_provider: IdentityProvider::Maskinporten,
+            },
             IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
             StatusCode::OK,
         )
@@ -356,7 +410,10 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest { token },
+            IntrospectRequest {
+                token,
+                identity_provider: IdentityProvider::Maskinporten,
+            },
             IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
             StatusCode::OK,
         )
@@ -383,7 +440,10 @@ mod tests {
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest { token: body.access_token.clone() },
+            IntrospectRequest {
+                token: body.access_token.clone(),
+                identity_provider: IdentityProvider::AzureAD,
+            },
             IntrospectResponse::new_invalid("invalid token: InvalidAudience"),
             StatusCode::OK,
         )
@@ -470,7 +530,10 @@ mod tests {
 
         let response = post_request(
             format!("http://{}/api/v1/introspect", address.clone().to_string()),
-            IntrospectRequest { token: body.access_token.clone() },
+            IntrospectRequest {
+                token: body.access_token.clone(),
+                identity_provider,
+            },
             request_format,
         )
             .await
@@ -532,7 +595,10 @@ mod tests {
 
         let response = post_request(
             format!("http://{}/api/v1/introspect", address.clone().to_string()),
-            IntrospectRequest { token: body.access_token.clone() },
+            IntrospectRequest {
+                token: body.access_token.clone(),
+                identity_provider,
+            },
             request_format,
         )
             .await
@@ -575,6 +641,7 @@ mod tests {
             format!("http://{}/api/v1/introspect", address.clone().to_string()),
             IntrospectRequest {
                 token: user_token.access_token.clone(),
+                identity_provider: IdentityProvider::IDPorten,
             },
             request_format,
         )

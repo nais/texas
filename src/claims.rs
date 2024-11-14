@@ -64,9 +64,7 @@ impl Assertion for ClientAssertion {
 }
 
 impl Assertion for () {
-    fn new(_token_endpoint: String, _client_id: String, _target: String) -> Self {
-        ()
-    }
+    fn new(_token_endpoint: String, _client_id: String, _target: String) -> Self {}
 }
 
 pub fn epoch_now_secs() -> u64 {
