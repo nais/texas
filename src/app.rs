@@ -14,7 +14,7 @@ use opentelemetry_http::HeaderExtractor;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use std::time::Duration;
 use opentelemetry::baggage::BaggageExt;
-use opentelemetry::KeyValue;
+use opentelemetry::{global, KeyValue};
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::TraceLayer;
@@ -93,11 +93,27 @@ impl App {
                     })
                     .on_response(|response: &Response, latency: Duration, span: &Span| {
                         let path = span.context().baggage().get("path").map(|x| x.to_string()).unwrap_or_default();
-                        
-                        tracing::info!(
-                            histogram.http_response_secs = latency.as_secs_f64(),
-                            status_code = response.status().as_u16(),
-                            path = path,
+
+                        let meter = global::meter("texas");
+                        let histogram = meter
+                            .f64_histogram("http_response_secs")
+                            .with_description("Response time in seconds")
+                            // Setting boundaries is optional. By default, the boundaries are set to
+                            // [0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0]
+                            .with_boundaries(vec![
+                                0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009,
+                                0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09,
+                                0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                1.0
+                            ])
+                            .init();
+
+                        histogram.record(
+                            latency.as_secs_f64(),
+                            &[
+                                KeyValue::new("status_code", response.status().to_string()),
+                                KeyValue::new("path", path),
+                            ],
                         );
                     })
                     .on_body_chunk(|_chunk: &Bytes, _latency: Duration, _span: &Span| {
