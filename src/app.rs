@@ -13,6 +13,8 @@ use opentelemetry::propagation::TextMapPropagator;
 use opentelemetry_http::HeaderExtractor;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use std::time::Duration;
+use opentelemetry::baggage::BaggageExt;
+use opentelemetry::KeyValue;
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::TraceLayer;
@@ -65,7 +67,7 @@ impl App {
                     .make_span_with(|request: &Request<_>| {
                         // Log the matched route's path (with placeholders not filled in).
                         // Use request.uri() or OriginalUri if you want the real path.
-                        let matched_path = request
+                        let path = request
                             .extensions()
                             .get::<MatchedPath>()
                             .map(MatchedPath::as_str);
@@ -77,9 +79,11 @@ impl App {
                         let root_span = info_span!(
                             "http_request",
                             method = ?request.method(),
-                            matched_path,
+                            path,
                         );
-                        root_span.set_parent(parent_context.clone());
+
+                        let context = parent_context.with_baggage(vec![KeyValue::new("path".to_string(), path.unwrap_or_default().to_string())]);
+                        root_span.set_parent(context.clone());
                         root_span
                     })
                     .on_request(|_request: &Request<_>, _span: &Span| {
@@ -88,9 +92,12 @@ impl App {
                         // created above.
                     })
                     .on_response(|response: &Response, latency: Duration, span: &Span| {
+                        let path = span.context().baggage().get("path").map(|x| x.to_string()).unwrap_or_default();
+                        
                         tracing::info!(
                             histogram.http_response_secs = latency.as_secs_f64(),
                             status_code = response.status().as_u16(),
+                            path = path,
                         );
                     })
                     .on_body_chunk(|_chunk: &Bytes, _latency: Duration, _span: &Span| {
