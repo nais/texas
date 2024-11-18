@@ -13,6 +13,7 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use tracing::instrument;
 use utoipa::ToSchema;
 
 /// RFC 6749 token response from section 5.1.
@@ -301,6 +302,7 @@ where
         })
     }
 
+    #[instrument(skip_all)]
     fn create_assertion(&self, target: String) -> Option<String> {
         let assertion = A::new(self.token_endpoint.as_ref()?.clone(), self.client_id.clone(), target);
         serialize(assertion, self.client_assertion_header.as_ref()?, self.private_jwk.as_ref()?).ok()
@@ -338,6 +340,7 @@ where
         self.upstream_jwks.validate(&token).await.map(IntrospectResponse::new).unwrap_or_else(IntrospectResponse::new_invalid)
     }
 
+    #[instrument(skip_all)]
     async fn get_token_with_config(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
