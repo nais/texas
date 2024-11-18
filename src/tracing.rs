@@ -74,19 +74,6 @@ fn init_tracer() -> Tracer {
     provider.tracer("tracing-otel-subscriber")
 }
 
-#[instrument(skip_all)]
-pub async fn test() {
-    info!("Hello, world!");
-    yolo("hello");
-    tracing::info!(monotonic_counter.foo = 1_u64, key_1 = "bar", key_2 = 10, "handle foo",);
-}
-
-#[instrument(fields(span.kind = "server", yoloparam=test), skip_all)]
-fn yolo(test: &str) {
-    info!("yolo forever");
-    span!(Level::INFO, "yolo using span", test = test);
-}
-
 fn resource() -> Resource {
     Resource::from_schema_url(
         [
