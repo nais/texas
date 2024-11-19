@@ -58,7 +58,7 @@ impl Provider {
         }
         Ok(Some(Self {
             client_id: Self::must_read_env("AZURE_APP_CLIENT_ID")?,
-            client_jwk: Some(Self::must_read_env("AZURE_APP_CLIENT_JWK")?),
+            client_jwk: Some(Self::must_read_env("AZURE_APP_JWK")?),
             jwks_uri: Self::must_read_env("AZURE_OPENID_CONFIG_JWKS_URI")?,
             issuer: Self::must_read_env("AZURE_OPENID_CONFIG_ISSUER")?,
             token_endpoint: Some(Self::must_read_env("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT")?),
