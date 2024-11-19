@@ -267,6 +267,7 @@ pub struct Provider<R, A> {
     private_jwk: Option<jwt::EncodingKey>,
     client_assertion_header: Option<jwt::Header>,
     upstream_jwks: jwks::Jwks,
+    http_client: reqwest::Client,
     _fake_request: PhantomData<R>,
     _fake_assertion: PhantomData<A>,
 }
@@ -295,6 +296,7 @@ where
             token_endpoint,
             client_assertion_header,
             upstream_jwks,
+            http_client: reqwest::Client::default(),
             identity_provider_kind: kind,
             private_jwk: client_private_jwk,
             _fake_request: Default::default(),
@@ -302,7 +304,7 @@ where
         })
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all, name = "Create assertion for token signing request")]
     fn create_assertion(&self, target: String) -> Option<String> {
         let assertion = A::new(self.token_endpoint.as_ref()?.clone(), self.client_id.clone(), target);
         serialize(assertion, self.client_assertion_header.as_ref()?, self.private_jwk.as_ref()?).ok()
@@ -323,7 +325,7 @@ where
             client_id: Some(self.client_id.clone()),
             user_token: None,
         };
-        self.get_token_with_config(token_request).await
+        self.get_token_from_idprovider(token_request).await
     }
 
     async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError> {
@@ -333,19 +335,18 @@ where
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
         };
-        self.get_token_with_config(token_request).await
+        self.get_token_from_idprovider(token_request).await
     }
 
     async fn introspect(&mut self, token: String) -> IntrospectResponse {
         self.upstream_jwks.validate(&token).await.map(IntrospectResponse::new).unwrap_or_else(IntrospectResponse::new_invalid)
     }
 
-    #[instrument(skip_all)]
-    async fn get_token_with_config(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError> {
+    #[instrument(skip_all, name = "Request token from upstream identity provider")]
+    async fn get_token_from_idprovider(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
-        let client = reqwest::Client::new();
-        let response = client
+        let response = self.http_client
             .post(self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?)
             .header("accept", "application/json")
             .form(&params)
@@ -374,7 +375,7 @@ pub trait ProviderHandler: ShouldHandler + Send + Sync {
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError>;
     async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError>;
     async fn introspect(&mut self, token: String) -> IntrospectResponse;
-    async fn get_token_with_config(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError>;
+    async fn get_token_from_idprovider(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError>;
 }
 pub trait ShouldHandler: Send + Sync {
     fn should_handle_token_request(&self, _request: &TokenRequest) -> bool {

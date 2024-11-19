@@ -54,7 +54,7 @@ use tracing::instrument;
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all)]
+#[instrument(skip_all, name = "Handle /api/v1/token")]
 pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
     for provider in state.providers {
         if !provider.read().await.should_handle_token_request(&request) {
@@ -102,7 +102,7 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all)]
+#[instrument(skip_all, name = "Handle /api/v1/token/exchange")]
 pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenExchangeRequest>) -> Result<impl IntoResponse, ApiError> {
     for provider in state.providers {
         if !provider.read().await.should_handle_token_exchange_request(&request) {
@@ -152,7 +152,7 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         ),
     )
 )]
-#[instrument(skip_all)]
+#[instrument(skip_all, name = "Handle /api/v1/introspect")]
 pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
     for provider in state.providers {
         if !provider.read().await.should_handle_introspect_request(&request) {
@@ -293,6 +293,7 @@ where
 {
     type Rejection = ApiError;
 
+    #[instrument(skip_all, name = "Deserialize request")]
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
         let content_type_header = req.headers().get(CONTENT_TYPE);
         let content_type = content_type_header.and_then(|value| value.to_str().ok());

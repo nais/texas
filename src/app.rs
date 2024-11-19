@@ -77,7 +77,7 @@ impl App {
                         let parent_context = propagator.extract(&HeaderExtractor(request.headers()));
 
                         let root_span = info_span!(
-                            "http_request",
+                            "Handle incoming request",
                             method = ?request.method(),
                             path,
                         );
