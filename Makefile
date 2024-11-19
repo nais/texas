@@ -1,4 +1,4 @@
-.PHONY: all setup check
+.PHONY: all setup check test_roundtrip openapi
 
 all:
 	cargo build --release
@@ -15,3 +15,6 @@ test_roundtrip:
 	./hack/roundtrip-azure-obo.sh
 	./hack/roundtrip-maskinporten.sh
 	./hack/roundtrip-tokenx.sh
+
+openapi:
+	cargo run --bin gen-openapi > doc/openapi-spec.json

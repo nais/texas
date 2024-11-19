@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::str::ParseBoolError;
 use thiserror::Error;
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, Default)]
 pub struct Config {
     pub bind_address: String,
     pub maskinporten: Option<Provider>,

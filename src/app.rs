@@ -20,7 +20,7 @@ use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::TraceLayer;
 use tracing::{info_span, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use utoipa::OpenApi;
+use utoipa::{openapi, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -30,7 +30,21 @@ pub struct App {
 }
 
 #[derive(OpenApi)]
-struct ApiDoc;
+#[openapi(
+    info(
+        title = "Token Exchange as a Service (Texas)",
+        description = "Simplifies token handling for Nais applications",
+        license(
+            name = "MIT"
+        ),
+        contact(
+            name = "Nais",
+            email = "nais@nav.no",
+            url = "https://nais.io"
+        )
+    )
+)]
+pub struct ApiDoc;
 
 impl App {
     pub async fn new(cfg: Config) -> Self {
@@ -38,7 +52,7 @@ impl App {
         let listener = TcpListener::bind(bind_address).await.unwrap();
 
         let state = HandlerState::from_config(cfg).await.unwrap();
-        let app = Self::router(state).await;
+        let app = Self::router(state);
 
         info!("Serving on http://{:?}", listener.local_addr().unwrap());
         #[cfg(feature = "openapi")]
@@ -56,9 +70,8 @@ impl App {
         self.listener.local_addr().map(|addr| addr.to_string()).ok()
     }
 
-    async fn router(state: HandlerState) -> Router {
-        #[allow(unused)]
-        let (router, openapi) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+    pub fn routes(state: HandlerState) -> (Router, openapi::OpenApi) {
+        OpenApiRouter::with_openapi(ApiDoc::openapi())
             .routes(routes!(token))
             .routes(routes!(token_exchange))
             .routes(routes!(introspect))
@@ -131,14 +144,20 @@ impl App {
                     ),
             )
             .with_state(state)
-            .split_for_parts();
+            .split_for_parts()
+    }
 
-        #[cfg(feature = "openapi")]
-        use utoipa_swagger_ui::SwaggerUi;
-        #[cfg(feature = "openapi")]
-        let router = router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()));
-
+    #[cfg(not(feature = "openapi"))]
+    fn router(state: HandlerState) -> Router {
+        let (router, _) = Self::routes(state);
         router
+    }
+
+    #[cfg(feature = "openapi")]
+    fn router(state: HandlerState) -> Router {
+        use utoipa_swagger_ui::SwaggerUi;
+        let (router, openapi) = Self::routes(state);
+        router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()))
     }
 }
 

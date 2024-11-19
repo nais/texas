@@ -1,0 +1,384 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Token Exchange as a Service (Texas)",
+    "description": "Simplifies token handling for Nais applications",
+    "contact": {
+      "name": "Nais",
+      "url": "https://nais.io",
+      "email": "nais@nav.no"
+    },
+    "license": {
+      "name": "MIT"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/introspect": {
+      "post": {
+        "operationId": "introspect",
+        "requestBody": {
+          "description": "Introspect a token. This means to validate the token and returns its claims. The `active` is not part of the claims, but indicates whether the token is valid.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntrospectRequest"
+              },
+              "examples": {
+                "Token introspection": {
+                  "value": {
+                    "identity_provider": "tokenx",
+                    "token": "eyJraWQiOiJ0b2tlbngiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJlMDE1NTQyYy0wZjgxLTQwZjUtYmJkOS03YzNkOTM2NjI5OGYiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzcyOTMsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvdG9rZW54IiwiZXhwIjoxNzMwOTgwODkzLCJpYXQiOjE3MzA5NzcyOTMsImp0aSI6ImU3Y2JhZGMzLTZiZGEtNDljMC1hMTk2LWM0NzMyOGRhODgwZSIsInRpZCI6InRva2VueCJ9.SIme9o5YE6pZXT9IMAx5upV3V4ww_TnDlqZG203pkySPBd_VqNGBXzOKHeOasIDpXEMlf8Yc-1nKgySjGOT3c46PIHEUrhQFXF6s9OpJAYAwy7L2n2DIFfEOLt8EpwSpM5hWDwnGpSdvebWlmoaA3ImFEB5dtnxLrVG-7dYEEzZjMfBOKFWrPp03FTO4qKOJUqCZR0tmZRmcPzymPWFIMjP2FTj6iz9zai93dhQmdvNVMGL9HBXF6ewKf_CTlUIx9XpwI2M-dhlyH2PIxyhix7Amuff_mHuEHTuCAFqMfjon-F438uyZmgicyrvhoUGxV8W1PfZEiLIv0RBeWRJ9gw"
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/IntrospectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntrospectResponse"
+                },
+                "examples": {
+                  "Invalid token": {
+                    "value": {
+                      "active": false,
+                      "error": "token is expired"
+                    }
+                  },
+                  "Valid token": {
+                    "value": {
+                      "active": true,
+                      "aud": "my-target",
+                      "azp": "yolo",
+                      "exp": 1730980893,
+                      "iat": 1730977293,
+                      "iss": "http://localhost:8080/tokenx",
+                      "jti": "e7cbadc3-6bda-49c0-a196-c47328da880e",
+                      "nbf": 1730977293,
+                      "sub": "e015542c-0f81-40f5-bbd9-7c3d9366298f",
+                      "tid": "tokenx"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token": {
+      "post": {
+        "operationId": "token",
+        "requestBody": {
+          "description": "Request a machine-to-machine token for a given `target` from the specified identity provider.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              },
+              "examples": {
+                "Generate a token for Azure AD": {
+                  "value": {
+                    "identity_provider": "azuread",
+                    "target": "cluster:namespace:application"
+                  }
+                },
+                "Generate a token for Maskinporten": {
+                  "value": {
+                    "identity_provider": "maskinporten",
+                    "target": "altinn:serviceowner/rolesandrights"
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                },
+                "examples": {
+                  "Token response": {
+                    "value": {
+                      "access_token": "eyJraWQiOiJ0b2tlbngiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIyZjNjM2Y4YS03NTYwLTRjNWMtYmM4My0yNzVhY2Q1MWU1N2YiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzYxODQsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvdG9rZW54IiwiZXhwIjoxNzMwOTc5Nzg0LCJpYXQiOjE3MzA5NzYxODQsImp0aSI6IjBmNTM3M2YyLThjYmUtNDczOS05ZDU1LWY5MzE4YmFiNWQ2NyIsInRpZCI6InRva2VueCJ9.aQ-2TcdDRkWXbi3en6eMwzjSkYLH-S6aiAyss8MkkAPT_RGlZF_eCKFFsaKJ9YwQAzs4BN_d13W-xejPf6B_3Mn7xasDX_5r-M5ZwXxPWkRe5daqdqznF-vPAnIIjmqynjEYgijn79Rajorcu1sgW4bsrByp1lXNhntHar-8x62S_5oY40tEjIAHv7q2zKRxoKxKlcNpnLpKnZWrkJj7SboiCpGWc-W4JtcnNTHgKRXcFVfXSGD6EhHQ2HLDtmWJkk8NHTnjLI8IRt0mrkOs_nt2jNDDpH9ViqlWi7FOwi4C0OSfGHGukDYOeRc3vICgFGHyi0G6Avq9YXtuAP62_A",
+                      "expires_in": 3599,
+                      "token_type": "Bearer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/token/exchange": {
+      "post": {
+        "operationId": "token_exchange",
+        "requestBody": {
+          "description": "Exchange a user token for a new token, scoped to the given `target`. The new token contains the user context that allows your application to act on behalf of the user.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeRequest"
+              },
+              "examples": {
+                "Exchange a token using Azure AD": {
+                  "value": {
+                    "identity_provider": "azuread",
+                    "target": "cluster:namespace:application",
+                    "user_token": "eyJraWQiOiJhenVyZWFkIiwidHlwIjoiSldUIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiI1ZDYzMDliNi05OGUzLTQ1ODAtYTQwNS02MDExYzhhNjExYzgiLCJhdWQiOiJkZWZhdWx0IiwibmJmIjoxNzMwOTc4MjQyLCJhenAiOiJ5b2xvIiwiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL2F6dXJlYWQiLCJleHAiOjE3MzA5ODE4NDIsImlhdCI6MTczMDk3ODI0MiwianRpIjoiZTU4ZGM2ZjctZjQ0NC00YzcxLThlNzAtNzRhNWY1MTRlZDAwIiwidGlkIjoiYXp1cmVhZCJ9.KhySKFTJVaE6tYhsxCZonYMXv4fKwjtOI4YIAIoOs3DwaXoynTvy2lgiHSfisq-jLTJFGf9eGNbvwc3jUtypclVpYy_8d3xbvuu6jrOA1zWYagZjYr1FNN1g8tlF0SXjtkK_Bg-eZusLnEEbrZK1KnQRWN0I5fXqS7-IVe07hKTOE1teg7of2nCjfJ-iOXhf1mkXqCoUfSbJuUX2PEUs0b9yXAh_J-5P75T6130KBfRw5T5gYI0Kab3u2vm6t-ihT2Kz0aMkUGv_39myDgiwP4TV2vt4PhUiwefPo7KD-4_dkHc7Q5xUv-DWgTLUfXL2lOWf2d0C5tVExLB86jq8hw"
+                  }
+                },
+                "Exchange a token using TokenX": {
+                  "value": {
+                    "identity_provider": "tokenx",
+                    "target": "cluster:namespace:application",
+                    "user_token": "eyJraWQiOiJpZHBvcnRlbiIsInR5cCI6IkpXVCIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiIxOTQyMmVhNC04ZWUwLTQ0YTYtOThjNi0zODc0MjAyN2YyYWQiLCJhdWQiOiJkZWZhdWx0IiwibmJmIjoxNzMwOTc4MzgwLCJhenAiOiJ5b2xvIiwiaXNzIjoiaHR0cDovL2xvY2FsaG9zdDo4MDgwL2lkcG9ydGVuIiwiZXhwIjoxNzMwOTgxOTgwLCJpYXQiOjE3MzA5NzgzODAsImp0aSI6IjBhMDU5MDc3LTQwNzEtNDdlYS04MmM2LTU2NTY2OTk3Nzg3MiIsInRpZCI6ImlkcG9ydGVuIn0.JwgvrhPMRMaNJngiR6hzHfhg5Qy-yV4zuAtxRRvdjX4g2cBmsWj305U-lHJGsozjFhpGpA0lAn16bD3l1Z6x7CsO6kbQEwKQiJE9gB61RwSUEjV4-RbpVrKMJwppQg8gPLrb4SbTjjkylD7B9CfPiIZYtCNr6d-J0lupYiB7IlK7anUImCv7RqXTuhH0aklVpVmxOZRhzHJ6_WfhWS54MysZmeRZwOsSO-ofkrcznFFaArS1ODfrYgHx4dgVBjkE7RTcLP7nuwNtvbLg9ZVvIAT4Xh-3fu0pCL9NXoDiqBsQ0SukBAlBFfWQBFu1-34-bXkfRz2RgCR964WbKUQ8gQ"
+                  }
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                },
+                "examples": {
+                  "Token response": {
+                    "value": {
+                      "access_token": "eyJraWQiOiJhenVyZWFkIiwidHlwIjoiSldUIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiI1ZDYzMDliNi05OGUzLTQ1ODAtYTQwNS02MDExYzhhNjExYzgiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzgyNDIsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvYXp1cmVhZCIsImV4cCI6MTczMDk4MTg0MiwiaWF0IjoxNzMwOTc4MjQyLCJqdGkiOiJkNDQ4NTRjNC1iYmZhLTRmZTMtYTMyNC0xZDQyNjdkZjdjZjYiLCJ0aWQiOiJhenVyZWFkIn0.fqTw40aXkzGqet7mMRfK-8cUICzBW7SKIb5UOh6sTvrqprJEtF1HG8MLRcjgjEVwShNkYzJiUZzOC7GSxcuYSiDFg9rboR0QPvTtYsPHWjBGCpvo7lJl27oyqS7QUS83Gsc3oGbCYxc_f4TWOVP8j6pVVZjHAietUd7A-KSwck_YkhmJxKpx7HUhK11AOLjcUlJzb_GpAf1zbog9aIsg9gg9DvWIXtyGqmmBAjr69faFzg7s6KssAQS6A3Qcn19nHC2-J_Ic5q-b8gIDGTq2w62GukbYjyjI7pMYYE04QPPmFI1jdKS9QygW8zX2wQ-10Tc4o4BmMMRjp1RvMm3t6Q",
+                      "expires_in": 3599,
+                      "token_type": "Bearer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "description": "RFC 6749 token response from section 5.2.",
+        "required": [
+          "error",
+          "error_description"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/OAuthErrorCode"
+          },
+          "error_description": {
+            "type": "string"
+          }
+        }
+      },
+      "IdentityProvider": {
+        "type": "string",
+        "description": "Identity providers for use with token fetch, exchange and introspection.\n\nEach identity provider is enabled when appropriately configured in `nais.yaml`.",
+        "enum": [
+          "azuread",
+          "tokenx",
+          "maskinporten",
+          "idporten"
+        ]
+      },
+      "IntrospectRequest": {
+        "type": "object",
+        "description": "This data type holds the OAuth token that will be validated in the introspect endpoint.",
+        "required": [
+          "token",
+          "identity_provider"
+        ],
+        "properties": {
+          "identity_provider": {
+            "$ref": "#/components/schemas/IdentityProvider"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "IntrospectResponse": {
+        "type": "object",
+        "description": "RFC 7662 introspection response from section 2.2.\n\nFor provider specific claims, see the respective reference pages:\n\n- [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)\n- [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)\n- [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)",
+        "required": [
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Indicates whether the token is valid. If this field is `false`,\nthe token is invalid and must not be used to authenticate or validate."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "If active is false, this field will contain the reason why the token is invalid."
+          }
+        },
+        "additionalProperties": {
+          "description": "All claims from the token will also be present in the introspection response.\nOnly included if `active` is `true`."
+        }
+      },
+      "OAuthErrorCode": {
+        "type": "string",
+        "enum": [
+          "invalid_request",
+          "invalid_client",
+          "invalid_grant",
+          "unauthorized_client",
+          "unsupported_grant_type",
+          "invalid_scope",
+          "server_error"
+        ]
+      },
+      "TokenExchangeRequest": {
+        "type": "object",
+        "description": "Use this data type to exchange a user token for another similar token, scoped to the requested target.",
+        "required": [
+          "target",
+          "identity_provider",
+          "user_token"
+        ],
+        "properties": {
+          "identity_provider": {
+            "$ref": "#/components/schemas/IdentityProvider"
+          },
+          "target": {
+            "type": "string",
+            "description": "Who this token is intended for.\n\nUsually `cluster:namespace:application`."
+          },
+          "user_token": {
+            "type": "string",
+            "description": "The token that contains the user's context.\n\nUsually found in the `Authorization` header in requests to your application."
+          }
+        }
+      },
+      "TokenRequest": {
+        "type": "object",
+        "description": "Use this data type to request a token from the given identity provider.",
+        "required": [
+          "target",
+          "identity_provider"
+        ],
+        "properties": {
+          "identity_provider": {
+            "$ref": "#/components/schemas/IdentityProvider"
+          },
+          "target": {
+            "type": "string",
+            "description": "Who this token is intended for.\n\nUsually `cluster:namespace:application`."
+          }
+        }
+      },
+      "TokenResponse": {
+        "type": "object",
+        "description": "RFC 6749 token response from section 5.1.",
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Token expiry in seconds. Useful for caching purposes.",
+            "minimum": 0
+          },
+          "token_type": {
+            "$ref": "#/components/schemas/TokenType"
+          }
+        }
+      },
+      "TokenType": {
+        "type": "string",
+        "description": "Token type is always Bearer, but this might change in the future.\n\nThis data type exists primarily for forwards API compatibility.",
+        "enum": [
+          "Bearer"
+        ]
+      }
+    }
+  }
+}

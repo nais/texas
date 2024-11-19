@@ -1,15 +1,6 @@
-mod app;
-mod claims;
-mod config;
-mod grants;
-pub mod handlers;
-pub mod identity_provider;
-pub mod jwks;
-mod tracing;
-
-use crate::app::App;
-use crate::tracing::{init_tracing_subscriber};
-use config::Config;
+use texas::app::App;
+use texas::tracing::{init_tracing_subscriber};
+use texas::config::Config;
 use dotenv::dotenv;
 use log::{error, info};
 
@@ -17,7 +8,7 @@ use log::{error, info};
 async fn main() {
     let _guard = init_tracing_subscriber();
 
-    config::print_texas_logo();
+    texas::config::print_texas_logo();
     info!("Starting up");
 
     let _ = dotenv(); // load .env if present
