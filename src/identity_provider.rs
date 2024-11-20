@@ -5,7 +5,6 @@ use crate::jwks;
 use axum::async_trait;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use log::error;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,6 +12,8 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use thiserror::Error;
+use tracing::error;
 use tracing::instrument;
 use utoipa::ToSchema;
 
@@ -272,16 +273,36 @@ pub struct Provider<R, A> {
     _fake_assertion: PhantomData<A>,
 }
 
+#[derive(Debug, Error)]
+pub enum ProviderError {
+    #[error("could not parse private JWK: {0}")]
+    PrivateJwkParseError(#[from] jwk::Error),
+
+    #[error("private JWK is missing key id")]
+    PrivateJwkMissingKid,
+
+    #[error("private JWK is missing algorithm")]
+    PrivateJwkMissingAlgorithm,
+}
+
 impl<R, A> Provider<R, A>
 where
     R: TokenRequestBuilder,
     A: Assertion,
 {
-    pub fn new(kind: IdentityProvider, client_id: String, token_endpoint: Option<String>, private_jwk: Option<String>, upstream_jwks: jwks::Jwks) -> Option<Self> {
+    pub fn new(
+        kind: IdentityProvider,
+        client_id: String,
+        token_endpoint: Option<String>,
+        private_jwk: Option<String>,
+        upstream_jwks: jwks::Jwks,
+    ) -> Result<Self, ProviderError> {
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
-            let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().ok()?;
-            let alg: jwt::Algorithm = client_private_jwk.algorithm?.into();
-            let kid: String = client_private_jwk.key_id.clone()?;
+            let client_private_jwk: jwk::JsonWebKey = private_jwk
+                .parse()
+                .map_err(ProviderError::PrivateJwkParseError)?;
+            let alg: jwt::Algorithm = client_private_jwk.algorithm.ok_or(ProviderError::PrivateJwkMissingAlgorithm)?.into();
+            let kid: String = client_private_jwk.key_id.clone().ok_or(ProviderError::PrivateJwkMissingKid)?;
 
             let mut header = jwt::Header::new(alg);
             header.kid = Some(kid);
@@ -291,7 +312,7 @@ where
             (None, None)
         };
 
-        Some(Self {
+        Ok(Self {
             client_id,
             token_endpoint,
             client_assertion_header,

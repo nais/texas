@@ -179,8 +179,8 @@ pub struct HandlerState {
 
 #[derive(Error, Debug)]
 pub enum InitError {
-    #[error("invalid private JWK format")]
-    Jwk,
+    #[error("invalid private JWK format: {0}")]
+    Jwk(ProviderError),
 
     #[error("fetch JWKS from remote endpoint: {0}")]
     Jwks(#[from] jwks::Error),
@@ -199,8 +199,7 @@ where
             provider_cfg.token_endpoint.clone(),
             provider_cfg.client_jwk.clone(),
             jwks::Jwks::new(&provider_cfg.issuer.clone(), &provider_cfg.jwks_uri.clone(), audience).await?,
-        )
-            .ok_or(InitError::Jwk)?,
+        ).map_err(InitError::Jwk)?,
     ))))
 }
 

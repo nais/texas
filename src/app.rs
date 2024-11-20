@@ -18,7 +18,7 @@ use opentelemetry::{global, KeyValue};
 use tokio::net::TcpListener;
 use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::TraceLayer;
-use tracing::{info_span, Span};
+use tracing::{error, info_span, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utoipa::{openapi, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
@@ -51,7 +51,10 @@ impl App {
         let bind_address = cfg.bind_address.clone();
         let listener = TcpListener::bind(bind_address).await.unwrap();
 
-        let state = HandlerState::from_config(cfg).await.unwrap();
+        let state = HandlerState::from_config(cfg)
+            .await
+            .inspect_err(|e| error!("Failed to create handler state: {}", e))
+            .unwrap();
         let app = Self::router(state);
 
         info!("Serving on http://{:?}", listener.local_addr().unwrap());
