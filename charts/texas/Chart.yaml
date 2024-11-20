@@ -1,0 +1,7 @@
+apiVersion: v2
+description: Token exchange as a sidecar / service.
+name: texas
+type: application
+version: 1.0.0
+sources:
+  - https://github.com/nais/texas/tree/master/charts/texas

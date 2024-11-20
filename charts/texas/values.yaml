@@ -1,0 +1,6 @@
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: europe-north1-docker.pkg.dev/nais-io/nais/images/texas
+  tag: latest

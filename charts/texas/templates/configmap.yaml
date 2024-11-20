@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "texas.fullname" . }}
+  labels:
+    {{- include "texas.labels" . | nindent 4 }}
+  annotations:
+    reloader.stakater.com/match: "true"
+data:
+  texas_image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
