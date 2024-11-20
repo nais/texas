@@ -64,10 +64,10 @@ jobs:
           chart="${{ steps.package_chart.outputs.archive }}"
           echo "Pushing: $chart"
           helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature
-        outputs:
-          chart_name: ${{ steps.package_chart.outputs.name }}
-          chart_version: ${{ steps.package_chart.outputs.version }}
-          chart_archive: ${{ steps.package_chart.outputs.archive }}
+    outputs:
+      chart_name: ${{ steps.package_chart.outputs.name }}
+      chart_version: ${{ steps.package_chart.outputs.version }}
+      chart_archive: ${{ steps.package_chart.outputs.archive }}
   rollout:
     name: Rollout
     if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
