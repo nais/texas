@@ -299,7 +299,7 @@ where
         let content_type = content_type_header.and_then(|value| value.to_str().ok());
 
         if let Some(content_type) = content_type {
-            if content_type.eq_ignore_ascii_case("application/json") {
+            if content_type.starts_with("application/json") {
                 return match Json::<T>::from_request(req, state).await {
                     Ok(payload) => Ok(Self(payload.0)),
                     Err(rejection) => Err(match rejection {
@@ -312,7 +312,7 @@ where
                 };
             }
 
-            if content_type.eq_ignore_ascii_case("application/x-www-form-urlencoded") {
+            if content_type.starts_with("application/x-www-form-urlencoded") {
                 return match Form::<T>::from_request(req, state).await {
                     Ok(payload) => Ok(Self(payload.0)),
                     Err(rejection) => Err(match rejection {
