@@ -1,11 +1,11 @@
+use std::process::ExitCode;
 use texas::app::App;
 use texas::tracing::{init_tracing_subscriber};
-use texas::config::Config;
 use dotenv::dotenv;
 use log::{error, info};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
     let _guard = init_tracing_subscriber();
 
     texas::config::print_texas_logo();
@@ -13,14 +13,19 @@ async fn main() {
 
     let _ = dotenv(); // load .env if present
 
-    let cfg = match Config::new_from_env() {
-        Ok(cfg) => cfg,
-        Err(err) => {
-            error!("configuration: {}", err);
-            return;
+    match App::new_from_env().await {
+        Ok(app) => {
+            match app.run().await {
+                Ok(_) => ExitCode::SUCCESS,
+                Err(err) => {
+                    error!("fatal: {err}");
+                    ExitCode::FAILURE
+                }
+            }
         }
-    };
-
-    let app = App::new(cfg).await;
-    app.run().await.unwrap()
+        Err(err) => {
+            error!("{err}");
+            ExitCode::FAILURE
+        }
+    }
 }

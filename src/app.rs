@@ -23,6 +23,8 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utoipa::{openapi, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use crate::app::Error::LocalAddress;
+use crate::{config, handlers};
 
 pub struct App {
     router: Router,
@@ -42,22 +44,39 @@ pub struct App {
 )]
 pub struct ApiDoc;
 
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("set up listening socket: {0}")]
+    BindAddress(std::io::Error),
+    #[error("describe socket local address: {0}")]
+    LocalAddress(std::io::Error),
+    #[error("initialize handler state: {0}")]
+    InitHandlerState(handlers::InitError),
+    #[error("invalid configuration: {0}")]
+    Configuration(config::Error),
+}
+
 impl App {
-    pub async fn new(cfg: Config) -> Self {
+    pub async fn new_from_env() -> Result<Self, Error> {
+        let cfg = Config::new_from_env().map_err(Error::Configuration)?;
+        Self::new_from_config(cfg).await
+    }
+
+    pub async fn new_from_config(cfg: Config) -> Result<Self, Error> {
         let bind_address = cfg.bind_address.clone();
-        let listener = TcpListener::bind(bind_address).await.unwrap();
+        let listener = TcpListener::bind(bind_address).await.map_err(Error::BindAddress)?;
 
         let state = HandlerState::from_config(cfg)
             .await
-            .inspect_err(|e| error!("Failed to create handler state: {}", e))
-            .unwrap();
+            .map_err(Error::InitHandlerState)?;
         let app = Self::router(state);
 
-        info!("Serving on http://{:?}", listener.local_addr().unwrap());
+        let local_addr = listener.local_addr().map_err(LocalAddress)?;
+        info!("Serving on http://{:?}", local_addr);
         #[cfg(feature = "openapi")]
-        info!("Swagger API documentation: http://{:?}/swagger-ui", listener.local_addr().unwrap());
+        info!("Swagger API documentation: http://{:?}/swagger-ui", local_addr);
 
-        Self { router: app, listener }
+        Ok(Self { router: app, listener })
     }
 
     pub async fn run(self) -> std::io::Result<()> {
@@ -739,7 +758,7 @@ mod tests {
 
             // Set up Texas
             let cfg = Config::mock(docker.host.clone(), docker.port);
-            let app = App::new(cfg.clone()).await;
+            let app = App::new_from_config(cfg.clone()).await;
 
             Self { app, cfg, docker }
         }
