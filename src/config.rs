@@ -11,6 +11,24 @@ pub struct Config {
     pub azure_ad: Option<Provider>,
     pub token_x: Option<Provider>,
     pub idporten: Option<Provider>,
+    pub downstream_app: DownstreamApp,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct DownstreamApp {
+    pub name: String,
+    pub namespace: String,
+    pub cluster: String,
+}
+
+impl DownstreamApp {
+    fn new_from_env() -> Result<Self, Error> {
+        Ok(Self {
+            name: must_read_env("DOWNSTREAM_APP_NAME")?,
+            namespace: must_read_env("DOWNSTREAM_APP_NAMESPACE")?,
+            cluster: must_read_env("DOWNSTREAM_APP_CLUSTER")?,
+        })
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -44,11 +62,11 @@ impl Provider {
             return Ok(None);
         }
         Ok(Some(Self {
-            client_id: Self::must_read_env(&format!("{prefix}_CLIENT_ID"))?,
-            client_jwk: Some(Self::must_read_env(&format!("{prefix}_CLIENT_JWK"))?),
-            jwks_uri: Self::must_read_env(&format!("{prefix}_JWKS_URI"))?,
-            issuer: Self::must_read_env(&format!("{prefix}_ISSUER"))?,
-            token_endpoint: Some(Self::must_read_env(&format!("{prefix}_TOKEN_ENDPOINT"))?),
+            client_id: must_read_env(&format!("{prefix}_CLIENT_ID"))?,
+            client_jwk: Some(must_read_env(&format!("{prefix}_CLIENT_JWK"))?),
+            jwks_uri: must_read_env(&format!("{prefix}_JWKS_URI"))?,
+            issuer: must_read_env(&format!("{prefix}_ISSUER"))?,
+            token_endpoint: Some(must_read_env(&format!("{prefix}_TOKEN_ENDPOINT"))?),
         }))
     }
 
@@ -57,11 +75,11 @@ impl Provider {
             return Ok(None);
         }
         Ok(Some(Self {
-            client_id: Self::must_read_env("AZURE_APP_CLIENT_ID")?,
-            client_jwk: Some(Self::must_read_env("AZURE_APP_JWK")?),
-            jwks_uri: Self::must_read_env("AZURE_OPENID_CONFIG_JWKS_URI")?,
-            issuer: Self::must_read_env("AZURE_OPENID_CONFIG_ISSUER")?,
-            token_endpoint: Some(Self::must_read_env("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT")?),
+            client_id: must_read_env("AZURE_APP_CLIENT_ID")?,
+            client_jwk: Some(must_read_env("AZURE_APP_JWK")?),
+            jwks_uri: must_read_env("AZURE_OPENID_CONFIG_JWKS_URI")?,
+            issuer: must_read_env("AZURE_OPENID_CONFIG_ISSUER")?,
+            token_endpoint: Some(must_read_env("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT")?),
         }))
     }
 
@@ -70,10 +88,10 @@ impl Provider {
             return Ok(None);
         }
         Ok(Some(Self {
-            client_id: Self::must_read_env("IDPORTEN_AUDIENCE")?,
+            client_id: must_read_env("IDPORTEN_AUDIENCE")?,
             client_jwk: None,
-            jwks_uri: Self::must_read_env("IDPORTEN_JWKS_URI")?,
-            issuer: Self::must_read_env("IDPORTEN_ISSUER")?,
+            jwks_uri: must_read_env("IDPORTEN_JWKS_URI")?,
+            issuer: must_read_env("IDPORTEN_ISSUER")?,
             token_endpoint: None,
         }))
     }
@@ -83,16 +101,12 @@ impl Provider {
             return Ok(None);
         }
         Ok(Some(Self {
-            client_id: Self::must_read_env("TOKEN_X_CLIENT_ID")?,
-            client_jwk: Some(Self::must_read_env("TOKEN_X_PRIVATE_JWK")?),
-            jwks_uri: Self::must_read_env("TOKEN_X_JWKS_URI")?,
-            issuer: Self::must_read_env("TOKEN_X_ISSUER")?,
-            token_endpoint: Some(Self::must_read_env("TOKEN_X_TOKEN_ENDPOINT")?),
+            client_id: must_read_env("TOKEN_X_CLIENT_ID")?,
+            client_jwk: Some(must_read_env("TOKEN_X_PRIVATE_JWK")?),
+            jwks_uri: must_read_env("TOKEN_X_JWKS_URI")?,
+            issuer: must_read_env("TOKEN_X_ISSUER")?,
+            token_endpoint: Some(must_read_env("TOKEN_X_TOKEN_ENDPOINT")?),
         }))
-    }
-
-    fn must_read_env(env: &str) -> Result<String, Error> {
-        std::env::var(env).map_err(|_| MissingEnv(env.to_string()))
     }
 }
 
@@ -113,6 +127,10 @@ pub fn print_texas_logo() {
     info!(r#"                 ``’"#);
 }
 
+fn must_read_env(env: &str) -> Result<String, Error> {
+    std::env::var(env).map_err(|_| MissingEnv(env.to_string()))
+}
+
 impl Config {
     pub fn new_from_env() -> Result<Self, Error> {
         Ok(Self {
@@ -121,6 +139,7 @@ impl Config {
             maskinporten: Provider::new_from_env_with_prefix("MASKINPORTEN")?,
             token_x: Provider::new_from_tokenx_env()?,
             idporten: Provider::new_from_idporten_env()?,
+            downstream_app: DownstreamApp::new_from_env()?,
         })
     }
 }
@@ -159,6 +178,7 @@ impl Config {
                 issuer: format!("{url_base}/idporten"),
                 token_endpoint: None,
             }),
+            downstream_app: DownstreamApp::default(),
         }
     }
 }

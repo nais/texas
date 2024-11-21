@@ -33,6 +33,7 @@ async fn main() -> ExitCode {
     }
 }
 
+/// Retry initializing application if we hit a network error.
 async fn init_app_with_retry() -> Option<App> {
     const MAX_RETRIES: usize = 3;
 
@@ -44,6 +45,7 @@ async fn init_app_with_retry() -> Option<App> {
             }
             Err(err) => {
                 error!("{err}");
+                return None;
             }
         }
     };

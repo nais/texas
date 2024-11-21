@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, DownstreamApp};
 use crate::handlers::__path_introspect;
 use crate::handlers::__path_token;
 use crate::handlers::__path_token_exchange;
@@ -63,13 +63,14 @@ impl App {
     }
 
     pub async fn new_from_config(cfg: Config) -> Result<Self, Error> {
+        let downstream_app = cfg.downstream_app.clone();
         let bind_address = cfg.bind_address.clone();
         let listener = TcpListener::bind(bind_address).await.map_err(Error::BindAddress)?;
 
         let state = HandlerState::from_config(cfg)
             .await
             .map_err(Error::InitHandlerState)?;
-        let app = Self::router(state);
+        let app = Self::router(state, downstream_app);
 
         let local_addr = listener.local_addr().map_err(LocalAddress)?;
         info!("Serving on http://{:?}", local_addr);
@@ -88,14 +89,17 @@ impl App {
         self.listener.local_addr().map(|addr| addr.to_string()).ok()
     }
 
-    pub fn routes(state: HandlerState) -> (Router, openapi::OpenApi) {
+    pub fn routes(state: HandlerState, downstream_app: DownstreamApp) -> (Router, openapi::OpenApi) {
+        // local copy to allow usage in more than one closure
+        let downstream_app_response = downstream_app.clone();
+
         OpenApiRouter::with_openapi(ApiDoc::openapi())
             .routes(routes!(token))
             .routes(routes!(token_exchange))
             .routes(routes!(introspect))
             .layer(
                 TraceLayer::new_for_http()
-                    .make_span_with(|request: &Request<_>| {
+                    .make_span_with(move |request: &Request<_>| {
                         // Log the matched route's path (with placeholders not filled in).
                         // Use request.uri() or OriginalUri if you want the real path.
                         let path = request
@@ -110,6 +114,9 @@ impl App {
                         let root_span = info_span!(
                             "Handle incoming request",
                             method = ?request.method(),
+                            app_name = downstream_app.name,
+                            app_namespace = downstream_app.namespace,
+                            app_cluster = downstream_app.cluster,
                             path,
                         );
 
@@ -122,7 +129,7 @@ impl App {
                         // closures to attach a value to the initially empty field in the info_span
                         // created above.
                     })
-                    .on_response(|response: &Response, latency: Duration, span: &Span| {
+                    .on_response(move |response: &Response, latency: Duration, span: &Span| {
                         let path = span.context().baggage().get("path").map(|x| x.to_string()).unwrap_or_default();
 
                         let meter = global::meter("texas");
@@ -144,6 +151,9 @@ impl App {
                             &[
                                 KeyValue::new("status_code", response.status().as_str().to_string()),
                                 KeyValue::new("path", path),
+                                KeyValue::new("downstream_app_name", downstream_app_response.name),
+                                KeyValue::new("downstream_app_namespace", downstream_app_response.namespace),
+                                KeyValue::new("downstream_app_cluster", downstream_app_response.cluster),
                             ],
                         );
                     })
@@ -166,15 +176,15 @@ impl App {
     }
 
     #[cfg(not(feature = "openapi"))]
-    fn router(state: HandlerState) -> Router {
-        let (router, _) = Self::routes(state);
+    fn router(state: HandlerState, downstream_app: DownstreamApp) -> Router {
+        let (router, _) = Self::routes(state, downstream_app);
         router
     }
 
     #[cfg(feature = "openapi")]
-    fn router(state: HandlerState) -> Router {
+    fn router(state: HandlerState, downstream_app: DownstreamApp) -> Router {
         use utoipa_swagger_ui::SwaggerUi;
-        let (router, openapi) = Self::routes(state);
+        let (router, openapi) = Self::routes(state, downstream_app);
         router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()))
     }
 }
