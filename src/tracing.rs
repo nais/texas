@@ -5,7 +5,7 @@ use opentelemetry_sdk::metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterP
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
 use opentelemetry_semantic_conventions::{
-    attribute::{DEPLOYMENT_ENVIRONMENT_NAME, SERVICE_NAME, SERVICE_VERSION},
+    attribute::{SERVICE_NAME, SERVICE_VERSION},
     SCHEMA_URL,
 };
 use tracing::{Level};

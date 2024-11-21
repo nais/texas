@@ -12,6 +12,7 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use std::time::Duration;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
@@ -266,7 +267,10 @@ pub struct Provider<R, A> {
 
 #[derive(Debug, Error)]
 pub enum ProviderError {
-    #[error("could not parse private JWK: {0}")]
+    #[error("initialize HTTP client: {0}")]
+    InitializeHttpClient(#[from] reqwest::Error),
+
+    #[error("parse private JWK: {0}")]
     PrivateJwkParseError(#[from] jwk::Error),
 
     #[error("private JWK is missing key id")]
@@ -303,12 +307,17 @@ where
             (None, None)
         };
 
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .map_err(ProviderError::InitializeHttpClient)?;
+
         Ok(Self {
             client_id,
             token_endpoint,
             client_assertion_header,
             upstream_jwks,
-            http_client: reqwest::Client::default(),
+            http_client,
             identity_provider_kind: kind,
             private_jwk: client_private_jwk,
             _fake_request: Default::default(),

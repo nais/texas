@@ -758,7 +758,7 @@ mod tests {
 
             // Set up Texas
             let cfg = Config::mock(docker.host.clone(), docker.port);
-            let app = App::new_from_config(cfg.clone()).await;
+            let app = App::new_from_config(cfg.clone()).await.unwrap();
 
             Self { app, cfg, docker }
         }

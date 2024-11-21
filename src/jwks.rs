@@ -6,6 +6,7 @@ use log::error;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 use thiserror::Error;
 use tracing::instrument;
 
@@ -44,7 +45,10 @@ impl Jwks {
             keys: Vec<jwk::JsonWebKey>,
         }
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .map_err(Error::Fetch)?;
         let request_builder = client.get(endpoint).header("accept", "application/json");
 
         let response: Response = request_builder.send().await.map_err(Error::Fetch)?.json().await.map_err(Error::JsonDecode)?;
