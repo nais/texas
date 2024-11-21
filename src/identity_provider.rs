@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::time::Duration;
+use log::info;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
@@ -368,8 +369,11 @@ where
     async fn get_token_from_idprovider(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
+        let headers = crate::tracing::trace_headers_from_current_span();
+
         let response = self.http_client
             .post(self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?)
+            .headers(headers)
             .header("accept", "application/json")
             .form(&params)
             .send()

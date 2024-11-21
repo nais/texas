@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+use axum::http::{HeaderName, HeaderValue};
 use opentelemetry::trace::TracerProvider;
 use opentelemetry::{global, KeyValue};
+use opentelemetry::propagation::TextMapPropagator;
 use opentelemetry_sdk::metrics::reader::DefaultTemporalitySelector;
 use opentelemetry_sdk::metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
@@ -8,8 +11,9 @@ use opentelemetry_semantic_conventions::{
     attribute::{SERVICE_NAME, SERVICE_VERSION},
     SCHEMA_URL,
 };
+use reqwest::header::HeaderMap;
 use tracing::{Level};
-use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
+use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing;
@@ -23,7 +27,7 @@ pub enum Error {
     Tracing(#[from] opentelemetry::trace::TraceError),
 }
 
-// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
+/// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
 pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let meter_provider = init_meter_provider()?;
     let tracer = init_tracer()?;
@@ -35,6 +39,26 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
         .init();
 
     Ok(OtelGuard { meter_provider })
+}
+
+/// Extract trace data from the current span in order to
+/// generate the `traceparent` and `tracestate` headers,
+/// which can be sent with outgoing HTTP requests.
+pub fn trace_headers_from_current_span() -> HeaderMap {
+    let span = tracing::Span::current();
+    let context = span.context();
+    let propagator = opentelemetry_sdk::propagation::TraceContextPropagator::new();
+    let mut fields = HashMap::new();
+    propagator.inject_context(&context, &mut fields);
+    fields
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                HeaderName::try_from(k).unwrap(),
+                HeaderValue::try_from(v).unwrap(),
+            )
+        })
+        .collect()
 }
 
 pub struct OtelGuard {
