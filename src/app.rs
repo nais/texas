@@ -142,7 +142,7 @@ impl App {
                         histogram.record(
                             latency.as_secs_f64(),
                             &[
-                                KeyValue::new("status_code", response.status().to_string()),
+                                KeyValue::new("status_code", response.status().as_str().to_string()),
                                 KeyValue::new("path", path),
                             ],
                         );
