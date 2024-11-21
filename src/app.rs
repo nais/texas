@@ -50,7 +50,7 @@ pub enum Error {
     BindAddress(std::io::Error),
     #[error("describe socket local address: {0}")]
     LocalAddress(std::io::Error),
-    #[error("initialize handler state: {0}")]
+    #[error("{0}")]
     InitHandlerState(handlers::InitError),
     #[error("invalid configuration: {0}")]
     Configuration(config::Error),

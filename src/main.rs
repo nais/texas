@@ -1,8 +1,8 @@
+use dotenv::dotenv;
+use log::{error, info, warn};
 use std::process::ExitCode;
 use texas::app::App;
-use texas::tracing::{init_tracing_subscriber};
-use dotenv::dotenv;
-use log::{error, info};
+use texas::tracing::init_tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -19,19 +19,34 @@ async fn main() -> ExitCode {
 
     let _ = dotenv(); // load .env if present
 
-    match App::new_from_env().await {
-        Ok(app) => {
-            match app.run().await {
-                Ok(_) => ExitCode::SUCCESS,
-                Err(err) => {
-                    error!("fatal: {err}");
-                    ExitCode::FAILURE
-                }
-            }
-        }
+    let Some(app) = init_app_with_retry().await else {
+        error!("unable to initialize application, giving up.");
+        return ExitCode::FAILURE;
+    };
+
+    match app.run().await {
+        Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            error!("{err}");
+            error!("fatal: {err}");
             ExitCode::FAILURE
         }
     }
+}
+
+async fn init_app_with_retry() -> Option<App> {
+    const MAX_RETRIES: usize = 3;
+
+    for i in 1..=MAX_RETRIES {
+        match App::new_from_env().await {
+            Ok(app) => return Some(app),
+            Err(texas::app::Error::InitHandlerState(err)) => {
+                warn!("{err} (attempt {i}/{MAX_RETRIES})");
+            }
+            Err(err) => {
+                error!("{err}");
+            }
+        }
+    };
+
+    None
 }
