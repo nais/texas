@@ -14,8 +14,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 // Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
-pub fn init_tracing_subscriber() -> OtelGuard {
-    let meter_provider = init_meter_provider();
+pub fn init_tracing_subscriber() -> opentelemetry::metrics::Result<OtelGuard> {
+    let meter_provider = init_meter_provider()?;
     let tracer = init_tracer();
     tracing_subscriber::registry()
         .with(tracing_subscriber::filter::LevelFilter::from_level(Level::INFO))
@@ -24,7 +24,7 @@ pub fn init_tracing_subscriber() -> OtelGuard {
         .with(OpenTelemetryLayer::new(tracer))
         .init();
 
-    OtelGuard { meter_provider }
+    Ok(OtelGuard { meter_provider })
 }
 
 pub struct OtelGuard {
@@ -41,16 +41,23 @@ impl Drop for OtelGuard {
 }
 
 // Construct MeterProvider for MetricsLayer
-fn init_meter_provider() -> SdkMeterProvider {
-    let exporter = opentelemetry_otlp::new_exporter().tonic().build_metrics_exporter(Box::new(DefaultTemporalitySelector::new())).unwrap();
+fn init_meter_provider() -> opentelemetry::metrics::Result<SdkMeterProvider> {
+    let exporter = opentelemetry_otlp::new_exporter()
+        .tonic()
+        .build_metrics_exporter(Box::new(DefaultTemporalitySelector::new()))?;
 
-    let reader = PeriodicReader::builder(exporter, runtime::Tokio).with_interval(std::time::Duration::from_secs(2)).build();
+    let reader = PeriodicReader::builder(exporter, runtime::Tokio)
+        .with_interval(std::time::Duration::from_secs(2))
+        .build();
 
-    let meter_provider = MeterProviderBuilder::default().with_resource(resource()).with_reader(reader).build();
+    let meter_provider = MeterProviderBuilder::default()
+        .with_resource(resource())
+        .with_reader(reader)
+        .build();
 
     global::set_meter_provider(meter_provider.clone());
 
-    meter_provider
+    Ok(meter_provider)
 }
 
 fn init_tracer() -> Tracer {

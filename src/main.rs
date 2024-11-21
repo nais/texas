@@ -6,7 +6,13 @@ use log::{error, info};
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let _guard = init_tracing_subscriber();
+    let _guard = match init_tracing_subscriber() {
+        Ok(guard) => guard,
+        Err(err) => {
+            error!("initialize tracing: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     texas::config::print_texas_logo();
     info!("Starting up");
