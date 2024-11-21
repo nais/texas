@@ -2,23 +2,25 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Token Exchange as a Service (Texas)",
-    "description": "Simplifies token handling for Nais applications",
+    "description": "Texas implements OAuth token fetch, exchange, and validation, so that you don't have to.",
     "contact": {
       "name": "Nais",
-      "url": "https://nais.io",
-      "email": "nais@nav.no"
+      "url": "https://nais.io"
     },
     "license": {
-      "name": "MIT"
+      "name": ""
     },
     "version": "1.0.0"
   },
   "paths": {
     "/api/v1/introspect": {
       "post": {
+        "tags": [
+          "Endpoints"
+        ],
         "operationId": "introspect",
         "requestBody": {
-          "description": "Introspect a token. This means to validate the token and returns its claims. The `active` is not part of the claims, but indicates whether the token is valid.",
+          "description": "Validate a token and return its claims and metadata. The response object's _active_ field will be set to either true or false for valid and invalid tokens, respectively. The identity provider determines which claims are returned. Please see the examples and/or Nais documentation for details.",
           "content": {
             "application/json": {
               "schema": {
@@ -79,9 +81,12 @@
     },
     "/api/v1/token": {
       "post": {
+        "tags": [
+          "Endpoints"
+        ],
         "operationId": "token",
         "requestBody": {
-          "description": "Request a machine-to-machine token for a given `target` from the specified identity provider.",
+          "description": "Request a machine-to-machine token from the specified identity provider and for a given target.",
           "content": {
             "application/json": {
               "schema": {
@@ -155,9 +160,12 @@
     },
     "/api/v1/token/exchange": {
       "post": {
+        "tags": [
+          "Endpoints"
+        ],
         "operationId": "token_exchange",
         "requestBody": {
-          "description": "Exchange a user token for a new token, scoped to the given `target`. The new token contains the user context that allows your application to act on behalf of the user.",
+          "description": "Exchange a user's token for a machine token, scoped to the given target. The returned token allows your application to act on behalf of the user.",
           "content": {
             "application/json": {
               "schema": {
@@ -236,7 +244,7 @@
     "schemas": {
       "ErrorResponse": {
         "type": "object",
-        "description": "RFC 6749 token response from section 5.2.",
+        "description": "RFC 6749 error response from section 5.2.",
         "required": [
           "error",
           "error_description"
@@ -252,7 +260,7 @@
       },
       "IdentityProvider": {
         "type": "string",
-        "description": "Identity providers for use with token fetch, exchange and introspection.\n\nEach identity provider is enabled when appropriately configured in `nais.yaml`.",
+        "description": "Identity providers for use with token fetch, exchange and introspection.",
         "enum": [
           "azuread",
           "tokenx",
@@ -278,25 +286,25 @@
       },
       "IntrospectResponse": {
         "type": "object",
-        "description": "RFC 7662 introspection response from section 2.2.\n\nFor provider specific claims, see the respective reference pages:\n\n- [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)\n- [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)\n- [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)",
+        "description": "RFC 7662 introspection response from section 2.2.\n\nIdentity provider's claims differ from one another.\nPlease refer to the Nais documentation for details:\n\n- [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)\n- [IDPorten](https://doc.nais.io/auth/idporten/reference/#claims)\n- [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)\n- [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)",
         "required": [
           "active"
         ],
         "properties": {
           "active": {
             "type": "boolean",
-            "description": "Indicates whether the token is valid. If this field is `false`,\nthe token is invalid and must not be used to authenticate or validate."
+            "description": "Indicates whether the token is valid. If this field is _false_,\nthe token is invalid and *must* be rejected."
           },
           "error": {
             "type": [
               "string",
               "null"
             ],
-            "description": "If active is false, this field will contain the reason why the token is invalid."
+            "description": "If the token is invalid, this field contains the reason."
           }
         },
         "additionalProperties": {
-          "description": "All claims from the token will also be present in the introspection response.\nOnly included if `active` is `true`."
+          "description": "Claims from valid tokens are contained in the introspection response, but only if the token is valid."
         }
       },
       "OAuthErrorCode": {
@@ -313,7 +321,7 @@
       },
       "TokenExchangeRequest": {
         "type": "object",
-        "description": "Use this data type to exchange a user token for another similar token, scoped to the requested target.",
+        "description": "Use this data type to exchange a user token for a machine token.",
         "required": [
           "target",
           "identity_provider",
@@ -325,17 +333,17 @@
           },
           "target": {
             "type": "string",
-            "description": "Who this token is intended for.\n\nUsually `cluster:namespace:application`."
+            "description": "The issued token will only be accepted by the targeted application, specified in this field."
           },
           "user_token": {
             "type": "string",
-            "description": "The token that contains the user's context.\n\nUsually found in the `Authorization` header in requests to your application."
+            "description": "The user's access token, usually found in the _Authorization_ header in requests to your application."
           }
         }
       },
       "TokenRequest": {
         "type": "object",
-        "description": "Use this data type to request a token from the given identity provider.",
+        "description": "Use this data type to request a machine token.",
         "required": [
           "target",
           "identity_provider"
@@ -346,7 +354,7 @@
           },
           "target": {
             "type": "string",
-            "description": "Who this token is intended for.\n\nUsually `cluster:namespace:application`."
+            "description": "The issued token will only be accepted by the targeted application, specified in this field."
           }
         }
       },
@@ -374,7 +382,7 @@
       },
       "TokenType": {
         "type": "string",
-        "description": "Token type is always Bearer, but this might change in the future.\n\nThis data type exists primarily for forwards API compatibility.",
+        "description": "Token type is always Bearer, but this might change in the future.",
         "enum": [
           "Bearer"
         ]

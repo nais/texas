@@ -23,12 +23,13 @@ use tracing::instrument;
 #[utoipa::path(
     post,
     path = "/api/v1/token",
+    tag = "Endpoints",
     request_body(
         content(
             (TokenRequest = "application/json"),
             (TokenRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Request a machine-to-machine token for a given `target` from the specified identity provider.",
+        description = "Request a machine-to-machine token from the specified identity provider and for a given target.",
         examples(
             ("Generate a token for Maskinporten" = (value = json!(TokenRequest{
                 identity_provider: IdentityProvider::Maskinporten,
@@ -70,12 +71,13 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
 #[utoipa::path(
     post,
     path = "/api/v1/token/exchange",
+    tag = "Endpoints",
     request_body(
         content(
             (TokenExchangeRequest = "application/json"),
             (TokenExchangeRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Exchange a user token for a new token, scoped to the given `target`. The new token contains the user context that allows your application to act on behalf of the user.",
+        description = "Exchange a user's token for a machine token, scoped to the given target. The returned token allows your application to act on behalf of the user.",
         examples(
             ("Exchange a token using TokenX" = (value = json!(TokenExchangeRequest{
                 identity_provider: IdentityProvider::TokenX,
@@ -118,12 +120,13 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
 #[utoipa::path(
     post,
     path = "/api/v1/introspect",
+    tag = "Endpoints",
     request_body(
         content(
             (IntrospectRequest = "application/json"),
             (IntrospectRequest = "application/x-www-form-urlencoded"),
         ),
-        description = "Introspect a token. This means to validate the token and returns its claims. The `active` is not part of the claims, but indicates whether the token is valid.",
+        description = "Validate a token and return its claims and metadata. The response object's _active_ field will be set to either true or false for valid and invalid tokens, respectively. The identity provider determines which claims are returned. Please see the examples and/or Nais documentation for details.",
         examples(
             ("Token introspection" = (value = json!(IntrospectRequest{
                 token: "eyJraWQiOiJ0b2tlbngiLCJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJlMDE1NTQyYy0wZjgxLTQwZjUtYmJkOS03YzNkOTM2NjI5OGYiLCJhdWQiOiJteS10YXJnZXQiLCJuYmYiOjE3MzA5NzcyOTMsImF6cCI6InlvbG8iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvdG9rZW54IiwiZXhwIjoxNzMwOTgwODkzLCJpYXQiOjE3MzA5NzcyOTMsImp0aSI6ImU3Y2JhZGMzLTZiZGEtNDljMC1hMTk2LWM0NzMyOGRhODgwZSIsInRpZCI6InRva2VueCJ9.SIme9o5YE6pZXT9IMAx5upV3V4ww_TnDlqZG203pkySPBd_VqNGBXzOKHeOasIDpXEMlf8Yc-1nKgySjGOT3c46PIHEUrhQFXF6s9OpJAYAwy7L2n2DIFfEOLt8EpwSpM5hWDwnGpSdvebWlmoaA3ImFEB5dtnxLrVG-7dYEEzZjMfBOKFWrPp03FTO4qKOJUqCZR0tmZRmcPzymPWFIMjP2FTj6iz9zai93dhQmdvNVMGL9HBXF6ewKf_CTlUIx9XpwI2M-dhlyH2PIxyhix7Amuff_mHuEHTuCAFqMfjon-F438uyZmgicyrvhoUGxV8W1PfZEiLIv0RBeWRJ9gw".to_string(),

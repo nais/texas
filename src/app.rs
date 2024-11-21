@@ -33,13 +33,9 @@ pub struct App {
 #[openapi(
     info(
         title = "Token Exchange as a Service (Texas)",
-        description = "Simplifies token handling for Nais applications",
-        license(
-            name = "MIT"
-        ),
+        description = "Texas implements OAuth token fetch, exchange, and validation, so that you don't have to.",
         contact(
             name = "Nais",
-            email = "nais@nav.no",
             url = "https://nais.io"
         )
     )

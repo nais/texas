@@ -28,8 +28,6 @@ pub struct TokenResponse {
 }
 
 /// Token type is always Bearer, but this might change in the future.
-///
-/// This data type exists primarily for forwards API compatibility.
 #[derive(Deserialize, Serialize, ToSchema)]
 pub enum TokenType {
     Bearer,
@@ -37,23 +35,24 @@ pub enum TokenType {
 
 /// RFC 7662 introspection response from section 2.2.
 ///
-/// For provider specific claims, see the respective reference pages:
+/// Identity provider's claims differ from one another.
+/// Please refer to the Nais documentation for details:
 ///
 /// - [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)
-/// - [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)
+/// - [IDPorten](https://doc.nais.io/auth/idporten/reference/#claims)
 /// - [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)
+/// - [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)
 #[derive(Serialize, Deserialize, ToSchema, Debug, PartialEq)]
 pub struct IntrospectResponse {
-    /// Indicates whether the token is valid. If this field is `false`,
-    /// the token is invalid and must not be used to authenticate or validate.
+    /// Indicates whether the token is valid. If this field is _false_,
+    /// the token is invalid and *must* be rejected.
     active: bool,
 
-    /// If active is false, this field will contain the reason why the token is invalid.
+    /// If the token is invalid, this field contains the reason.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 
-    /// All claims from the token will also be present in the introspection response.
-    /// Only included if `active` is `true`.
+    /// Claims from valid tokens are contained in the introspection response, but only if the token is valid.
     #[serde(flatten)]
     extra: HashMap<String, Value>,
 }
@@ -88,7 +87,7 @@ fn test_introspect_response_serialization_format() {
     assert_eq!(serialized, r#"{"active":false,"error":"my error"}"#);
 }
 
-/// RFC 6749 token response from section 5.2.
+/// RFC 6749 error response from section 5.2.
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct ErrorResponse {
     pub error: OAuthErrorCode,
@@ -183,8 +182,6 @@ impl From<OAuthErrorCode> for StatusCode {
 }
 
 /// Identity providers for use with token fetch, exchange and introspection.
-///
-/// Each identity provider is enabled when appropriately configured in `nais.yaml`.
 #[derive(Deserialize, Serialize, ToSchema, Clone, Debug, PartialEq, Copy)]
 pub enum IdentityProvider {
     #[serde(rename = "azuread")]
@@ -207,28 +204,22 @@ impl Display for IdentityProvider {
     }
 }
 
-/// Use this data type to request a token from the given identity provider.
+/// Use this data type to request a machine token.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct TokenRequest {
-    /// Who this token is intended for.
-    ///
-    /// Usually `cluster:namespace:application`.
+    /// The issued token will only be accepted by the targeted application, specified in this field.
     pub target: String,
     pub identity_provider: IdentityProvider,
 }
 
-/// Use this data type to exchange a user token for another similar token, scoped to the requested target.
+/// Use this data type to exchange a user token for a machine token.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct TokenExchangeRequest {
-    /// Who this token is intended for.
-    ///
-    /// Usually `cluster:namespace:application`.
+    /// The issued token will only be accepted by the targeted application, specified in this field.
     pub target: String,
     pub identity_provider: IdentityProvider,
 
-    /// The token that contains the user's context.
-    ///
-    /// Usually found in the `Authorization` header in requests to your application.
+    /// The user's access token, usually found in the _Authorization_ header in requests to your application.
     pub user_token: String,
 }
 
