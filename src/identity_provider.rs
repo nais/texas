@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::time::Duration;
-use log::info;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
