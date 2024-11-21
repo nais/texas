@@ -15,7 +15,7 @@ async fn main() -> ExitCode {
     };
 
     texas::config::print_texas_logo();
-    info!("Starting up");
+    info!("Starting {} {} built on {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("BUILD_TIME"));
 
     let _ = dotenv(); // load .env if present
 

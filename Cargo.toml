@@ -38,6 +38,9 @@ testcontainers = { version = "0.23.1", features = ["http_wait", "properties-conf
 jsonwebkey = { version = "0.3.5", features = ["jwt-convert", "generate"] }
 env_logger = "0.11"
 
+[build-dependencies]
+chrono = { version = "0.4", default-features = false, features = ["now"] }
+
 [[bin]]
 name = "gen-openapi"
 path = "./src/export_openapi_spec.rs"

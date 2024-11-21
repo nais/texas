@@ -85,7 +85,8 @@ fn resource() -> Resource {
         [
             KeyValue::new(SERVICE_NAME, env!("CARGO_PKG_NAME")),
             KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-            KeyValue::new(DEPLOYMENT_ENVIRONMENT_NAME, "develop"),
+            KeyValue::new("service.build_time", env!("BUILD_TIME")),
+            //KeyValue::new(DEPLOYMENT_ENVIRONMENT_NAME, "develop"),
         ],
         SCHEMA_URL,
     )
