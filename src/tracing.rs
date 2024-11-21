@@ -12,11 +12,21 @@ use tracing::{Level};
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("init opentelemetry metrics: {0}")]
+    Metrics(#[from] opentelemetry::metrics::MetricsError),
+
+    #[error("init opentelemetry tracing: {0}")]
+    Tracing(#[from] opentelemetry::trace::TraceError),
+}
 
 // Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
-pub fn init_tracing_subscriber() -> opentelemetry::metrics::Result<OtelGuard> {
+pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let meter_provider = init_meter_provider()?;
-    let tracer = init_tracer();
+    let tracer = init_tracer()?;
     tracing_subscriber::registry()
         .with(tracing_subscriber::filter::LevelFilter::from_level(Level::INFO))
         .with(MetricsLayer::new(meter_provider.clone()))
@@ -41,7 +51,7 @@ impl Drop for OtelGuard {
 }
 
 // Construct MeterProvider for MetricsLayer
-fn init_meter_provider() -> opentelemetry::metrics::Result<SdkMeterProvider> {
+fn init_meter_provider() -> Result<SdkMeterProvider, Error> {
     let exporter = opentelemetry_otlp::new_exporter()
         .tonic()
         .build_metrics_exporter(Box::new(DefaultTemporalitySelector::new()))?;
@@ -60,7 +70,7 @@ fn init_meter_provider() -> opentelemetry::metrics::Result<SdkMeterProvider> {
     Ok(meter_provider)
 }
 
-fn init_tracer() -> Tracer {
+fn init_tracer() -> Result<Tracer, Error> {
     let provider = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_trace_config(
@@ -73,11 +83,10 @@ fn init_tracer() -> Tracer {
         )
         .with_batch_config(BatchConfig::default())
         .with_exporter(opentelemetry_otlp::new_exporter().tonic())
-        .install_batch(runtime::Tokio)
-        .unwrap();
+        .install_batch(runtime::Tokio)?;
 
     global::set_tracer_provider(provider.clone());
-    provider.tracer("tracing-otel-subscriber")
+    Ok(provider.tracer("tracing-otel-subscriber"))
 }
 
 fn resource() -> Resource {
