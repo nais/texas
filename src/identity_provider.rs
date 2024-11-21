@@ -98,7 +98,8 @@ pub struct ErrorResponse {
 
 impl Display for ErrorResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", serde_json::to_string(&self.error).unwrap(), self.description)
+        let err = serde_json::to_string(&self.error).unwrap_or("BUG: unserializable error message".to_string());
+        write!(f, "{}: {}", err, self.description)
     }
 }
 
