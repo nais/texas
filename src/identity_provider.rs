@@ -103,53 +103,6 @@ impl Display for ErrorResponse {
     }
 }
 
-impl From<ApiError> for ErrorResponse {
-    fn from(err: ApiError) -> Self {
-        match err {
-            ApiError::Sign => ErrorResponse {
-                error: OAuthErrorCode::ServerError,
-                description: "Failed to sign assertion".to_string(),
-            },
-            ApiError::UpstreamRequest(err) => ErrorResponse {
-                error: OAuthErrorCode::ServerError,
-                description: format!("Upstream request failed: {}", err),
-            },
-            ApiError::JSON(err) => ErrorResponse {
-                error: OAuthErrorCode::ServerError,
-                description: format!("Failed to parse JSON: {}", err),
-            },
-            ApiError::Upstream { status_code: _status_code, error } => ErrorResponse {
-                error: error.error,
-                description: error.description,
-            },
-            ApiError::Validate(_) => ErrorResponse {
-                error: OAuthErrorCode::ServerError,
-                description: "Failed to validate token".to_string(),
-            },
-            ApiError::UnsupportedMediaType(_) => ErrorResponse {
-                error: OAuthErrorCode::InvalidRequest,
-                description: err.to_string(),
-            },
-            ApiError::UnprocessableContent(_) => ErrorResponse {
-                error: OAuthErrorCode::InvalidRequest,
-                description: err.to_string(),
-            },
-            ApiError::UnsupportedIdentityProvider(_) => ErrorResponse {
-                error: OAuthErrorCode::InvalidRequest,
-                description: err.to_string(),
-            },
-            ApiError::TokenExchangeUnsupported(_) => ErrorResponse {
-                error: OAuthErrorCode::InvalidRequest,
-                description: err.to_string(),
-            },
-            ApiError::TokenRequestUnsupported(_) => ErrorResponse {
-                error: OAuthErrorCode::InvalidRequest,
-                description: err.to_string(),
-            },
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
 pub enum OAuthErrorCode {
     #[serde(rename = "invalid_request")]
@@ -166,21 +119,6 @@ pub enum OAuthErrorCode {
     InvalidScope,
     #[serde(rename = "server_error")]
     ServerError,
-}
-
-impl From<OAuthErrorCode> for StatusCode {
-    /// map oauth2 error codes that Texas should handle to InternalServerError
-    fn from(value: OAuthErrorCode) -> Self {
-        match value {
-            OAuthErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
-            OAuthErrorCode::InvalidClient => StatusCode::INTERNAL_SERVER_ERROR,
-            OAuthErrorCode::InvalidGrant => StatusCode::INTERNAL_SERVER_ERROR,
-            OAuthErrorCode::UnauthorizedClient => StatusCode::INTERNAL_SERVER_ERROR,
-            OAuthErrorCode::UnsupportedGrantType => StatusCode::INTERNAL_SERVER_ERROR,
-            OAuthErrorCode::InvalidScope => StatusCode::BAD_REQUEST,
-            OAuthErrorCode::ServerError => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
 }
 
 /// Identity providers for use with token fetch, exchange and introspection.

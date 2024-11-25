@@ -11,7 +11,6 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use axum::{async_trait, Form};
-use jsonwebtoken as jwt;
 use log::{error, info};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -65,6 +64,7 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         return Ok(Json(response));
     }
 
+    // TODO: we currently don't differentiate between unsupported operations and missing provider configurations
     Err(ApiError::TokenRequestUnsupported(request.identity_provider))
 }
 
@@ -114,6 +114,7 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         return Ok(Json(response));
     }
 
+    // TODO: we currently do not differentiate between unsupported operations and missing provider configurations
     Err(ApiError::TokenExchangeUnsupported(request.identity_provider))
 }
 
@@ -171,6 +172,7 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
         Some(iss) => format!("unrecognized issuer: '{iss}'"),
     };
 
+    // TODO: we currently do not differentiate between unsupported operations and missing provider configurations
     Err(Json(IntrospectResponse::new_invalid(error_message)))
 }
 
@@ -256,17 +258,11 @@ pub enum ApiError {
     #[error("cannot sign JWT claims")]
     Sign,
 
-    #[error("invalid token: {0}")]
-    Validate(jwt::errors::Error),
-
     #[error("{0}")]
     UnsupportedMediaType(String),
 
     #[error("{0}")]
     UnprocessableContent(String),
-
-    #[error("identity provider '{0}' is not configured")]
-    UnsupportedIdentityProvider(IdentityProvider),
 
     #[error("identity provider '{0}' does not support token exchange")]
     TokenExchangeUnsupported(IdentityProvider),
@@ -277,8 +273,60 @@ pub enum ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::http::Response<axum::body::Body> {
-        let error_response = ErrorResponse::from(self);
-        let status_code = StatusCode::from(error_response.error.clone());
+        let (status_code, error_response) = match self {
+            // Upstream OAuth errors may differ between providers.
+            //
+            // They range from things we're in control of (such as assertions) to things we cannot
+            // control (such as access to scopes, invalid downstream-supplied values, and so on).
+            //
+            // We propagate the error response as-is from the upstream instead of trying to handle
+            // these ambiguities.
+            ApiError::Upstream { status_code, error } => (
+                status_code, error
+            ),
+            ApiError::Sign => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorResponse {
+                    error: OAuthErrorCode::ServerError,
+                    description: "Failed to sign assertion".to_string(),
+                }),
+            ApiError::JSON(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorResponse {
+                    error: OAuthErrorCode::ServerError,
+                    description: format!("Failed to parse JSON: {}", err),
+                }),
+            ApiError::UpstreamRequest(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorResponse {
+                    error: OAuthErrorCode::ServerError,
+                    description: format!("Upstream request failed: {}", err),
+                }),
+            ApiError::TokenExchangeUnsupported(_) => (
+                StatusCode::BAD_REQUEST,
+                ErrorResponse {
+                    error: OAuthErrorCode::InvalidRequest,
+                    description: self.to_string(),
+                }),
+            ApiError::TokenRequestUnsupported(_) => (
+                StatusCode::BAD_REQUEST,
+                ErrorResponse {
+                    error: OAuthErrorCode::InvalidRequest,
+                    description: self.to_string(),
+                }),
+            ApiError::UnprocessableContent(_) => (
+                StatusCode::BAD_REQUEST,
+                ErrorResponse {
+                    error: OAuthErrorCode::InvalidRequest,
+                    description: self.to_string(),
+                }),
+            ApiError::UnsupportedMediaType(_) => (
+                StatusCode::BAD_REQUEST,
+                ErrorResponse {
+                    error: OAuthErrorCode::InvalidRequest,
+                    description: self.to_string(),
+                }),
+        };
         (status_code, Json(error_response)).into_response()
     }
 }
