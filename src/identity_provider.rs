@@ -19,7 +19,7 @@ use tracing::instrument;
 use utoipa::ToSchema;
 
 /// RFC 6749 token response from section 5.1.
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Hash)]
 pub struct TokenResponse {
     pub access_token: String,
     pub token_type: TokenType,
@@ -29,7 +29,7 @@ pub struct TokenResponse {
 }
 
 /// Token type is always Bearer, but this might change in the future.
-#[derive(Deserialize, Serialize, ToSchema)]
+#[derive(Deserialize, Serialize, ToSchema, Clone, Hash)]
 pub enum TokenType {
     Bearer,
 }
@@ -123,7 +123,7 @@ pub enum OAuthErrorCode {
 }
 
 /// Identity providers for use with token fetch, exchange and introspection.
-#[derive(Deserialize, Serialize, ToSchema, Clone, Debug, PartialEq, Copy)]
+#[derive(Deserialize, Serialize, ToSchema, Clone, Debug, Hash, PartialEq, Eq, Copy)]
 pub enum IdentityProvider {
     #[serde(rename = "azuread")]
     AzureAD,
@@ -146,7 +146,7 @@ impl Display for IdentityProvider {
 }
 
 /// Use this data type to request a machine token.
-#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TokenRequest {
     /// Scope or identifier for the target application.
     pub target: String,
@@ -157,7 +157,7 @@ pub struct TokenRequest {
 }
 
 /// Use this data type to exchange a user token for a machine token.
-#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TokenExchangeRequest {
     /// Scope or identifier for the target application.
     pub target: String,

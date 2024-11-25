@@ -8,7 +8,8 @@ use texas::handlers::HandlerState;
 async fn main() {
     let mut stdout = std::io::stdout();
     let cfg = texas::config::Config::default();
-    let (_, openapi) = App::routes(HandlerState{ cfg, providers: vec![] }, DownstreamApp::default());
+    let token_cache = moka::future::Cache::new(0);
+    let (_, openapi) = App::routes(HandlerState{ cfg, token_cache, providers: vec![] }, DownstreamApp::default());
     let data = openapi.to_pretty_json().unwrap();
     stdout.write_all(data.as_bytes()).unwrap();
 }

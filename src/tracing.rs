@@ -61,6 +61,18 @@ pub fn trace_headers_from_current_span() -> HeaderMap {
         .collect()
 }
 
+pub fn inc_cache_hits(path: &str) {
+    tracing::Span::current().record("cache_hit", true);
+    let meter = global::meter("texas");
+    let counter = meter
+        .u64_counter("texas_token_cache_hits")
+        .with_description("Number of /api/v1/token cache hits")
+        .init();
+    counter.add(1, &[
+        KeyValue::new("path", path.to_string()),
+    ]);
+}
+
 pub struct OtelGuard {
     meter_provider: SdkMeterProvider,
 }
