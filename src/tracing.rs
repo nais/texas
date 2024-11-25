@@ -17,6 +17,7 @@ use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanE
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing;
+use crate::config::DownstreamApp;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -61,15 +62,17 @@ pub fn trace_headers_from_current_span() -> HeaderMap {
         .collect()
 }
 
-pub fn inc_cache_hits(path: &str) {
-    tracing::Span::current().record("cache_hit", true);
+pub fn inc_cache_hits(path: &str, downstream_app: DownstreamApp) {
     let meter = global::meter("texas");
     let counter = meter
         .u64_counter("texas_token_cache_hits")
-        .with_description("Number of /api/v1/token cache hits")
+        .with_description(format!("Number of {path} cache hits"))
         .init();
     counter.add(1, &[
         KeyValue::new("path", path.to_string()),
+        KeyValue::new("downstream_app_name", downstream_app.name),
+        KeyValue::new("downstream_app_namespace", downstream_app.namespace),
+        KeyValue::new("downstream_app_cluster", downstream_app.cluster),
     ]);
 }
 

@@ -1,5 +1,5 @@
 use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
-use crate::config::Config;
+use crate::config::{Config};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 use crate::identity_provider::*;
 use crate::{config, jwks};
@@ -20,6 +20,7 @@ use moka::Expiry;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::instrument;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[utoipa::path(
     post,
@@ -61,7 +62,8 @@ use tracing::instrument;
 #[instrument(skip_all, name = "Handle /api/v1/token", fields(cache_hit))]
 pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
     if let Some(cached_response) = state.token_cache.get(&request).await {
-        crate::tracing::inc_cache_hits("/api/v1/token");
+        tracing::Span::current().set_attribute("cache_hit", true);
+        crate::tracing::inc_cache_hits("/api/v1/token", state.cfg.downstream_app.clone());
         return Ok(Json(cached_response));
     };
 
@@ -71,6 +73,7 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         }
         let response = provider.read().await.get_token(request.clone()).await?;
         state.token_cache.insert(request, response.clone()).await;
+        tracing::Span::current().set_attribute("cache_hit", false);
         return Ok(Json(response));
     }
 
@@ -113,10 +116,11 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/token/exchange")]
+#[instrument(skip_all, name = "Handle /api/v1/token/exchange", fields(cache_hit))]
 pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenExchangeRequest>) -> Result<impl IntoResponse, ApiError> {
     if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
-        crate::tracing::inc_cache_hits("/api/v1/token/exchange");
+        tracing::Span::current().set_attribute("cache_hit", true);
+        crate::tracing::inc_cache_hits("/api/v1/token/exchange", state.cfg.downstream_app.clone());
         return Ok(Json(cached_response));
     };
 
@@ -126,6 +130,7 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         }
         let response = provider.read().await.exchange_token(request.clone()).await?;
         state.token_exchange_cache.insert(request, response.clone()).await;
+        tracing::Span::current().set_attribute("cache_hit", false);
         return Ok(Json(response));
     }
 

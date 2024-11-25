@@ -1,4 +1,4 @@
-use crate::config::{Config, DownstreamApp};
+use crate::config::{Config};
 use crate::handlers::__path_introspect;
 use crate::handlers::__path_token;
 use crate::handlers::__path_token_exchange;
@@ -63,14 +63,13 @@ impl App {
     }
 
     pub async fn new_from_config(cfg: Config) -> Result<Self, Error> {
-        let downstream_app = cfg.downstream_app.clone();
         let bind_address = cfg.bind_address.clone();
         let listener = TcpListener::bind(bind_address).await.map_err(Error::BindAddress)?;
 
         let state = HandlerState::from_config(cfg)
             .await
             .map_err(Error::InitHandlerState)?;
-        let app = Self::router(state, downstream_app);
+        let app = Self::router(state);
 
         let local_addr = listener.local_addr().map_err(LocalAddress)?;
         info!("Serving on http://{:?}", local_addr);
@@ -89,9 +88,10 @@ impl App {
         self.listener.local_addr().map(|addr| addr.to_string()).ok()
     }
 
-    pub fn routes(state: HandlerState, downstream_app: DownstreamApp) -> (Router, openapi::OpenApi) {
+    pub fn routes(state: HandlerState) -> (Router, openapi::OpenApi) {
         // local copy to allow usage in more than one closure
-        let downstream_app_response = downstream_app.clone();
+        let downstream_app_request = state.cfg.downstream_app.clone();
+        let downstream_app_response = state.cfg.downstream_app.clone();
 
         OpenApiRouter::with_openapi(ApiDoc::openapi())
             .routes(routes!(token))
@@ -114,9 +114,9 @@ impl App {
                         let root_span = info_span!(
                             "Handle incoming request",
                             method = ?request.method(),
-                            app_name = downstream_app.name,
-                            app_namespace = downstream_app.namespace,
-                            app_cluster = downstream_app.cluster,
+                            app_name = downstream_app_request.name,
+                            app_namespace = downstream_app_request.namespace,
+                            app_cluster = downstream_app_request.cluster,
                             path,
                         );
 
@@ -176,15 +176,15 @@ impl App {
     }
 
     #[cfg(not(feature = "openapi"))]
-    fn router(state: HandlerState, downstream_app: DownstreamApp) -> Router {
-        let (router, _) = Self::routes(state, downstream_app);
+    fn router(state: HandlerState) -> Router {
+        let (router, _) = Self::routes(state);
         router
     }
 
     #[cfg(feature = "openapi")]
-    fn router(state: HandlerState, downstream_app: DownstreamApp) -> Router {
+    fn router(state: HandlerState) -> Router {
         use utoipa_swagger_ui::SwaggerUi;
-        let (router, openapi) = Self::routes(state, downstream_app);
+        let (router, openapi) = Self::routes(state);
         router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()))
     }
 }
