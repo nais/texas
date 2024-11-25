@@ -13,6 +13,7 @@ check:
 test_roundtrip:
 	./hack/roundtrip-azure-cc.sh
 	./hack/roundtrip-azure-obo.sh
+	./hack/roundtrip-idporten.sh
 	./hack/roundtrip-maskinporten.sh
 	./hack/roundtrip-tokenx.sh
 
