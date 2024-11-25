@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::time::Duration;
+use derivative::Derivative;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
@@ -146,7 +147,9 @@ impl Display for IdentityProvider {
 }
 
 /// Use this data type to request a machine token.
-#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Derivative)]
+#[derivative(PartialEq, Hash)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Eq)]
 pub struct TokenRequest {
     /// Scope or identifier for the target application.
     pub target: String,
@@ -154,10 +157,17 @@ pub struct TokenRequest {
     /// Resource indicator for audience-restricted tokens (RFC 8707).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource: Option<String>,
+    /// Force renewal of token. Defaults to false if omitted.
+    #[derivative(PartialEq="ignore")]
+    #[derivative(Hash="ignore")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_cache: Option<bool>,
 }
 
 /// Use this data type to exchange a user token for a machine token.
-#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Derivative)]
+#[derivative(PartialEq, Hash)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Eq)]
 pub struct TokenExchangeRequest {
     /// Scope or identifier for the target application.
     pub target: String,
@@ -165,6 +175,11 @@ pub struct TokenExchangeRequest {
 
     /// The user's access token, usually found in the _Authorization_ header in requests to your application.
     pub user_token: String,
+    /// Force renewal of token. Defaults to false if omitted.
+    #[derivative(PartialEq="ignore")]
+    #[derivative(Hash="ignore")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_cache: Option<bool>,
 }
 
 /// This data type holds the OAuth token that will be validated in the introspect endpoint.

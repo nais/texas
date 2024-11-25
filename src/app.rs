@@ -497,6 +497,7 @@ mod tests {
                 target: "invalid".to_string(),
                 identity_provider: IdentityProvider::AzureAD,
                 resource: None,
+                skip_cache: None,
             },
             Json,
         )
@@ -528,6 +529,7 @@ mod tests {
                 target: "target".to_string(),
                 identity_provider: IdentityProvider::AzureAD,
                 user_token: "".to_string(),
+                skip_cache: None,
             },
             ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,
@@ -590,7 +592,8 @@ mod tests {
             TokenRequest {
                 target,
                 identity_provider,
-                resource: None
+                resource: None,
+                skip_cache: None,
             },
             request_format.clone(),
         )
@@ -656,6 +659,7 @@ mod tests {
                 target,
                 identity_provider,
                 user_token: user_token.access_token,
+                skip_cache: None,
             },
             request_format.clone(),
         )
