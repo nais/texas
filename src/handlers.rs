@@ -66,7 +66,6 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         return Ok(Json(response));
     }
 
-    // TODO: we currently don't differentiate between unsupported operations and missing provider configurations
     Err(ApiError::TokenRequestUnsupported(request.identity_provider))
 }
 
@@ -116,7 +115,6 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         return Ok(Json(response));
     }
 
-    // TODO: we currently do not differentiate between unsupported operations and missing provider configurations
     Err(ApiError::TokenExchangeUnsupported(request.identity_provider))
 }
 
@@ -174,7 +172,6 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
         Some(iss) => format!("unrecognized issuer: '{iss}'"),
     };
 
-    // TODO: we currently do not differentiate between unsupported operations and missing provider configurations
     Err(Json(IntrospectResponse::new_invalid(error_message)))
 }
 
@@ -266,10 +263,10 @@ pub enum ApiError {
     #[error("{0}")]
     UnprocessableContent(String),
 
-    #[error("identity provider '{0}' does not support token exchange")]
+    #[error("identity provider '{0}' does not support token exchange or is not enabled")]
     TokenExchangeUnsupported(IdentityProvider),
 
-    #[error("identity provider '{0}' does not support token requests")]
+    #[error("identity provider '{0}' does not support token requests or is not enabled")]
     TokenRequestUnsupported(IdentityProvider),
 }
 
