@@ -102,6 +102,7 @@
                 "Generate a token for Maskinporten": {
                   "value": {
                     "identity_provider": "maskinporten",
+                    "resource": "http://resource.example/api",
                     "target": "altinn:serviceowner/rolesandrights"
                   }
                 }
@@ -286,7 +287,7 @@
       },
       "IntrospectResponse": {
         "type": "object",
-        "description": "RFC 7662 introspection response from section 2.2.\n\nIdentity provider's claims differ from one another.\nPlease refer to the Nais documentation for details:\n\n- [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)\n- [IDPorten](https://doc.nais.io/auth/idporten/reference/#claims)\n- [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)\n- [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)",
+        "description": "Loosely based on RFC 7662 introspection response from section 2.2.\n\nClaims from the original token are copied verbatim to the introspection response as additional properties.\nThe claims present depend on the identity provider.\nPlease refer to the Nais documentation for details:\n\n- [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)\n- [IDPorten](https://doc.nais.io/auth/idporten/reference/#claims)\n- [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)\n- [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)",
         "required": [
           "active"
         ],
@@ -333,7 +334,7 @@
           },
           "target": {
             "type": "string",
-            "description": "The issued token will only be accepted by the targeted application, specified in this field."
+            "description": "Scope or identifier for the target application."
           },
           "user_token": {
             "type": "string",
@@ -352,9 +353,16 @@
           "identity_provider": {
             "$ref": "#/components/schemas/IdentityProvider"
           },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Resource indicator for audience-restricted tokens (RFC 8707)."
+          },
           "target": {
             "type": "string",
-            "description": "The issued token will only be accepted by the targeted application, specified in this field."
+            "description": "Scope or identifier for the target application."
           }
         }
       },

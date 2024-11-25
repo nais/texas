@@ -34,9 +34,10 @@ pub enum TokenType {
     Bearer,
 }
 
-/// RFC 7662 introspection response from section 2.2.
+/// Based on RFC 7662 introspection response from section 2.2.
 ///
-/// Identity provider's claims differ from one another.
+/// Claims from the original token are copied verbatim to the introspection response as additional properties.
+/// The claims present depend on the identity provider.
 /// Please refer to the Nais documentation for details:
 ///
 /// - [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)
@@ -147,15 +148,18 @@ impl Display for IdentityProvider {
 /// Use this data type to request a machine token.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct TokenRequest {
-    /// The issued token will only be accepted by the targeted application, specified in this field.
+    /// Scope or identifier for the target application.
     pub target: String,
     pub identity_provider: IdentityProvider,
+    /// Resource indicator for audience-restricted tokens (RFC 8707).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource: Option<String>,
 }
 
 /// Use this data type to exchange a user token for a machine token.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct TokenExchangeRequest {
-    /// The issued token will only be accepted by the targeted application, specified in this field.
+    /// Scope or identifier for the target application.
     pub target: String,
     pub identity_provider: IdentityProvider,
 
@@ -265,8 +269,8 @@ where
     }
 
     #[instrument(skip_all, name = "Create assertion for token signing request")]
-    fn create_assertion(&self, target: String) -> Option<String> {
-        let assertion = A::new(self.token_endpoint.as_ref()?.clone(), self.client_id.clone(), target);
+    fn create_assertion(&self, target: String, resource: Option<String>) -> Option<String> {
+        let assertion = A::new(self.token_endpoint.as_ref()?.clone(), self.client_id.clone(), target, resource);
         serialize(assertion, self.client_assertion_header.as_ref()?, self.private_jwk.as_ref()?).ok()
     }
 }
@@ -281,7 +285,7 @@ where
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target).ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?,
+            assertion: self.create_assertion(request.target, request.resource).ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?,
             client_id: Some(self.client_id.clone()),
             user_token: None,
         };
@@ -291,7 +295,7 @@ where
     async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target).ok_or(ApiError::TokenExchangeUnsupported(self.identity_provider_kind))?,
+            assertion: self.create_assertion(request.target, None).ok_or(ApiError::TokenExchangeUnsupported(self.identity_provider_kind))?,
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
         };

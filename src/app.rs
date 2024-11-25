@@ -496,6 +496,7 @@ mod tests {
             TokenRequest {
                 target: "invalid".to_string(),
                 identity_provider: IdentityProvider::AzureAD,
+                resource: None,
             },
             Json,
         )
@@ -586,7 +587,11 @@ mod tests {
     async fn machine_to_machine_token(expected_issuer: String, target: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
         let response = post_request(
             format!("http://{}/api/v1/token", address.clone().to_string()),
-            TokenRequest { target, identity_provider },
+            TokenRequest {
+                target,
+                identity_provider,
+                resource: None
+            },
             request_format.clone(),
         )
             .await

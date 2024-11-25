@@ -33,10 +33,12 @@ use tracing::instrument;
             ("Generate a token for Maskinporten" = (value = json!(TokenRequest{
                 identity_provider: IdentityProvider::Maskinporten,
                 target: "altinn:serviceowner/rolesandrights".to_string(),
+                resource: Some("http://resource.example/api".to_string()),
             }))),
             ("Generate a token for Azure AD" = (value = json!(TokenRequest{
                 identity_provider: IdentityProvider::AzureAD,
                 target: "api://cluster.namespace.application/.default".to_string(),
+                resource: None,
             }))),
         ),
     ),
