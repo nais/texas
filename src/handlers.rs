@@ -1,3 +1,4 @@
+use crate::cache::{CachedTokenResponse, TokenResponseExpiry};
 use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
 use crate::config::{Config};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
@@ -15,8 +16,6 @@ use log::{error, info};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use moka::Expiry;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::instrument;
@@ -73,7 +72,7 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         if let Some(cached_response) = state.token_cache.get(&request).await {
             tracing::Span::current().set_attribute("cache_hit", true);
             crate::tracing::inc_cache_hits("/api/v1/token", state.cfg.downstream_app.clone());
-            return Ok(Json(cached_response));
+            return Ok(Json(cached_response.into()));
         };
     }
 
@@ -82,7 +81,7 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
             continue;
         }
         let response = provider.read().await.get_token(request.clone()).await?;
-        state.token_cache.insert(request, response.clone()).await;
+        state.token_cache.insert(request, response.clone().into()).await;
         tracing::Span::current().set_attribute("cache_hit", false);
         return Ok(Json(response));
     }
@@ -140,7 +139,7 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
             tracing::Span::current().set_attribute("cache_hit", true);
             crate::tracing::inc_cache_hits("/api/v1/token/exchange", state.cfg.downstream_app.clone());
-            return Ok(Json(cached_response));
+            return Ok(Json(cached_response.into()));
         };
     }
 
@@ -149,7 +148,7 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
             continue;
         }
         let response = provider.read().await.exchange_token(request.clone()).await?;
-        state.token_exchange_cache.insert(request, response.clone()).await;
+        state.token_exchange_cache.insert(request, response.clone().into()).await;
         tracing::Span::current().set_attribute("cache_hit", false);
         return Ok(Json(response));
     }
@@ -191,7 +190,7 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
                     ],
                 ))))),
                 ("Invalid token" = (value = json!(IntrospectResponse::new_invalid("token is expired".to_string())))),
-             )
+            )
         ),
     )
 )]
@@ -212,14 +211,6 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
     };
 
     Err(Json(IntrospectResponse::new_invalid(error_message)))
-}
-
-#[derive(Clone)]
-pub struct HandlerState {
-    pub cfg: Config,
-    pub providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>>,
-    pub token_cache: moka::future::Cache<TokenRequest, TokenResponse>,
-    pub token_exchange_cache: moka::future::Cache<TokenExchangeRequest, TokenResponse>,
 }
 
 #[derive(Error, Debug)]
@@ -243,9 +234,19 @@ where
             provider_cfg.client_id.clone(),
             provider_cfg.token_endpoint.clone(),
             provider_cfg.client_jwk.clone(),
-            jwks::Jwks::new(&provider_cfg.issuer.clone(), &provider_cfg.jwks_uri.clone(), audience).await?,
+            jwks::Jwks::new(&provider_cfg.issuer.clone(), &provider_cfg.jwks_uri.clone(), audience)
+                .await
+                .map_err(InitError::Jwks)?,
         ).map_err(InitError::Jwk)?,
     ))))
+}
+
+#[derive(Clone)]
+pub struct HandlerState {
+    pub cfg: Config,
+    pub providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>>,
+    pub token_cache: moka::future::Cache<TokenRequest, CachedTokenResponse>,
+    pub token_exchange_cache: moka::future::Cache<TokenExchangeRequest, CachedTokenResponse>,
 }
 
 impl HandlerState {
@@ -284,29 +285,20 @@ impl HandlerState {
 
         let token_cache = moka::future::CacheBuilder::default()
             .max_capacity(CACHE_MAX_CAPACITY)
-            .expire_after(TokenExpiryResolver)
+            .expire_after(TokenResponseExpiry)
             .build();
 
         let token_exchange_cache = moka::future::CacheBuilder::default()
             .max_capacity(CACHE_MAX_CAPACITY)
-            .expire_after(TokenExpiryResolver)
+            .expire_after(TokenResponseExpiry)
             .build();
 
         Ok(Self {
             cfg,
             token_cache,
             token_exchange_cache,
-            providers
+            providers,
         })
-    }
-}
-
-/// Make sure tokens expire from the cache when their validity expires.
-struct TokenExpiryResolver;
-
-impl<R> Expiry<R, TokenResponse> for TokenExpiryResolver {
-    fn expire_after_create(&self, _key: &R, value: &TokenResponse, _created_at: Instant) -> Option<Duration> {
-        Some(Duration::from_secs(value.expires_in_seconds as u64))
     }
 }
 
