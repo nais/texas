@@ -19,6 +19,7 @@ pub struct DownstreamApp {
     pub name: String,
     pub namespace: String,
     pub cluster: String,
+    pub pod_name: String,
 }
 
 impl DownstreamApp {
@@ -27,6 +28,7 @@ impl DownstreamApp {
             name: must_read_env("DOWNSTREAM_APP_NAME")?,
             namespace: must_read_env("DOWNSTREAM_APP_NAMESPACE")?,
             cluster: must_read_env("DOWNSTREAM_APP_CLUSTER")?,
+            pod_name: must_read_env("NAIS_POD_NAME")?,
         })
     }
 }

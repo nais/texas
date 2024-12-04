@@ -117,6 +117,7 @@ impl App {
                             app_name = downstream_app_request.name,
                             app_namespace = downstream_app_request.namespace,
                             app_cluster = downstream_app_request.cluster,
+                            pod_name = downstream_app_request.pod_name,
                             path,
                         );
 
@@ -154,6 +155,7 @@ impl App {
                                 KeyValue::new("downstream_app_name", downstream_app_response.name),
                                 KeyValue::new("downstream_app_namespace", downstream_app_response.namespace),
                                 KeyValue::new("downstream_app_cluster", downstream_app_response.cluster),
+                                KeyValue::new("pod_name", downstream_app_response.pod_name),
                             ],
                         );
                     })
