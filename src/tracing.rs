@@ -73,6 +73,7 @@ pub fn inc_cache_hits(path: &str, downstream_app: DownstreamApp) {
         KeyValue::new("downstream_app_name", downstream_app.name),
         KeyValue::new("downstream_app_namespace", downstream_app.namespace),
         KeyValue::new("downstream_app_cluster", downstream_app.cluster),
+        KeyValue::new("pod_name", downstream_app.pod_name),
     ]);
 }
 
