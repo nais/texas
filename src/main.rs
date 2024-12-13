@@ -1,6 +1,8 @@
 use dotenv::dotenv;
 use log::{error, info, warn};
 use std::process::ExitCode;
+use std::time::Duration;
+use tokio::time::sleep;
 use texas::app::App;
 use texas::tracing::init_tracing_subscriber;
 
@@ -42,6 +44,7 @@ async fn init_app_with_retry() -> Option<App> {
             Ok(app) => return Some(app),
             Err(texas::app::Error::InitHandlerState(err)) => {
                 warn!("{err} (attempt {i}/{MAX_RETRIES})");
+                sleep(Duration::from_secs(1)).await;
             }
             Err(err) => {
                 error!("{err}");
