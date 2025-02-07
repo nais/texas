@@ -193,7 +193,6 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use crate::app::tests::RequestFormat::Json;
     use crate::app::App;
     use crate::claims::epoch_now_secs;
     use crate::config::Config;
@@ -501,7 +500,7 @@ mod tests {
                 resource: None,
                 skip_cache: None,
             },
-            Json,
+            RequestFormat::Json,
         )
             .await
             .unwrap();
@@ -735,6 +734,48 @@ mod tests {
         assert_eq!(body.contains_key("error"), false);
         assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
         assert!(!body["sub"].to_string().is_empty());
+    }
+
+    async fn test_token_unsupported_identity_provider(address: &str) {
+        let response = post_request(
+            format!("http://{}/api/v1/token", address),
+            TokenRequest {
+                target: "some_target".to_string(),
+                identity_provider: IdentityProvider::IDPorten,
+                resource: None,
+                skip_cache: None,
+            },
+            RequestFormat::Json,
+        )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 400);
+        assert_eq!(
+            response.text().await.unwrap(),
+            r#"{"error":"invalid_request","error_description":"identity provider 'idporten' does not support token requests"}"#
+        );
+    }
+
+    async fn test_token_exchange_unsupported_identity_provider(address: &str) {
+        let response = post_request(
+            format!("http://{}/api/v1/token/exchange", address),
+            TokenExchangeRequest {
+                target: "some_target".to_string(),
+                identity_provider: IdentityProvider::IDPorten,
+                user_token: "some_token".to_string(),
+                skip_cache: None,
+            },
+            RequestFormat::Json,
+        )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 400);
+        assert_eq!(
+            response.text().await.unwrap(),
+            r#"{"error":"invalid_request","error_description":"identity provider 'idporten' does not support token exchange"}"#
+        );
     }
 
     #[derive(Clone)]
