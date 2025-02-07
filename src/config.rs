@@ -183,4 +183,15 @@ impl Config {
             downstream_app: DownstreamApp::default(),
         }
     }
+
+    pub fn mock_no_providers() -> Self {
+        Self {
+            bind_address: "127.0.0.1:0".to_string(),
+            maskinporten: None,
+            azure_ad: None,
+            token_x: None,
+            idporten: None,
+            downstream_app: DownstreamApp::default(),
+        }
+    }
 }

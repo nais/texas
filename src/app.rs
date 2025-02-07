@@ -227,7 +227,8 @@ mod tests {
         let join_handler = tokio::spawn(async move {
             testapp.app.run().await.unwrap();
         });
-        let identity_provider_address = format!("{}:{}", testapp.docker.host.clone(), testapp.docker.port);
+        let docker = testapp.docker.unwrap();
+        let identity_provider_address = format!("{}:{}", docker.host.clone(), docker.port);
 
         // All happy cases
         for format in [RequestFormat::Form, RequestFormat::Json] {
@@ -285,34 +286,69 @@ mod tests {
         test_introspect_token_is_issued_in_the_future(&address, &identity_provider_address).await;
         test_introspect_token_has_not_before_in_the_future(&address, &identity_provider_address).await;
         test_introspect_token_invalid_audience(&address).await;
-        // TODO: implement these tests:
-        // * /token
-        //   * [ ] upstream network error / reqwest error
-        //   * [ ] upstream responded with code >= 400
-        //      * [ ] json deserialize error
-        //      * [ ] oauth error
-        //   * [ ] upstream responded with success code but non-json body
-        //
-        // * /token/exchange
-        //   * [x] missing or empty user token
-        //   * [ ] upstream network error / reqwest error
-        //   * [ ] upstream responded with code >= 400
-        //      * [ ] json deserialize error
-        //      * [ ] oauth error
-        //   * [ ] upstream responded with success code but non-json body
-        //
-        // * /introspect
-        //   * [x] token is not a jwt
-        //   * [x] token does not contain iss claim
-        //   * [x] token is issued by unrecognized issuer
-        //   * [x] token does not have kid (key id) in header
-        //   * [x] token is signed with a key that is not in the jwks
-        //   * [x] invalid or expired timestamps in nbf, iat, exp
-        //   * [x] invalid or missing aud (for certain providers)
-        //   * [ ] refreshing jwks fails
-        //     * [ ] fetch / network error / reqwest error
-        //     * [ ] decode error
-        //     * [ ] jwks has key with blank or missing key id
+        test_token_unsupported_identity_provider(&address).await;
+        test_token_exchange_unsupported_identity_provider(&address).await;
+
+        join_handler.abort();
+    }
+
+    /// Test that Texas returns an appropriate error when the identity provider is not supported.
+    #[tokio::test]
+    async fn test_non_enabled_providers_integration_tests() {
+        let testapp = TestApp::new_no_providers().await;
+        let address = testapp.app.address().unwrap();
+        let join_handler = tokio::spawn(async move {
+            testapp.app.run().await.unwrap();
+        });
+        
+        let response = post_request(
+            format!("http://{}/api/v1/token", address),
+            TokenRequest {
+                target: "some_target".to_string(),
+                identity_provider: IdentityProvider::IDPorten,
+                resource: None,
+                skip_cache: None,
+            },
+            RequestFormat::Json,
+        ).await.unwrap();
+
+        assert_eq!(response.status(), 400);
+        assert_eq!(
+            response.text().await.unwrap(),
+            r#"{"error":"invalid_request","error_description":"identity provider 'idporten' is not enabled"}"#
+        );
+
+        let response = post_request(
+            format!("http://{}/api/v1/token/exchange", address),
+            TokenExchangeRequest {
+                target: "some_target".to_string(),
+                identity_provider: IdentityProvider::TokenX,
+                user_token: "some_token".to_string(),
+                skip_cache: None,
+            },
+            RequestFormat::Json,
+        ).await.unwrap();
+
+        assert_eq!(response.status(), 400);
+        assert_eq!(
+            response.text().await.unwrap(),
+            r#"{"error":"invalid_request","error_description":"identity provider 'tokenx' is not enabled"}"#
+        );
+
+        let response = post_request(
+            format!("http://{}/api/v1/introspect", address),
+            IntrospectRequest {
+                token: "some_token".to_string(),
+                identity_provider: IdentityProvider::IDPorten,
+            },
+            RequestFormat::Json,
+        ).await.unwrap();
+
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            response.text().await.unwrap(),
+            r#"{"active":false,"error":"identity provider 'idporten' is not enabled"}"#
+        );
 
         join_handler.abort();
     }
@@ -804,12 +840,12 @@ mod tests {
     struct TestApp {
         app: App,
         cfg: Config,
-        docker: DockerRuntimeParams,
+        docker: Option<DockerRuntimeParams>,
     }
 
     impl TestApp {
         async fn new() -> Self {
-            env_logger::builder().filter_level(LevelFilter::Info).init();
+            let _ = env_logger::builder().filter_level(LevelFilter::Info).try_init();
 
             let docker = DockerRuntimeParams::init().await;
 
@@ -822,7 +858,17 @@ mod tests {
             let cfg = Config::mock(docker.host.clone(), docker.port);
             let app = App::new_from_config(cfg.clone()).await.unwrap();
 
-            Self { app, cfg, docker }
+            Self { app, cfg, docker: Some(docker) }
+        }
+
+        async fn new_no_providers() -> Self {
+            let _ = env_logger::builder().filter_level(LevelFilter::Info).try_init();
+
+            // Set up Texas
+            let cfg = Config::mock_no_providers();
+            let app = App::new_from_config(cfg.clone()).await.unwrap();
+
+            Self { app, cfg, docker: None }
         }
     }
 

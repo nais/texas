@@ -3,6 +3,7 @@ use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, Tok
 use crate::handlers::ApiError;
 use crate::jwks;
 use axum::async_trait;
+use derivative::Derivative;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use reqwest::StatusCode;
@@ -13,7 +14,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::time::Duration;
-use derivative::Derivative;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
@@ -158,8 +158,8 @@ pub struct TokenRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource: Option<String>,
     /// Force renewal of token. Defaults to false if omitted.
-    #[derivative(PartialEq="ignore")]
-    #[derivative(Hash="ignore")]
+    #[derivative(PartialEq = "ignore")]
+    #[derivative(Hash = "ignore")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_cache: Option<bool>,
 }
@@ -176,8 +176,8 @@ pub struct TokenExchangeRequest {
     /// The user's access token, usually found in the _Authorization_ header in requests to your application.
     pub user_token: String,
     /// Force renewal of token. Defaults to false if omitted.
-    #[derivative(PartialEq="ignore")]
-    #[derivative(Hash="ignore")]
+    #[derivative(PartialEq = "ignore")]
+    #[derivative(Hash = "ignore")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_cache: Option<bool>,
 }
@@ -297,10 +297,16 @@ where
     A: Assertion,
     Provider<R, A>: ShouldHandler,
 {
+    fn identity_provider_matches(&self, identity_provider: IdentityProvider) -> bool {
+        self.identity_provider_kind == identity_provider
+    }
+
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target, request.resource).ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?,
+            assertion: self
+                .create_assertion(request.target, request.resource)
+                .ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?,
             client_id: Some(self.client_id.clone()),
             user_token: None,
         };
@@ -354,11 +360,13 @@ where
 
 #[async_trait]
 pub trait ProviderHandler: ShouldHandler + Send + Sync {
+    fn identity_provider_matches(&self, identity_provider: IdentityProvider) -> bool;
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError>;
     async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError>;
     async fn introspect(&mut self, token: String) -> IntrospectResponse;
     async fn get_token_from_idprovider(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError>;
 }
+
 pub trait ShouldHandler: Send + Sync {
     fn should_handle_token_request(&self, _request: &TokenRequest) -> bool {
         false

@@ -76,7 +76,11 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         };
     }
 
+    let mut provider_enabled = false;
     for provider in state.providers {
+        if provider.read().await.identity_provider_matches(request.identity_provider) {
+            provider_enabled = true;
+        }
         if !provider.read().await.should_handle_token_request(&request) {
             continue;
         }
@@ -86,6 +90,9 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         return Ok(Json(response));
     }
 
+    if !provider_enabled {
+        return Err(ApiError::IdentityProviderNotEnabled(request.identity_provider));
+    }
     Err(ApiError::TokenRequestUnsupported(request.identity_provider))
 }
 
@@ -142,8 +149,11 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
             return Ok(Json(cached_response.into()));
         };
     }
-
+    let mut provider_enabled = false;
     for provider in state.providers {
+        if provider.read().await.identity_provider_matches(request.identity_provider) {
+            provider_enabled = true;
+        }
         if !provider.read().await.should_handle_token_exchange_request(&request) {
             continue;
         }
@@ -153,6 +163,9 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         return Ok(Json(response));
     }
 
+    if !provider_enabled {
+        return Err(ApiError::IdentityProviderNotEnabled(request.identity_provider));
+    }
     Err(ApiError::TokenExchangeUnsupported(request.identity_provider))
 }
 
@@ -196,13 +209,21 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
 )]
 #[instrument(skip_all, name = "Handle /api/v1/introspect")]
 pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
+    let mut provider_enabled = false;
     for provider in state.providers {
+        if provider.read().await.identity_provider_matches(request.identity_provider) {
+            provider_enabled = true;
+        }
         if !provider.read().await.should_handle_introspect_request(&request) {
             continue;
         }
         // We need to acquire a write lock here because introspect
         // might refresh its JWKS in-flight.
         return Ok(Json(provider.write().await.introspect(request.token).await));
+    }
+
+    if !provider_enabled {
+        return Err(Json(IntrospectResponse::new_invalid(ApiError::IdentityProviderNotEnabled(request.identity_provider))));
     }
 
     let error_message = match request.issuer() {
@@ -322,11 +343,14 @@ pub enum ApiError {
     #[error("{0}")]
     UnprocessableContent(String),
 
-    #[error("identity provider '{0}' does not support token exchange or is not enabled")]
+    #[error("identity provider '{0}' does not support token exchange")]
     TokenExchangeUnsupported(IdentityProvider),
 
-    #[error("identity provider '{0}' does not support token requests or is not enabled")]
+    #[error("identity provider '{0}' does not support token requests")]
     TokenRequestUnsupported(IdentityProvider),
+
+    #[error("identity provider '{0}' is not enabled")]
+    IdentityProviderNotEnabled(IdentityProvider),
 }
 
 impl IntoResponse for ApiError {
@@ -367,6 +391,12 @@ impl IntoResponse for ApiError {
                     description: self.to_string(),
                 }),
             ApiError::TokenRequestUnsupported(_) => (
+                StatusCode::BAD_REQUEST,
+                ErrorResponse {
+                    error: OAuthErrorCode::InvalidRequest,
+                    description: self.to_string(),
+                }),
+            ApiError::IdentityProviderNotEnabled(_) => (
                 StatusCode::BAD_REQUEST,
                 ErrorResponse {
                     error: OAuthErrorCode::InvalidRequest,
