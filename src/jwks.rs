@@ -71,9 +71,11 @@ impl Jwks {
         let alg = jwt::Algorithm::RS256;
         let mut validation = Validation::new(alg);
 
+        validation.validate_exp = true;
         validation.validate_nbf = true;
         validation.set_required_spec_claims(&["iss", "exp", "iat"]);
         validation.set_issuer(&[issuer]);
+        validation.leeway = 60; // 1 minute
 
         if let Some(audience) = audience {
             validation.set_required_spec_claims(&["iss", "exp", "iat", "aud"]);
