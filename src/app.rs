@@ -3,9 +3,8 @@ use crate::handlers::__path_introspect;
 use crate::handlers::__path_token;
 use crate::handlers::__path_token_exchange;
 use crate::handlers::{introspect, token, token_exchange, HandlerState};
-use axum::body::Bytes;
 use axum::extract::MatchedPath;
-use axum::http::{HeaderMap, Request};
+use axum::http::Request;
 use axum::response::Response;
 use axum::Router;
 use log::info;
@@ -16,7 +15,6 @@ use std::time::Duration;
 use opentelemetry::baggage::BaggageExt;
 use opentelemetry::{global, KeyValue};
 use tokio::net::TcpListener;
-use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info_span, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -125,11 +123,6 @@ impl App {
                         root_span.set_parent(context.clone());
                         root_span
                     })
-                    .on_request(|_request: &Request<_>, _span: &Span| {
-                        // You can use `_span.record("some_other_field", value)` in one of these
-                        // closures to attach a value to the initially empty field in the info_span
-                        // created above.
-                    })
                     .on_response(move |response: &Response, latency: Duration, span: &Span| {
                         let path = span.context().baggage().get("path").map(|x| x.to_string()).unwrap_or_default();
 
@@ -159,19 +152,6 @@ impl App {
                             ],
                         );
                     })
-                    .on_body_chunk(|_chunk: &Bytes, _latency: Duration, _span: &Span| {
-                        // ...
-                    })
-                    .on_eos(
-                        |_trailers: Option<&HeaderMap>, _stream_duration: Duration, _span: &Span| {
-                            // ...
-                        },
-                    )
-                    .on_failure(
-                        |_error: ServerErrorsFailureClass, _latency: Duration, _span: &Span| {
-                            // ...
-                        },
-                    ),
             )
             .with_state(state)
             .split_for_parts()
@@ -300,7 +280,7 @@ mod tests {
         let join_handler = tokio::spawn(async move {
             testapp.app.run().await.unwrap();
         });
-        
+
         let response = post_request(
             format!("http://{}/api/v1/token", address),
             TokenRequest {
