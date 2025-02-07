@@ -37,7 +37,7 @@ async fn main() -> ExitCode {
 
 /// Retry initializing application if we hit a network error.
 async fn init_app_with_retry() -> Option<App> {
-    const MAX_RETRIES: usize = 3;
+    const MAX_RETRIES: usize = 10;
 
     for i in 1..=MAX_RETRIES {
         match App::new_from_env().await {
