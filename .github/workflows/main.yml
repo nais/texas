@@ -16,10 +16,12 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
       - run: rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
-      - run: |
-          cargo check --verbose
-          cargo test --verbose --features docker
-          cargo build --verbose
+      - name: cargo check
+        run: cargo check --verbose
+      - name: cargo test
+        run: cargo test --verbose --features docker
+      - name: cargo build
+        run: cargo build --verbose
   publish:
     name: Publish to Google and GitHub registries
     needs: test
