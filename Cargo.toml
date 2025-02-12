@@ -10,35 +10,35 @@ openapi = []
 
 [dependencies]
 axum = { version = "0.7", features = ["http2", "macros"] }
+derivative = "2.2.0"
 dotenv = { version = "0.15", features = ["clap"] }
-tokio = { version = "1.43", features = ["rt-multi-thread"] }
-serde = { version = "1", features = ["derive"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-log = { version = "0.4", features = ["std"] }
-thiserror = "1"
-jsonwebtoken = "8.3.0"
 jsonwebkey = { version = "0.3.5", features = ["jwt-convert"] }
-uuid = { version = "1.11.0", features = ["v4"] }
+jsonwebtoken = "8.3.0"
+log = { version = "0.4", features = ["std"] }
+moka = { version = "0.12.8", features = ["future"] }
+opentelemetry = { version = "0.26.0", features = ["metrics", "trace"] }
+opentelemetry-http = "0.26.0"
+opentelemetry-otlp = { version = "0.26.0", features = ["metrics", "trace"] }
+opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
+opentelemetry_sdk = { version = "0.26.0", features = ["trace", "rt-tokio"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.138"
+thiserror = "1"
+tokio = { version = "1.43", features = ["rt-multi-thread"] }
+tower-http = { version = "0.6.1", features = ["trace"] }
+tracing = { version = "0.1.40", features = [] }
+tracing-opentelemetry = "0.27.0"
+tracing-subscriber = "0.3.18"
 utoipa = { version = "5.2.0", features = ["axum_extras", "openapi_extensions"] }
 utoipa-axum = "0.1.2"
 utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
-tracing = { version = "0.1.40", features = [] }
-tracing-opentelemetry = "0.27.0"
-opentelemetry = { version = "0.26.0", features = ["metrics", "trace"] }
-opentelemetry-http = "0.26.0"
-opentelemetry_sdk = { version = "0.26.0", features = ["trace", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.26.0", features = ["metrics", "trace"] }
-opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
-tracing-subscriber = "0.3.18"
-tower-http = { version = "0.6.1", features = ["trace"] }
-moka = { version = "0.12.8", features = ["future"] }
-derivative = "2.2.0"
+uuid = { version = "1.11.0", features = ["v4"] }
 
 [dev-dependencies]
-testcontainers = { version = "0.23.1", features = ["http_wait", "properties-config"] }
-jsonwebkey = { version = "0.3.5", features = ["jwt-convert", "generate"] }
 env_logger = "0.11"
+jsonwebkey = { version = "0.3.5", features = ["jwt-convert", "generate"] }
+testcontainers = { version = "0.23.1", features = ["http_wait", "properties-config"] }
 
 [build-dependencies]
 chrono = { version = "0.4", default-features = false, features = ["now"] }
