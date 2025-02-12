@@ -8,13 +8,8 @@ env:
   GOOGLE_REGISTRY: europe-north1-docker.pkg.dev
   GITHUB_REGISTRY: ghcr.io
 jobs:
-  build:
-    name: Publish to Google and GitHub registries
-    if: github.ref == 'refs/heads/master'
-    permissions:
-      contents: "read"
-      id-token: "write"
-      packages: "write"
+  test:
+    name: Build and test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,6 +18,16 @@ jobs:
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose --features docker
+  publish:
+    name: Publish to Google and GitHub registries
+    needs: test
+    if: github.ref == 'refs/heads/master'
+    permissions:
+      contents: "read"
+      id-token: "write"
+      packages: "write"
+    runs-on: ubuntu-latest
+    steps:
       - uses: nais/platform-build-push-sign@main # ratchet:exclude
         id: build_push_sign
         with:
@@ -71,12 +76,12 @@ jobs:
   rollout:
     name: Rollout
     if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
-    needs: build
+    needs: publish
     runs-on: fasit-deploy
     permissions:
       id-token: write
     steps:
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
         with:
-          chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/${{ needs.build.outputs.chart_name }}
-          version: ${{ needs.build.outputs.chart_version }}
+          chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/${{ needs.publish.outputs.chart_name }}
+          version: ${{ needs.publish.outputs.chart_version }}
