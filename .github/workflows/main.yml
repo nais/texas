@@ -8,6 +8,21 @@ env:
   GOOGLE_REGISTRY: europe-north1-docker.pkg.dev
   GITHUB_REGISTRY: ghcr.io
 jobs:
+  openapi:
+    name: Verify openapi schema
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - name: make openapi
+        run: |
+          make openapi
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "::error::openapi spec is not up-to-date; run \`make openapi\` and commit the changes"
+            exit 1
+          fi
   test:
     name: Build and test
     runs-on: ubuntu-latest
@@ -24,7 +39,7 @@ jobs:
         run: cargo build --verbose
   publish:
     name: Publish to Google and GitHub registries
-    needs: test
+    needs: [test, openapi]
     if: github.ref == 'refs/heads/master'
     permissions:
       contents: "read"
