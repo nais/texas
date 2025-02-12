@@ -28,6 +28,8 @@ jobs:
       packages: "write"
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
       - uses: nais/platform-build-push-sign@main # ratchet:exclude
         id: build_push_sign
         with:
