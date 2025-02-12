@@ -1,28 +1,28 @@
-use std::collections::HashMap;
+use crate::config::DownstreamApp;
 use axum::http::{HeaderName, HeaderValue};
-use opentelemetry::trace::TracerProvider;
-use opentelemetry::{global, KeyValue};
 use opentelemetry::propagation::TextMapPropagator;
-use opentelemetry_sdk::metrics::reader::DefaultTemporalitySelector;
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry::{global, KeyValue};
+use opentelemetry_otlp::{MetricExporter, SpanExporter};
 use opentelemetry_sdk::metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider};
-use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
+use opentelemetry_sdk::trace::TracerProvider;
 use opentelemetry_sdk::{runtime, Resource};
 use opentelemetry_semantic_conventions::{
     attribute::{SERVICE_NAME, SERVICE_VERSION},
     SCHEMA_URL,
 };
 use reqwest::header::HeaderMap;
-use tracing::{Level};
+use std::collections::HashMap;
+use tracing;
+use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing;
-use crate::config::DownstreamApp;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("init opentelemetry metrics: {0}")]
-    Metrics(#[from] opentelemetry::metrics::MetricsError),
+    Metrics(#[from] opentelemetry_sdk::metrics::MetricError),
 
     #[error("init opentelemetry tracing: {0}")]
     Tracing(#[from] opentelemetry::trace::TraceError),
@@ -31,7 +31,10 @@ pub enum Error {
 /// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
 pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let meter_provider = init_meter_provider()?;
-    let tracer = init_tracer()?;
+    let tracer_provider = init_tracing_provider()?;
+
+    let tracer = tracer_provider.tracer("tracing-otel-subscriber");
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::filter::LevelFilter::from_level(Level::INFO))
         .with(MetricsLayer::new(meter_provider.clone()))
@@ -39,7 +42,7 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
         .with(OpenTelemetryLayer::new(tracer))
         .init();
 
-    Ok(OtelGuard { meter_provider })
+    Ok(OtelGuard { meter_provider, tracer_provider })
 }
 
 /// Extract trace data from the current span in order to
@@ -67,7 +70,8 @@ pub fn inc_cache_hits(path: &str, downstream_app: DownstreamApp) {
     let counter = meter
         .u64_counter("texas_token_cache_hits")
         .with_description(format!("Number of {path} cache hits"))
-        .init();
+        .build();
+
     counter.add(1, &[
         KeyValue::new("path", path.to_string()),
         KeyValue::new("downstream_app_name", downstream_app.name),
@@ -79,6 +83,7 @@ pub fn inc_cache_hits(path: &str, downstream_app: DownstreamApp) {
 
 pub struct OtelGuard {
     meter_provider: SdkMeterProvider,
+    tracer_provider: TracerProvider,
 }
 
 impl Drop for OtelGuard {
@@ -86,18 +91,21 @@ impl Drop for OtelGuard {
         if let Err(err) = self.meter_provider.shutdown() {
             eprintln!("{err:?}");
         }
-        global::shutdown_tracer_provider();
+        
+        if let Err(err) = self.tracer_provider.shutdown() {
+            eprintln!("{err:?}");
+        }
     }
 }
 
 // Construct MeterProvider for MetricsLayer
 fn init_meter_provider() -> Result<SdkMeterProvider, Error> {
-    let exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
-        .build_metrics_exporter(Box::new(DefaultTemporalitySelector::new()))?;
+    let exporter = MetricExporter::builder()
+        .with_tonic()
+        .build()?;
 
     let reader = PeriodicReader::builder(exporter, runtime::Tokio)
-        .with_interval(std::time::Duration::from_secs(2))
+        .with_interval(std::time::Duration::from_secs(30))
         .build();
 
     let meter_provider = MeterProviderBuilder::default()
@@ -110,23 +118,19 @@ fn init_meter_provider() -> Result<SdkMeterProvider, Error> {
     Ok(meter_provider)
 }
 
-fn init_tracer() -> Result<Tracer, Error> {
-    let provider = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_trace_config(
-            opentelemetry_sdk::trace::Config::default()
-                // Customize sampling strategy
-                .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(1.0))))
-                // If export trace to AWS X-Ray, you can use XrayIdGenerator
-                .with_id_generator(RandomIdGenerator::default())
-                .with_resource(resource()),
-        )
-        .with_batch_config(BatchConfig::default())
-        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
-        .install_batch(runtime::Tokio)?;
+fn init_tracing_provider() -> Result<TracerProvider, Error> {
+    let exporter = SpanExporter::builder()
+        .with_tonic()
+        .build()?;
+
+    let provider = TracerProvider::builder()
+        .with_resource(resource())
+        .with_batch_exporter(exporter, runtime::Tokio)
+        .build();
 
     global::set_tracer_provider(provider.clone());
-    Ok(provider.tracer("tracing-otel-subscriber"))
+
+    Ok(provider)
 }
 
 fn resource() -> Resource {
