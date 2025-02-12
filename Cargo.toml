@@ -11,7 +11,7 @@ openapi = []
 [dependencies]
 axum = { version = "0.7", features = ["http2", "macros"] }
 dotenv = { version = "0.15", features = ["clap"] }
-tokio = { version = "1.41", features = ["rt-multi-thread"] }
+tokio = { version = "1.43", features = ["rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 log = { version = "0.4", features = ["std"] }
