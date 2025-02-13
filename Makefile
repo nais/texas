@@ -4,7 +4,7 @@ all:
 	cargo build --release
 
 setup:
-	[ ! -f .env ] && cp -v .env.example .env
+	([ ! -f .env ] && cp -v .env.example .env) || true
 
 check:
 	cargo clippy
