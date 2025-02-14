@@ -117,6 +117,7 @@ impl App {
                             app_cluster = downstream_app_request.cluster,
                             pod_name = downstream_app_request.pod_name,
                             path,
+                            "otel.kind" = "server",
                         );
 
                         let context = parent_context.with_baggage(vec![KeyValue::new("path".to_string(), path.unwrap_or_default().to_string())]);
