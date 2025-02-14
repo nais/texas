@@ -11,7 +11,7 @@ use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
-use axum::{async_trait, Form};
+use axum::Form;
 use log::{error, info};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -421,7 +421,6 @@ impl IntoResponse for ApiError {
 
 pub struct JsonOrForm<T>(pub T);
 
-#[async_trait]
 impl<S, T> FromRequest<S> for JsonOrForm<T>
 where
     S: Send + Sync,
@@ -432,7 +431,10 @@ where
     type Rejection = ApiError;
 
     #[instrument(skip_all, name = "Deserialize request")]
-    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request(
+        req: axum::extract::Request,
+        state: &S
+    ) -> Result<Self, Self::Rejection> {
         let content_type_header = req.headers().get(CONTENT_TYPE);
         let content_type = content_type_header.and_then(|value| value.to_str().ok());
 

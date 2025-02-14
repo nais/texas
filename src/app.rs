@@ -583,7 +583,7 @@ mod tests {
         assert_eq!(response.status(), 400);
         assert_eq!(
             response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten`"}"#
+            r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten`"}"#
         );
     }
 
