@@ -82,6 +82,19 @@ pub fn inc_cache_hits(path: &str, identity_provider: IdentityProvider) {
     ]).as_slice());
 }
 
+pub fn inc_cache_misses(path: &str, identity_provider: IdentityProvider, skipped_cache: bool) {
+    let counter = get_meter()
+        .u64_counter("texas_token_cache_misses")
+        .with_description(format!("Number of {path} cache misses"))
+        .build();
+
+    counter.add(1, with_resource_attributes(vec![
+        KeyValue::new("path", path.to_string()),
+        KeyValue::new("identity_provider", identity_provider.to_string()),
+        KeyValue::new("skipped_cache", skipped_cache.to_string()),
+    ]).as_slice());
+}
+
 pub fn record_http_response_secs(path: &str, latency: Duration, status_code: StatusCode) {
     let histogram = get_meter()
         .f64_histogram("http_response_secs")

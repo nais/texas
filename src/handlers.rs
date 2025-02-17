@@ -3,6 +3,7 @@ use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
 use crate::config::{Config};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 use crate::identity_provider::*;
+use crate::tracing::{inc_cache_hits, inc_cache_misses};
 use crate::{config, jwks};
 use axum::extract::rejection::{FormRejection, JsonRejection};
 use axum::extract::FromRequest;
@@ -72,13 +73,15 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
     span.set_attribute("identity_provider", request.identity_provider.to_string());
     span.set_attribute("target", request.target.to_string());
 
-    if !request.skip_cache.unwrap_or_default() {
+    let skip_cache = request.skip_cache.unwrap_or(false);
+    if !skip_cache {
         if let Some(cached_response) = state.token_cache.get(&request).await {
-            tracing::Span::current().set_attribute("cache_hit", true);
-            crate::tracing::inc_cache_hits("/api/v1/token", request.identity_provider);
+            span.set_attribute("cache_hit", true);
+            inc_cache_hits("/api/v1/token", request.identity_provider);
             return Ok(Json(cached_response.into()));
-        };
+        }
     }
+    inc_cache_misses("/api/v1/token", request.identity_provider, skip_cache);
 
     let mut provider_enabled = false;
     for provider in state.providers {
@@ -90,7 +93,7 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         }
         let response = provider.read().await.get_token(request.clone()).await?;
         state.token_cache.insert(request, response.clone().into()).await;
-        tracing::Span::current().set_attribute("cache_hit", false);
+        span.set_attribute("cache_hit", false);
         return Ok(Json(response));
     }
 
@@ -150,13 +153,16 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
     span.set_attribute("identity_provider", request.identity_provider.to_string());
     span.set_attribute("target", request.target.to_string());
 
-    if !request.skip_cache.unwrap_or_default() {
+    let skip_cache = request.skip_cache.unwrap_or(false);
+    if !skip_cache {
         if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
-            tracing::Span::current().set_attribute("cache_hit", true);
-            crate::tracing::inc_cache_hits("/api/v1/token/exchange", request.identity_provider);
+            span.set_attribute("cache_hit", true);
+            inc_cache_hits("/api/v1/token/exchange", request.identity_provider);
             return Ok(Json(cached_response.into()));
         };
     }
+    inc_cache_misses("/api/v1/token/exchange", request.identity_provider, skip_cache);
+
     let mut provider_enabled = false;
     for provider in state.providers {
         if provider.read().await.identity_provider_matches(request.identity_provider) {
@@ -167,7 +173,7 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         }
         let response = provider.read().await.exchange_token(request.clone()).await?;
         state.token_exchange_cache.insert(request, response.clone().into()).await;
-        tracing::Span::current().set_attribute("cache_hit", false);
+        span.set_attribute("cache_hit", false);
         return Ok(Json(response));
     }
 
