@@ -13,7 +13,7 @@ use opentelemetry_http::HeaderExtractor;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use std::time::Duration;
 use opentelemetry::baggage::BaggageExt;
-use opentelemetry::{global, KeyValue};
+use opentelemetry::KeyValue;
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info_span, Span};
@@ -87,10 +87,6 @@ impl App {
     }
 
     pub fn routes(state: HandlerState) -> (Router, openapi::OpenApi) {
-        // local copy to allow usage in more than one closure
-        let downstream_app_request = state.cfg.downstream_app.clone();
-        let downstream_app_response = state.cfg.downstream_app.clone();
-
         OpenApiRouter::with_openapi(ApiDoc::openapi())
             .routes(routes!(token))
             .routes(routes!(token_exchange))
@@ -112,10 +108,6 @@ impl App {
                         let root_span = info_span!(
                             "Handle incoming request",
                             method = ?request.method(),
-                            app_name = downstream_app_request.name,
-                            app_namespace = downstream_app_request.namespace,
-                            app_cluster = downstream_app_request.cluster,
-                            pod_name = downstream_app_request.pod_name,
                             path,
                             "otel.kind" = "server",
                         );
@@ -125,33 +117,12 @@ impl App {
                         root_span
                     })
                     .on_response(move |response: &Response, latency: Duration, span: &Span| {
-                        let path = span.context().baggage().get("path").map(|x| x.to_string()).unwrap_or_default();
-
-                        let meter = global::meter("texas");
-                        let histogram = meter
-                            .f64_histogram("http_response_secs")
-                            .with_description("Response time in seconds")
-                            // Setting boundaries is optional. By default, the boundaries are set to
-                            // [0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0]
-                            .with_boundaries(vec![
-                                0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009,
-                                0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09,
-                                0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-                                1.0
-                            ])
-                            .build();
-
-                        histogram.record(
-                            latency.as_secs_f64(),
-                            &[
-                                KeyValue::new("status_code", response.status().as_str().to_string()),
-                                KeyValue::new("path", path),
-                                KeyValue::new("downstream_app_name", downstream_app_response.name),
-                                KeyValue::new("downstream_app_namespace", downstream_app_response.namespace),
-                                KeyValue::new("downstream_app_cluster", downstream_app_response.cluster),
-                                KeyValue::new("pod_name", downstream_app_response.pod_name),
-                            ],
-                        );
+                        let path = span.context()
+                            .baggage()
+                            .get("path")
+                            .map(|x| x.to_string())
+                            .unwrap_or_default();
+                        crate::tracing::record_http_response_secs(&path, latency, response.status());
                     })
             )
             .with_state(state)

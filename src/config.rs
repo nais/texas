@@ -11,26 +11,6 @@ pub struct Config {
     pub azure_ad: Option<Provider>,
     pub token_x: Option<Provider>,
     pub idporten: Option<Provider>,
-    pub downstream_app: DownstreamApp,
-}
-
-#[derive(Serialize, Clone, Debug, Default)]
-pub struct DownstreamApp {
-    pub name: String,
-    pub namespace: String,
-    pub cluster: String,
-    pub pod_name: String,
-}
-
-impl DownstreamApp {
-    fn new_from_env() -> Result<Self, Error> {
-        Ok(Self {
-            name: must_read_env("DOWNSTREAM_APP_NAME")?,
-            namespace: must_read_env("DOWNSTREAM_APP_NAMESPACE")?,
-            cluster: must_read_env("DOWNSTREAM_APP_CLUSTER")?,
-            pod_name: must_read_env("NAIS_POD_NAME")?,
-        })
-    }
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -141,7 +121,6 @@ impl Config {
             maskinporten: Provider::new_from_env_with_prefix("MASKINPORTEN")?,
             token_x: Provider::new_from_tokenx_env()?,
             idporten: Provider::new_from_idporten_env()?,
-            downstream_app: DownstreamApp::new_from_env()?,
         })
     }
 }
@@ -180,7 +159,6 @@ impl Config {
                 issuer: format!("{url_base}/idporten"),
                 token_endpoint: None,
             }),
-            downstream_app: DownstreamApp::default(),
         }
     }
 
@@ -191,7 +169,6 @@ impl Config {
             azure_ad: None,
             token_x: None,
             idporten: None,
-            downstream_app: DownstreamApp::default(),
         }
     }
 }

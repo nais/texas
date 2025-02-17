@@ -1,4 +1,3 @@
-use dotenv::dotenv;
 use log::{error, info, warn};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -8,6 +7,8 @@ use texas::tracing::init_tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    dotenv::dotenv().ok();
+
     let _guard = match init_tracing_subscriber() {
         Ok(guard) => guard,
         Err(err) => {
@@ -18,8 +19,6 @@ async fn main() -> ExitCode {
 
     texas::config::print_texas_logo();
     info!("Starting {} {} built on {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("BUILD_TIME"));
-
-    let _ = dotenv(); // load .env if present
 
     let Some(app) = init_app_with_retry().await else {
         error!("unable to initialize application, giving up.");

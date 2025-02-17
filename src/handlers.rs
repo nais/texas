@@ -68,10 +68,14 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 )]
 #[instrument(skip_all, name = "Handle /api/v1/token", fields(cache_hit))]
 pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
+    let span = tracing::Span::current();
+    span.set_attribute("identity_provider", request.identity_provider.to_string());
+    span.set_attribute("target", request.target.to_string());
+
     if !request.skip_cache.unwrap_or_default() {
         if let Some(cached_response) = state.token_cache.get(&request).await {
             tracing::Span::current().set_attribute("cache_hit", true);
-            crate::tracing::inc_cache_hits("/api/v1/token", state.cfg.downstream_app.clone());
+            crate::tracing::inc_cache_hits("/api/v1/token", request.identity_provider);
             return Ok(Json(cached_response.into()));
         };
     }
@@ -142,10 +146,14 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
 )]
 #[instrument(skip_all, name = "Handle /api/v1/token/exchange", fields(cache_hit))]
 pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenExchangeRequest>) -> Result<impl IntoResponse, ApiError> {
+    let span = tracing::Span::current();
+    span.set_attribute("identity_provider", request.identity_provider.to_string());
+    span.set_attribute("target", request.target.to_string());
+
     if !request.skip_cache.unwrap_or_default() {
         if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
             tracing::Span::current().set_attribute("cache_hit", true);
-            crate::tracing::inc_cache_hits("/api/v1/token/exchange", state.cfg.downstream_app.clone());
+            crate::tracing::inc_cache_hits("/api/v1/token/exchange", request.identity_provider);
             return Ok(Json(cached_response.into()));
         };
     }
@@ -209,6 +217,8 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
 )]
 #[instrument(skip_all, name = "Handle /api/v1/introspect")]
 pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
+    tracing::Span::current().set_attribute("identity_provider", request.identity_provider.to_string());
+
     let mut provider_enabled = false;
     for provider in state.providers {
         if provider.read().await.identity_provider_matches(request.identity_provider) {
