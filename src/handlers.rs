@@ -3,7 +3,7 @@ use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
 use crate::config::{Config};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 use crate::identity_provider::*;
-use crate::tracing::{inc_cache_hits, inc_cache_misses};
+use crate::tracing::{inc_cache_hits, inc_cache_misses, inc_handler_errors};
 use crate::{config, jwks};
 use axum::extract::rejection::{FormRejection, JsonRejection};
 use axum::extract::FromRequest;
@@ -17,6 +17,7 @@ use log::{error, info};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use strum_macros::AsRefStr;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::instrument;
@@ -67,21 +68,23 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/token", fields(cache_hit))]
+#[instrument(skip_all, name = "Handle /api/v1/token", fields(texas.cache_hit, texas.cache_skipped, texas.resource, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
 pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
+    const PATH: &str = "/api/v1/token";
     let span = tracing::Span::current();
-    span.set_attribute("identity_provider", request.identity_provider.to_string());
-    span.set_attribute("target", request.target.to_string());
+
+    if let Some(ref resource) = request.resource {
+        span.set_attribute("texas.resource", resource.clone());
+    };
 
     let skip_cache = request.skip_cache.unwrap_or(false);
-    if !skip_cache {
-        if let Some(cached_response) = state.token_cache.get(&request).await {
-            span.set_attribute("cache_hit", true);
-            inc_cache_hits("/api/v1/token", request.identity_provider);
-            return Ok(Json(cached_response.into()));
-        }
+    if skip_cache {
+        span.set_attribute("texas.cache_skipped", true);
+    } else if let Some(cached_response) = state.token_cache.get(&request).await {
+        inc_cache_hits(PATH, request.identity_provider);
+        return Ok(Json(cached_response.into()));
     }
-    inc_cache_misses("/api/v1/token", request.identity_provider, skip_cache);
+    inc_cache_misses(PATH, request.identity_provider, skip_cache);
 
     let mut provider_enabled = false;
     for provider in state.providers {
@@ -91,16 +94,20 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         if !provider.read().await.should_handle_token_request(&request) {
             continue;
         }
-        let response = provider.read().await.get_token(request.clone()).await?;
+        let response = provider.read().await.get_token(request.clone()).await.inspect_err(
+            |e| inc_handler_errors(PATH, request.identity_provider, e.as_ref())
+        )?;
         state.token_cache.insert(request, response.clone().into()).await;
-        span.set_attribute("cache_hit", false);
         return Ok(Json(response));
     }
 
     if !provider_enabled {
-        return Err(ApiError::IdentityProviderNotEnabled(request.identity_provider));
+        return Err(identity_provider_not_enabled_error(PATH, request.identity_provider));
     }
-    Err(ApiError::TokenRequestUnsupported(request.identity_provider))
+
+    let err = ApiError::TokenRequestUnsupported(request.identity_provider);
+    inc_handler_errors(PATH, request.identity_provider, err.as_ref());
+    Err(err)
 }
 
 #[utoipa::path(
@@ -147,21 +154,19 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/token/exchange", fields(cache_hit))]
+#[instrument(skip_all, name = "Handle /api/v1/token/exchange", fields(texas.cache_hit, texas.cache_skipped, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
 pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenExchangeRequest>) -> Result<impl IntoResponse, ApiError> {
     let span = tracing::Span::current();
-    span.set_attribute("identity_provider", request.identity_provider.to_string());
-    span.set_attribute("target", request.target.to_string());
+    const PATH: &str = "/api/v1/token/exchange";
 
     let skip_cache = request.skip_cache.unwrap_or(false);
-    if !skip_cache {
-        if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
-            span.set_attribute("cache_hit", true);
-            inc_cache_hits("/api/v1/token/exchange", request.identity_provider);
-            return Ok(Json(cached_response.into()));
-        };
+    if skip_cache {
+        span.set_attribute("texas.cache_skipped", true);
+    } else if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
+        inc_cache_hits(PATH, request.identity_provider);
+        return Ok(Json(cached_response.into()));
     }
-    inc_cache_misses("/api/v1/token/exchange", request.identity_provider, skip_cache);
+    inc_cache_misses(PATH, request.identity_provider, skip_cache);
 
     let mut provider_enabled = false;
     for provider in state.providers {
@@ -171,16 +176,20 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         if !provider.read().await.should_handle_token_exchange_request(&request) {
             continue;
         }
-        let response = provider.read().await.exchange_token(request.clone()).await?;
+        let response = provider.read().await.exchange_token(request.clone()).await.inspect_err(
+            |e| inc_handler_errors(PATH, request.identity_provider, e.as_ref())
+        )?;
         state.token_exchange_cache.insert(request, response.clone().into()).await;
-        span.set_attribute("cache_hit", false);
         return Ok(Json(response));
     }
 
     if !provider_enabled {
-        return Err(ApiError::IdentityProviderNotEnabled(request.identity_provider));
+        return Err(identity_provider_not_enabled_error(PATH, request.identity_provider));
     }
-    Err(ApiError::TokenExchangeUnsupported(request.identity_provider))
+
+    let err = ApiError::TokenExchangeUnsupported(request.identity_provider);
+    inc_handler_errors(PATH, request.identity_provider, err.as_ref());
+    Err(err)
 }
 
 #[utoipa::path(
@@ -221,10 +230,8 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         ),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/introspect")]
+#[instrument(skip_all, name = "Handle /api/v1/introspect", fields(texas.identity_provider = %request.identity_provider))]
 pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
-    tracing::Span::current().set_attribute("identity_provider", request.identity_provider.to_string());
-
     let mut provider_enabled = false;
     for provider in state.providers {
         if provider.read().await.identity_provider_matches(request.identity_provider) {
@@ -239,7 +246,10 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
     }
 
     if !provider_enabled {
-        return Err(Json(IntrospectResponse::new_invalid(ApiError::IdentityProviderNotEnabled(request.identity_provider))));
+        return Err(Json(IntrospectResponse::new_invalid(identity_provider_not_enabled_error(
+            "/api/v1/introspect",
+            request.identity_provider)
+        )));
     }
 
     let error_message = match request.issuer() {
@@ -339,7 +349,7 @@ impl HandlerState {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, AsRefStr, Error)]
 pub enum ApiError {
     #[error("identity provider error: {0}")]
     UpstreamRequest(reqwest::Error),
@@ -487,4 +497,11 @@ where
             content_type.unwrap_or("")
         )))
     }
+}
+
+fn identity_provider_not_enabled_error(path: &str, provider: IdentityProvider) -> ApiError {
+    let err = ApiError::IdentityProviderNotEnabled(provider);
+    tracing::Span::current().set_attribute("texas.identity_provider.enabled", false);
+    inc_handler_errors(path, provider, err.as_ref());
+    err
 }

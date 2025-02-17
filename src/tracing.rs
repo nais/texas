@@ -71,6 +71,8 @@ pub fn trace_headers_from_current_span() -> HeaderMap {
 }
 
 pub fn inc_cache_hits(path: &str, identity_provider: IdentityProvider) {
+    tracing::Span::current().set_attribute("texas.cache_hit", true);
+    
     let counter = get_meter()
         .u64_counter("texas_token_cache_hits")
         .with_description(format!("Number of {path} cache hits"))
@@ -83,6 +85,8 @@ pub fn inc_cache_hits(path: &str, identity_provider: IdentityProvider) {
 }
 
 pub fn inc_cache_misses(path: &str, identity_provider: IdentityProvider, skipped_cache: bool) {
+    tracing::Span::current().set_attribute("texas.cache_hit", false);
+    
     let counter = get_meter()
         .u64_counter("texas_token_cache_misses")
         .with_description(format!("Number of {path} cache misses"))
@@ -92,6 +96,19 @@ pub fn inc_cache_misses(path: &str, identity_provider: IdentityProvider, skipped
         KeyValue::new("path", path.to_string()),
         KeyValue::new("identity_provider", identity_provider.to_string()),
         KeyValue::new("skipped_cache", skipped_cache.to_string()),
+    ]).as_slice());
+}
+
+pub fn inc_handler_errors(path: &str, identity_provider: IdentityProvider, error_kind: &str) {
+    let counter = get_meter()
+        .u64_counter("texas_handler_errors")
+        .with_description(format!("Number of {path} handler errors"))
+        .build();
+
+    counter.add(1, with_resource_attributes(vec![
+        KeyValue::new("path", path.to_string()),
+        KeyValue::new("identity_provider", identity_provider.to_string()),
+        KeyValue::new("error_kind", error_kind.to_string()),
     ]).as_slice());
 }
 
