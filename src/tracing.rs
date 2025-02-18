@@ -1,6 +1,6 @@
 use axum::http::{HeaderName, HeaderValue, StatusCode};
 use crate::identity_provider::IdentityProvider;
-use opentelemetry::metrics::Meter;
+use opentelemetry::metrics::{Counter, Histogram, Meter};
 use opentelemetry::propagation::TextMapPropagator;
 use opentelemetry::trace::{TracerProvider as _};
 use opentelemetry::{global, InstrumentationScope, KeyValue};
@@ -13,16 +13,13 @@ use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Debug;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tracing::Level;
 use tracing;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-
-static METER: OnceLock<Meter> = OnceLock::new();
-static RESOURCE_ATTRIBUTES: OnceLock<Vec<KeyValue>> = OnceLock::new();
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -68,68 +65,6 @@ pub fn trace_headers_from_current_span() -> HeaderMap {
             )
         })
         .collect()
-}
-
-pub fn inc_cache_hits(path: &str, identity_provider: IdentityProvider) {
-    tracing::Span::current().set_attribute("texas.cache_hit", true);
-    
-    let counter = get_meter()
-        .u64_counter("texas_token_cache_hits")
-        .with_description(format!("Number of {path} cache hits"))
-        .build();
-
-    counter.add(1, with_resource_attributes(vec![
-        KeyValue::new("path", path.to_string()),
-        KeyValue::new("identity_provider", identity_provider.to_string()),
-    ]).as_slice());
-}
-
-pub fn inc_cache_misses(path: &str, identity_provider: IdentityProvider, skipped_cache: bool) {
-    tracing::Span::current().set_attribute("texas.cache_hit", false);
-    
-    let counter = get_meter()
-        .u64_counter("texas_token_cache_misses")
-        .with_description(format!("Number of {path} cache misses"))
-        .build();
-
-    counter.add(1, with_resource_attributes(vec![
-        KeyValue::new("path", path.to_string()),
-        KeyValue::new("identity_provider", identity_provider.to_string()),
-        KeyValue::new("skipped_cache", skipped_cache.to_string()),
-    ]).as_slice());
-}
-
-pub fn inc_handler_errors(path: &str, identity_provider: IdentityProvider, error_kind: &str) {
-    let counter = get_meter()
-        .u64_counter("texas_handler_errors")
-        .with_description(format!("Number of {path} handler errors"))
-        .build();
-
-    counter.add(1, with_resource_attributes(vec![
-        KeyValue::new("path", path.to_string()),
-        KeyValue::new("identity_provider", identity_provider.to_string()),
-        KeyValue::new("error_kind", error_kind.to_string()),
-    ]).as_slice());
-}
-
-pub fn record_http_response_secs(path: &str, latency: Duration, status_code: StatusCode) {
-    let histogram = get_meter()
-        .f64_histogram("http_response_secs")
-        .with_description("Response time in seconds")
-        // Setting boundaries is optional. By default, the boundaries are set to
-        // [0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0, 10000.0]
-        .with_boundaries(vec![
-            0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009,
-            0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09,
-            0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
-            1.0
-        ])
-        .build();
-
-    histogram.record(latency.as_secs_f64(), with_resource_attributes(vec![
-        KeyValue::new("status_code", status_code.as_str().to_string()),
-        KeyValue::new("path", path.to_string()),
-    ]).as_slice());
 }
 
 pub struct OtelGuard {
@@ -195,35 +130,92 @@ fn resource() -> Resource {
     ])
 }
 
-fn get_meter() -> &'static Meter {
-    METER.get_or_init(|| global::meter_with_scope(InstrumentationScope::builder(env!("CARGO_PKG_NAME"))
-        .with_version(env!("CARGO_PKG_VERSION"))
-        .build())
-    )
-}
-
-fn get_resource_attributes() -> &'static Vec<KeyValue> {
-    RESOURCE_ATTRIBUTES.get_or_init(|| {
-        match env::var("OTEL_RESOURCE_ATTRIBUTES") {
-            Ok(s) if !s.is_empty() => {
-                let kvs = s.split_terminator(',').filter_map(|entry| {
-                    let mut parts = entry.splitn(2, '=');
-                    let key = parts.next()?.trim().replace(".", "_");
-                    let value = parts.next()?.trim();
-                    if value.find('=').is_some() {
-                        return None;
-                    }
-
-                    Some(KeyValue::new(key.to_owned(), value.to_owned()))
-                }).collect();
-                kvs
-            },
-            Ok(_) | Err(_) => vec![],
+static RESOURCE_ATTRIBUTES: LazyLock<Vec<KeyValue>> = LazyLock::new(|| {
+    let extract_key_value = |entry: &str| -> Option<KeyValue> {
+        let mut parts = entry.splitn(2, '=');
+        let key = parts.next()?.trim().replace(".", "_");
+        let value = parts.next()?.trim();
+        if value.contains('=') {
+            None
+        } else {
+            Some(KeyValue::new(key.to_owned(), value.to_owned()))
         }
-    })
-}
+    };
+
+    match env::var("OTEL_RESOURCE_ATTRIBUTES") {
+        Ok(s) if !s.is_empty() => s
+            .split_terminator(',')
+            .filter_map(extract_key_value)
+            .collect(),
+        Ok(_) | Err(_) => vec![],
+    }
+});
 
 // TODO: this manually appends resource attributes because they aren't being propagated by the MeterProvider
 fn with_resource_attributes(additional_attributes: Vec<KeyValue>) -> Vec<KeyValue> {
-    [get_resource_attributes().clone(), additional_attributes].concat()
+    [RESOURCE_ATTRIBUTES.clone(), additional_attributes].concat()
+}
+
+static METER: LazyLock<Meter> = LazyLock::new(|| global::meter_with_scope(
+    InstrumentationScope::builder(env!("CARGO_PKG_NAME"))
+        .with_version(env!("CARGO_PKG_VERSION"))
+        .build()
+));
+
+static COUNTER_TOKEN_CACHE_RESULTS: LazyLock<Counter<u64>> = LazyLock::new(|| METER
+    .u64_counter("texas_token_cache_results")
+    .with_description("Number of cache hits or misses")
+    .build()
+);
+
+pub fn inc_cache_hits(path: &str, identity_provider: IdentityProvider) {
+    tracing::Span::current().set_attribute("texas.cache_hit", true);
+    COUNTER_TOKEN_CACHE_RESULTS.add(1, with_resource_attributes(vec![
+        KeyValue::new("path", path.to_string()),
+        KeyValue::new("identity_provider", identity_provider.to_string()),
+        KeyValue::new("cache_hit", true),
+    ]).as_slice());
+}
+
+pub fn inc_cache_misses(path: &str, identity_provider: IdentityProvider, cache_skipped: bool) {
+    tracing::Span::current().set_attribute("texas.cache_hit", false);
+    COUNTER_TOKEN_CACHE_RESULTS.add(1, with_resource_attributes(vec![
+        KeyValue::new("path", path.to_string()),
+        KeyValue::new("identity_provider", identity_provider.to_string()),
+        KeyValue::new("cache_force_skipped", cache_skipped.to_string()),
+        KeyValue::new("cache_hit", false),
+    ]).as_slice());
+}
+
+static COUNTER_HANDLER_ERRORS: LazyLock<Counter<u64>> = LazyLock::new(|| METER
+    .u64_counter("texas_handler_errors")
+    .with_description("Number of handler errors")
+    .build()
+);
+
+pub fn inc_handler_errors(path: &str, identity_provider: IdentityProvider, error_kind: &str) {
+    COUNTER_HANDLER_ERRORS.add(1, with_resource_attributes(vec![
+        KeyValue::new("path", path.to_string()),
+        KeyValue::new("identity_provider", identity_provider.to_string()),
+        KeyValue::new("error_kind", error_kind.to_string()),
+    ]).as_slice());
+}
+
+static HISTOGRAM_HTTP_RESPONSE_SECS: LazyLock<Histogram<f64>> = LazyLock::new(|| METER
+    .f64_histogram("http_response_secs")
+    .with_description("Response time in seconds")
+    .with_boundaries(vec![
+        0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009,
+        0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09,
+        0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+        1.0
+    ])
+    .build()
+);
+
+pub fn record_http_response_secs(path: &str, latency: Duration, status_code: StatusCode) {
+    HISTOGRAM_HTTP_RESPONSE_SECS.record(latency.as_secs_f64(), with_resource_attributes(vec![
+        KeyValue::new("status_code", status_code.as_str().to_string()),
+        KeyValue::new("path", path.to_string()),
+    ]).as_slice());
 }
