@@ -162,28 +162,47 @@ static METER: LazyLock<Meter> = LazyLock::new(|| global::meter_with_scope(
         .build()
 ));
 
-static COUNTER_TOKEN_CACHE_RESULTS: LazyLock<Counter<u64>> = LazyLock::new(|| METER
-    .u64_counter("texas_token_cache_results")
-    .with_description("Number of cache hits or misses")
+static COUNTER_TOKEN_CACHE_HITS: LazyLock<Counter<u64>> = LazyLock::new(|| METER
+    .u64_counter("texas_token_cache_hits")
+    .with_description("Number of token cache hits")
     .build()
 );
 
-pub fn inc_cache_hits(path: &str, identity_provider: IdentityProvider) {
+pub fn inc_token_cache_hits(path: &str, identity_provider: IdentityProvider) {
     tracing::Span::current().set_attribute("texas.cache_hit", true);
-    COUNTER_TOKEN_CACHE_RESULTS.add(1, with_resource_attributes(vec![
+    COUNTER_TOKEN_CACHE_HITS.add(1, with_resource_attributes(vec![
         KeyValue::new("path", path.to_string()),
         KeyValue::new("identity_provider", identity_provider.to_string()),
-        KeyValue::new("cache_hit", true),
     ]).as_slice());
 }
 
-pub fn inc_cache_misses(path: &str, identity_provider: IdentityProvider, cache_skipped: bool) {
-    tracing::Span::current().set_attribute("texas.cache_hit", false);
-    COUNTER_TOKEN_CACHE_RESULTS.add(1, with_resource_attributes(vec![
+static COUNTER_HANDLER_REQUESTS: LazyLock<Counter<u64>> = LazyLock::new(|| METER
+    .u64_counter("texas_handler_requests")
+    .with_description("Number of processed requests")
+    .build()
+);
+
+pub fn inc_token_requests(path: &str, identity_provider: IdentityProvider) {
+    COUNTER_HANDLER_REQUESTS.add(1, with_resource_attributes(vec![
         KeyValue::new("path", path.to_string()),
         KeyValue::new("identity_provider", identity_provider.to_string()),
-        KeyValue::new("cache_force_skipped", cache_skipped.to_string()),
-        KeyValue::new("cache_hit", false),
+        KeyValue::new("request_type", "token".to_string()),
+    ]).as_slice());
+}
+
+pub fn inc_token_exchanges(path: &str, identity_provider: IdentityProvider) {
+    COUNTER_HANDLER_REQUESTS.add(1, with_resource_attributes(vec![
+        KeyValue::new("path", path.to_string()),
+        KeyValue::new("identity_provider", identity_provider.to_string()),
+        KeyValue::new("request_type", "token_exchange".to_string()),
+    ]).as_slice());
+}
+
+pub fn inc_token_introspections(path: &str, identity_provider: IdentityProvider) {
+    COUNTER_HANDLER_REQUESTS.add(1, with_resource_attributes(vec![
+        KeyValue::new("path", path.to_string()),
+        KeyValue::new("identity_provider", identity_provider.to_string()),
+        KeyValue::new("request_type", "token_introspection".to_string()),
     ]).as_slice());
 }
 

@@ -3,7 +3,7 @@ use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
 use crate::config::{Config};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 use crate::identity_provider::*;
-use crate::tracing::{inc_cache_hits, inc_cache_misses, inc_handler_errors};
+use crate::tracing::{inc_token_requests, inc_handler_errors, inc_token_introspections, inc_token_exchanges, inc_token_cache_hits};
 use crate::{config, jwks};
 use axum::extract::rejection::{FormRejection, JsonRejection};
 use axum::extract::FromRequest;
@@ -78,13 +78,15 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
     };
 
     let skip_cache = request.skip_cache.unwrap_or(false);
-    if skip_cache {
-        span.set_attribute("texas.cache_skipped", true);
-    } else if let Some(cached_response) = state.token_cache.get(&request).await {
-        inc_cache_hits(PATH, request.identity_provider);
-        return Ok(Json(cached_response.into()));
+    if !skip_cache {
+        if let Some(cached_response) = state.token_cache.get(&request).await {
+            inc_token_cache_hits(PATH, request.identity_provider);
+            inc_token_requests(PATH, request.identity_provider);
+            return Ok(Json(cached_response.into()));
+        }
     }
-    inc_cache_misses(PATH, request.identity_provider, skip_cache);
+    tracing::Span::current().set_attribute("texas.cache_skipped", skip_cache);
+    inc_token_requests(PATH, request.identity_provider);
 
     let mut provider_enabled = false;
     for provider in state.providers {
@@ -156,17 +158,18 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
 )]
 #[instrument(skip_all, name = "Handle /api/v1/token/exchange", fields(texas.cache_hit, texas.cache_skipped, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
 pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenExchangeRequest>) -> Result<impl IntoResponse, ApiError> {
-    let span = tracing::Span::current();
     const PATH: &str = "/api/v1/token/exchange";
 
     let skip_cache = request.skip_cache.unwrap_or(false);
-    if skip_cache {
-        span.set_attribute("texas.cache_skipped", true);
-    } else if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
-        inc_cache_hits(PATH, request.identity_provider);
-        return Ok(Json(cached_response.into()));
+    if !skip_cache {
+        if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
+            inc_token_cache_hits(PATH, request.identity_provider);
+            inc_token_exchanges(PATH, request.identity_provider);
+            return Ok(Json(cached_response.into()));
+        }
     }
-    inc_cache_misses(PATH, request.identity_provider, skip_cache);
+    tracing::Span::current().set_attribute("texas.cache_skipped", skip_cache);
+    inc_token_exchanges(PATH, request.identity_provider);
 
     let mut provider_enabled = false;
     for provider in state.providers {
@@ -232,6 +235,9 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
 )]
 #[instrument(skip_all, name = "Handle /api/v1/introspect", fields(texas.identity_provider = %request.identity_provider))]
 pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
+    const PATH: &str = "/api/v1/introspect";
+    inc_token_introspections(PATH, request.identity_provider);
+
     let mut provider_enabled = false;
     for provider in state.providers {
         if provider.read().await.identity_provider_matches(request.identity_provider) {
@@ -247,7 +253,7 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
 
     if !provider_enabled {
         return Err(Json(IntrospectResponse::new_invalid(identity_provider_not_enabled_error(
-            "/api/v1/introspect",
+            PATH,
             request.identity_provider)
         )));
     }
