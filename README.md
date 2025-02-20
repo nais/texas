@@ -191,7 +191,7 @@ docker-compose up -d
 Run Texas:
 
 ```shell
-cargo run
+make local
 ```
 
 Run roundtrip tests:

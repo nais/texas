@@ -6,6 +6,9 @@ all:
 setup:
 	([ ! -f .env ] && cp -v .env.example .env) || true
 
+local:
+	cargo run --features local
+
 check:
 	cargo clippy
 	cargo test --features docker

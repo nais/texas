@@ -17,7 +17,9 @@ async fn main() -> ExitCode {
         }
     };
 
+    #[cfg(feature = "local")]
     texas::config::print_texas_logo();
+
     info!("Starting {} {} built on {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("BUILD_TIME"));
 
     let Some(app) = init_app_with_retry().await else {

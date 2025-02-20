@@ -18,6 +18,7 @@ use std::time::Duration;
 use tracing::Level;
 use tracing;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -37,10 +38,18 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
 
     let tracer = tracer_provider.tracer("tracing-otel-subscriber");
 
+    #[cfg(not(feature = "local"))]
+    let tracing_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .flatten_event(true)
+        .boxed();
+    #[cfg(feature = "local")]
+    let tracing_layer = tracing_subscriber::fmt::layer().boxed();
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::filter::LevelFilter::from_level(Level::INFO))
         .with(MetricsLayer::new(meter_provider.clone()))
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_layer)
         .with(OpenTelemetryLayer::new(tracer))
         .init();
 
