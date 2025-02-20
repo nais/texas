@@ -19,8 +19,44 @@ Texas is _Token Exchange as a Service_.
                   ``’
 ```
 
-Texas is designed to run as a [sidecar container](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/) in Kubernetes,
-solving cross-cutting concerns for applications that uses OAuth 2 and JSON Web Tokens (JWTs) for machine or user authentication.
+Texas implements OAuth 2 token fetch, exchange, and JSON Web Token (JWT) validation, so that you don't have to.
+It is designed to run as a [sidecar container](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/) in Kubernetes environments.
+
+> [!TIP]
+> Looking for something that handles OpenID Connect (OIDC) for end-user authentication?
+> 
+> Check out [nais/wonderwall](https://github.com/nais/wonderwall).
+
+## Quick start
+
+See [the `.env.example` file](.env.example) for available configuration options.
+To set up a local environment based on this, run:
+
+```shell
+make setup
+```
+
+Start a mock OAuth 2 server with:
+
+```shell
+docker-compose up -d
+```
+
+Run Texas:
+
+```shell
+make local
+```
+
+[The `hack/` directory](./hack) contains example snippets with requests that you can run with `curl`.
+Run all of them with:
+
+```shell
+make test_roundtrip
+```
+
+> [!TIP]
+> See [nais/wonderwalled](https://github.com/nais/wonderwalled) for an example downstream application that uses Texas.
 
 ## Supported providers
 
@@ -172,32 +208,6 @@ Using client secrets is not supported.
 
 ```shell
 make check
-```
-
-### Run Texas itself
-
-Setup environment:
-
-```shell
-make setup
-```
-
-Start mocks:
-
-```shell
-docker-compose up -d
-```
-
-Run Texas:
-
-```shell
-make local
-```
-
-Run roundtrip tests:
-
-```shell
-make test_roundtrip
 ```
 
 ### Generate OpenAPI spec
