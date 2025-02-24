@@ -41,7 +41,7 @@ strum_macros = "0.27.1"
 [dev-dependencies]
 env_logger = "0.11"
 jsonwebkey = { version = "0.3.5", features = ["jwt-convert", "generate"] }
-testcontainers = { version = "0.23.2", features = ["http_wait", "properties-config"] }
+testcontainers = { version = "0.23.3", features = ["http_wait", "properties-config"] }
 
 [build-dependencies]
 chrono = { version = "0.4", default-features = false, features = ["now"] }
