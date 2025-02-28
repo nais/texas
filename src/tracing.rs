@@ -6,18 +6,19 @@ use opentelemetry::trace::{TracerProvider as _};
 use opentelemetry::{global, InstrumentationScope, KeyValue};
 use opentelemetry_otlp::{MetricExporter, SpanExporter};
 use opentelemetry_sdk::metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider, Temporality};
-use opentelemetry_sdk::trace::TracerProvider;
-use opentelemetry_sdk::{runtime, Resource};
-use opentelemetry_semantic_conventions::{attribute::{SERVICE_NAME, SERVICE_VERSION}};
+use opentelemetry_sdk::trace::SdkTracerProvider;
+use opentelemetry_sdk::Resource;
+use opentelemetry_semantic_conventions::{attribute::SERVICE_VERSION};
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Debug;
 use std::sync::LazyLock;
 use std::time::Duration;
-use tracing::Level;
 use tracing;
+use tracing::metadata::LevelFilter;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
+use tracing_subscriber::filter::Targets;
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -37,19 +38,26 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let tracer_provider = init_tracing_provider()?;
 
     let tracer = tracer_provider.tracer("tracing-otel-subscriber");
-
+    let targets_filter = Targets::default()
+        .with_default(LevelFilter::INFO)
+        .with_target("opentelemetry", LevelFilter::OFF);
+    
     #[cfg(not(feature = "local"))]
-    let tracing_layer = tracing_subscriber::fmt::layer()
+    let fmt_layer = tracing_subscriber::fmt::layer()
         .json()
         .flatten_event(true)
+        .with_thread_names(true)
+        .with_filter(targets_filter)
         .boxed();
     #[cfg(feature = "local")]
-    let tracing_layer = tracing_subscriber::fmt::layer().boxed();
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_thread_names(true)
+        .with_filter(targets_filter)
+        .boxed();
 
     tracing_subscriber::registry()
-        .with(tracing_subscriber::filter::LevelFilter::from_level(Level::INFO))
+        .with(fmt_layer)
         .with(MetricsLayer::new(meter_provider.clone()))
-        .with(tracing_layer)
         .with(OpenTelemetryLayer::new(tracer))
         .init();
 
@@ -78,7 +86,7 @@ pub fn trace_headers_from_current_span() -> HeaderMap {
 
 pub struct OtelGuard {
     meter_provider: SdkMeterProvider,
-    tracer_provider: TracerProvider,
+    tracer_provider: SdkTracerProvider,
 }
 
 impl Drop for OtelGuard {
@@ -100,8 +108,7 @@ fn init_meter_provider() -> Result<SdkMeterProvider, Error> {
         .with_temporality(Temporality::default())
         .build()?;
 
-    let reader = PeriodicReader::builder(exporter, runtime::Tokio)
-        .with_interval(Duration::from_secs(10))
+    let reader = PeriodicReader::builder(exporter)
         .build();
 
     // TODO: Resource attributes aren't propagated to the metrics for some reason
@@ -116,14 +123,14 @@ fn init_meter_provider() -> Result<SdkMeterProvider, Error> {
     Ok(meter_provider)
 }
 
-fn init_tracing_provider() -> Result<TracerProvider, Error> {
+fn init_tracing_provider() -> Result<SdkTracerProvider, Error> {
     let exporter = SpanExporter::builder()
         .with_tonic()
         .build()?;
 
-    let provider = TracerProvider::builder()
+    let provider = SdkTracerProvider::builder()
         .with_resource(resource())
-        .with_batch_exporter(exporter, runtime::Tokio)
+        .with_batch_exporter(exporter)
         .build();
 
     global::set_tracer_provider(provider.clone());
@@ -132,11 +139,13 @@ fn init_tracing_provider() -> Result<TracerProvider, Error> {
 }
 
 fn resource() -> Resource {
-    Resource::new_with_defaults(vec![
-        KeyValue::new(SERVICE_NAME, env!("CARGO_PKG_NAME")),
-        KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
-        KeyValue::new("service.build_time", env!("BUILD_TIME")),
-    ])
+    Resource::builder()
+        .with_service_name(env!("CARGO_PKG_NAME"))
+        .with_attributes([
+            KeyValue::new(SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+            KeyValue::new("service.build_time", env!("BUILD_TIME")),
+        ])
+        .build()
 }
 
 static RESOURCE_ATTRIBUTES: LazyLock<Vec<KeyValue>> = LazyLock::new(|| {
