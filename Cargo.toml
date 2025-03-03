@@ -35,7 +35,7 @@ tracing-subscriber = { version = "0.3.18", features = ["json"] }
 utoipa = { version = "5.3.1", features = ["axum_extras", "openapi_extensions"] }
 utoipa-axum = "0.2.0"
 utoipa-swagger-ui = { version = "9.0.0", features = ["axum"] }
-uuid = { version = "1.14.0", features = ["v4"] }
+uuid = { version = "1.15.1", features = ["v4"] }
 strum_macros = "0.27.1"
 
 [dev-dependencies]
