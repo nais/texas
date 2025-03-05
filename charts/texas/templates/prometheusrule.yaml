@@ -1,0 +1,40 @@
+{{- if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "texas.fullname" }}
+  labels:
+    {{- include "texas.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: "texas-alerts"
+      rules:
+        - alert: Texas sidecars restarting continuously
+          expr: |
+            sum by (namespace,pod,uid) (changes(kube_pod_container_status_restarts_total{container="texas"}[1h])) * on(uid) group_left kube_pod_status_phase{phase="Running"} > 5
+          for: 10m
+          labels:
+            severity: warning
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: '{{ "Multiple restarts of Texas in pod `{{ $labels.namespace }}/{{ $labels.pod }}` the last hour" }}'
+            consequence:
+            action: |
+              Investigate reason for restarts.
+              Check the error logs and traces in the Grafana dashboard.
+            dashboard_url: "https://grafana.nav.cloud.nais.io/d/ae4lpwgogkt1ce/texas?var-datasource={{ .Values.fasit.env.name }}"
+        - alert: High rate of HTTP 5xx responses
+          expr: |
+            sum by (downstream_app_name, downstream_app_namespace) (rate(http_response_secs_count{app="texas", status_code=~"^[5].+$"}[5m])) / sum by (downstream_app_name, downstream_app_namespace) (rate(http_response_secs_count{app="texas"}[5m])) > 0.50
+          for: 15m
+          labels:
+            severity: warning
+            namespace: {{ .Release.Namespace }}
+          annotations:
+            summary: '{{ "Texas has responded with HTTP 5xx for over 50% of requests for `{{ $labels.downstream_app_namespace }}/{{ $labels.downstream_app_name }}` the last 15 minutes" }}'
+            consequence:
+            action: |
+              Investigate reason for errors.
+              Check the error logs and traces in the Grafana dashboard.
+            dashboard_url: "https://grafana.nav.cloud.nais.io/d/ae4lpwgogkt1ce/texas?var-datasource={{ .Values.fasit.env.name }}"
+{{- end }}
