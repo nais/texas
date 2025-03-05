@@ -2,7 +2,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: {{ include "texas.fullname" }}
+  name: {{ include "texas.fullname" . }}
   labels:
     {{- include "texas.labels" . | nindent 4 }}
 spec:
