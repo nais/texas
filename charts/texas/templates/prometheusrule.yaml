@@ -18,7 +18,7 @@ spec:
             namespace: {{ .Release.Namespace }}
           annotations:
             summary: '{{ "Multiple restarts of Texas in pod `{{ $labels.namespace }}/{{ $labels.pod }}` the last hour" }}'
-            consequence:
+            consequence: Applications that depend on Texas might not start up.
             action: |
               Investigate reason for restarts.
               Check the error logs and traces in the Grafana dashboard.
@@ -32,7 +32,7 @@ spec:
             namespace: {{ .Release.Namespace }}
           annotations:
             summary: '{{ "Texas has responded with HTTP 5xx for over 50% of requests for `{{ $labels.downstream_app_namespace }}/{{ $labels.downstream_app_name }}` the last 15 minutes" }}'
-            consequence:
+            consequence: Applications that depend on Texas might be unavailable.
             action: |
               Investigate reason for errors.
               Check the error logs and traces in the Grafana dashboard.
