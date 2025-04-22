@@ -25,11 +25,8 @@ use tracing_subscriber::Layer;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("init opentelemetry metrics: {0}")]
-    Metrics(#[from] opentelemetry_sdk::metrics::MetricError),
-
-    #[error("init opentelemetry tracing: {0}")]
-    Tracing(#[from] opentelemetry::trace::TraceError),
+    #[error("init opentelemetry exporter: {0}")]
+    Exporter(#[from] opentelemetry_otlp::ExporterBuildError),
 }
 
 /// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
