@@ -17,8 +17,8 @@ use std::sync::LazyLock;
 use std::time::Duration;
 use tracing;
 use tracing::metadata::LevelFilter;
+use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
-use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
@@ -35,21 +35,20 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let tracer_provider = init_tracing_provider()?;
 
     let tracer = tracer_provider.tracer("tracing-otel-subscriber");
-    let targets_filter = Targets::default().with_default(LevelFilter::INFO).with_target("opentelemetry", LevelFilter::OFF);
 
     #[cfg(not(feature = "local"))]
     let fmt_layer = tracing_subscriber::fmt::layer()
         .json()
         .flatten_event(true)
         .with_thread_names(true)
-        .with_filter(targets_filter)
         .boxed();
     #[cfg(feature = "local")]
-    let fmt_layer = tracing_subscriber::fmt::layer().with_thread_names(true).with_filter(targets_filter).boxed();
+    let fmt_layer = tracing_subscriber::fmt::layer().with_thread_names(true).boxed();
 
     tracing_subscriber::registry()
-        .with(fmt_layer)
+        .with(LevelFilter::from_level(Level::INFO))
         .with(MetricsLayer::new(meter_provider.clone()))
+        .with(fmt_layer)
         .with(OpenTelemetryLayer::new(tracer))
         .init();
 
