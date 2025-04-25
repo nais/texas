@@ -311,29 +311,29 @@ impl HandlerState {
         let mut providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>> = vec![];
 
         if let Some(provider_cfg) = &cfg.maskinporten {
-            info!("Fetch JWKS for Maskinporten...");
+            info!("Fetch JWKS for Maskinporten from '{}'...", provider_cfg.jwks_uri);
             let provider = new::<JWTBearer, JWTBearerAssertion>(IdentityProvider::Maskinporten, provider_cfg, None).await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.azure_ad {
-            info!("Fetch JWKS for Azure AD (on behalf of)...");
+            info!("Fetch JWKS for Azure AD (on behalf of) from '{}'...", provider_cfg.jwks_uri);
             let provider = new::<OnBehalfOf, ClientAssertion>(IdentityProvider::AzureAD, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
             providers.push(provider);
 
-            info!("Fetch JWKS for Azure AD (client credentials)...");
+            info!("Fetch JWKS for Azure AD (client credentials) from '{}'...", provider_cfg.jwks_uri);
             let provider = new::<ClientCredentials, ClientAssertion>(IdentityProvider::AzureAD, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.token_x {
-            info!("Fetch JWKS for TokenX...");
+            info!("Fetch JWKS for TokenX from '{}'...", provider_cfg.jwks_uri);
             let provider = new::<TokenExchange, ClientAssertion>(IdentityProvider::TokenX, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.idporten {
-            info!("Fetch JWKS for ID-porten...");
+            info!("Fetch JWKS for ID-porten from '{}'...", provider_cfg.jwks_uri);
             let provider = new::<(), ()>(IdentityProvider::IDPorten, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
             providers.push(provider);
         }
