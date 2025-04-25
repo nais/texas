@@ -1,16 +1,14 @@
 use crate::identity_provider::IdentityProvider;
-use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::http::StatusCode;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
-use opentelemetry::propagation::TextMapPropagator;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, InstrumentationScope, KeyValue};
 use opentelemetry_otlp::{MetricExporter, SpanExporter};
 use opentelemetry_sdk::metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider, Temporality};
+use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::attribute::SERVICE_VERSION;
-use reqwest::header::HeaderMap;
-use std::collections::HashMap;
 use std::env;
 use std::fmt::Debug;
 use std::sync::LazyLock;
@@ -34,14 +32,12 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let meter_provider = init_meter_provider()?;
     let tracer_provider = init_tracing_provider()?;
 
+    global::set_text_map_propagator(TraceContextPropagator::new());
+
     let tracer = tracer_provider.tracer("tracing-otel-subscriber");
 
     #[cfg(not(feature = "local"))]
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .json()
-        .flatten_event(true)
-        .with_thread_names(true)
-        .boxed();
+    let fmt_layer = tracing_subscriber::fmt::layer().json().flatten_event(true).with_thread_names(true).boxed();
     #[cfg(feature = "local")]
     let fmt_layer = tracing_subscriber::fmt::layer().with_thread_names(true).boxed();
 
@@ -53,21 +49,6 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
         .init();
 
     Ok(OtelGuard { meter_provider, tracer_provider })
-}
-
-/// Extract trace data from the current span in order to
-/// generate the `traceparent` and `tracestate` headers,
-/// which can be sent with outgoing HTTP requests.
-pub fn trace_headers_from_current_span() -> HeaderMap {
-    let span = tracing::Span::current();
-    let context = span.context();
-    let propagator = opentelemetry_sdk::propagation::TraceContextPropagator::new();
-    let mut fields = HashMap::new();
-    propagator.inject_context(&context, &mut fields);
-    fields
-        .into_iter()
-        .map(|(k, v)| (HeaderName::try_from(k).unwrap(), HeaderValue::try_from(v).unwrap()))
-        .collect()
 }
 
 pub struct OtelGuard {

@@ -7,6 +7,8 @@ use derivative::Derivative;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use reqwest::StatusCode;
+use reqwest_middleware::ClientBuilder;
+use reqwest_tracing::TracingMiddleware;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::PartialEq;
@@ -218,7 +220,7 @@ pub struct Provider<R, A> {
     private_jwk: Option<jwt::EncodingKey>,
     client_assertion_header: Option<jwt::Header>,
     upstream_jwks: jwks::Jwks,
-    http_client: reqwest::Client,
+    http_client: reqwest_middleware::ClientWithMiddleware,
     _fake_request: PhantomData<R>,
     _fake_assertion: PhantomData<A>,
 }
@@ -262,12 +264,14 @@ where
             .build()
             .map_err(ProviderError::InitializeHttpClient)?;
 
+        let http_client_with_middleware = ClientBuilder::new(http_client).with(TracingMiddleware::default()).build();
+
         Ok(Self {
             client_id,
             token_endpoint,
             client_assertion_header,
             upstream_jwks,
-            http_client,
+            http_client: http_client_with_middleware,
             identity_provider_kind: kind,
             private_jwk: client_private_jwk,
             _fake_request: Default::default(),
@@ -329,12 +333,9 @@ where
     async fn get_token_from_idprovider(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
-        let headers = crate::tracing::trace_headers_from_current_span();
-
         let response = self
             .http_client
             .post(self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?)
-            .headers(headers)
             .header("accept", "application/json")
             .form(&params)
             .send()
