@@ -16,7 +16,7 @@ bin
 *.swo
 *~
 
-.env
+.env*
 
 # Nix stuff
 result*
