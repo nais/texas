@@ -19,7 +19,7 @@ jobs:
       - name: make openapi
         run: |
           make openapi
-          if [[ -n $(git status --porcelain) ]]; then
+          if ! git diff --exit-code --name-only; then
             echo "::error::openapi spec is not up-to-date; run \`make openapi\` and commit the changes"
             exit 1
           fi
