@@ -23,7 +23,7 @@ use tracing::instrument;
 use utoipa::ToSchema;
 
 /// RFC 6749 token response from section 5.1.
-#[derive(Serialize, Deserialize, ToSchema, Clone, Hash)]
+#[derive(Serialize, Deserialize, ToSchema, Clone, Hash, Debug, PartialEq)]
 pub struct TokenResponse {
     pub access_token: String,
     pub token_type: TokenType,
@@ -33,7 +33,7 @@ pub struct TokenResponse {
 }
 
 /// Token type is always Bearer, but this might change in the future.
-#[derive(Deserialize, Serialize, ToSchema, Clone, Hash)]
+#[derive(Deserialize, Serialize, ToSchema, Clone, Hash, Debug, PartialEq)]
 pub enum TokenType {
     Bearer,
 }
@@ -48,19 +48,19 @@ pub enum TokenType {
 /// - [IDPorten](https://doc.nais.io/auth/idporten/reference/#claims)
 /// - [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)
 /// - [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)
-#[derive(Serialize, Deserialize, ToSchema, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, ToSchema, Debug, PartialEq, Clone)]
 pub struct IntrospectResponse {
     /// Indicates whether the token is valid. If this field is _false_,
     /// the token is invalid and *must* be rejected.
-    active: bool,
+    pub active: bool,
 
     /// If the token is invalid, this field contains the reason.
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    pub error: Option<String>,
 
     /// Claims from valid tokens are contained in the introspection response, but only if the token is valid.
     #[serde(flatten)]
-    extra: HashMap<String, Value>,
+    pub extra: HashMap<String, Value>,
 }
 
 impl IntrospectResponse {
@@ -78,6 +78,29 @@ impl IntrospectResponse {
             error: Some(error_message.to_string()),
             extra: Default::default(),
         }
+    }
+}
+
+#[cfg(test)]
+impl IntrospectResponse {
+    pub fn has_claims(&self) -> bool {
+        !self.extra.is_empty()
+    }
+
+    pub fn subject(&self) -> Option<String> {
+        self.get_string_claim("sub")
+    }
+
+    pub fn issuer(&self) -> Option<String> {
+        self.get_string_claim("iss")
+    }
+
+    pub fn jwt_id(&self) -> Option<String> {
+        self.get_string_claim("jti")
+    }
+
+    fn get_string_claim(&self, claim: &str) -> Option<String> {
+        self.extra.get(claim).and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string())
     }
 }
 

@@ -169,45 +169,72 @@ mod tests {
 
         // All happy cases
         for format in [RequestFormat::Form, RequestFormat::Json] {
-            machine_to_machine_token(
-                testapp.cfg.maskinporten.clone().unwrap().issuer.clone(),
-                "scope".to_string(),
-                address.to_string(),
-                IdentityProvider::Maskinporten,
-                format.clone(),
-            )
-            .await;
+            machine_to_machine_token(&testapp.cfg.maskinporten.clone().unwrap().issuer, "scope", &address, IdentityProvider::Maskinporten, format.clone()).await;
 
             machine_to_machine_token(
-                testapp.cfg.azure_ad.clone().unwrap().issuer.clone(),
-                testapp.cfg.azure_ad.clone().unwrap().client_id.clone(),
-                address.to_string(),
+                &testapp.cfg.azure_ad.clone().unwrap().issuer,
+                &testapp.cfg.azure_ad.clone().unwrap().client_id,
+                &address,
                 IdentityProvider::AzureAD,
                 format.clone(),
             )
             .await;
 
             token_exchange_token(
-                testapp.cfg.azure_ad.clone().unwrap().issuer.clone(),
-                testapp.cfg.azure_ad.clone().unwrap().client_id.clone(),
-                address.to_string(),
-                identity_provider_address.to_string(),
+                &testapp.cfg.azure_ad.clone().unwrap().issuer,
+                &testapp.cfg.azure_ad.clone().unwrap().client_id,
+                &address,
+                &identity_provider_address,
                 IdentityProvider::AzureAD,
                 format.clone(),
             )
             .await;
 
             token_exchange_token(
-                testapp.cfg.token_x.clone().unwrap().issuer.clone(),
-                testapp.cfg.token_x.clone().unwrap().client_id.clone(),
-                address.to_string(),
-                identity_provider_address.to_string(),
+                &testapp.cfg.token_x.clone().unwrap().issuer,
+                &testapp.cfg.token_x.clone().unwrap().client_id,
+                &address,
+                &identity_provider_address,
                 IdentityProvider::TokenX,
                 format.clone(),
             )
             .await;
 
-            introspect_idporten_token(testapp.cfg.idporten.clone().unwrap().issuer.clone(), address.to_string(), identity_provider_address.to_string(), format).await;
+            introspect_token(
+                &testapp.cfg.azure_ad.clone().unwrap().issuer,
+                &address,
+                &identity_provider_address,
+                IdentityProvider::AzureAD,
+                format.clone(),
+            )
+            .await;
+
+            introspect_token(
+                &testapp.cfg.idporten.clone().unwrap().issuer,
+                &address,
+                &identity_provider_address,
+                IdentityProvider::IDPorten,
+                format.clone(),
+            )
+            .await;
+
+            introspect_token(
+                &testapp.cfg.maskinporten.clone().unwrap().issuer,
+                &address,
+                &identity_provider_address,
+                IdentityProvider::Maskinporten,
+                format.clone(),
+            )
+            .await;
+
+            introspect_token(
+                &testapp.cfg.token_x.clone().unwrap().issuer,
+                &address,
+                &identity_provider_address,
+                IdentityProvider::TokenX,
+                format.clone(),
+            )
+            .await;
         }
 
         test_token_invalid_identity_provider(&address).await;
@@ -238,73 +265,286 @@ mod tests {
             testapp.app.run().await.unwrap();
         });
 
-        let response = post_request(
-            format!("http://{}/api/v1/token", address),
+        let providers = [IdentityProvider::AzureAD, IdentityProvider::IDPorten, IdentityProvider::Maskinporten, IdentityProvider::TokenX];
+        for provider in providers {
+            test_well_formed_json_request(
+                token_url(&address).as_str(),
+                TokenRequest {
+                    target: "some_target".to_string(),
+                    identity_provider: provider,
+                    resource: None,
+                    skip_cache: None,
+                },
+                ErrorResponse {
+                    error: OAuthErrorCode::InvalidRequest,
+                    description: format!("identity provider '{provider}' is not enabled"),
+                },
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+
+            test_well_formed_json_request(
+                token_exchange_url(&address).as_str(),
+                TokenExchangeRequest {
+                    target: "some_target".to_string(),
+                    identity_provider: provider,
+                    user_token: "some_token".to_string(),
+                    skip_cache: None,
+                },
+                ErrorResponse {
+                    error: OAuthErrorCode::InvalidRequest,
+                    description: format!("identity provider '{provider}' is not enabled"),
+                },
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
+
+            test_well_formed_json_request(
+                introspect_url(&address).as_str(),
+                IntrospectRequest {
+                    token: "some_token".to_string(),
+                    identity_provider: provider,
+                },
+                IntrospectResponse::new_invalid(format!("identity provider '{provider}' is not enabled")),
+                StatusCode::OK,
+            )
+            .await;
+        }
+
+        join_handler.abort();
+    }
+
+    async fn machine_to_machine_token(expected_issuer: &str, target: &str, address: &str, identity_provider: IdentityProvider, request_format: RequestFormat) {
+        let request = TokenRequest {
+            target: target.to_string(),
+            identity_provider,
+            resource: None,
+            skip_cache: None,
+        };
+        let first_token_response = test_happy_path_token(address, request.clone(), request_format.clone()).await;
+        let first_token_introspect = test_happy_path_introspect(
+            address,
+            expected_issuer,
+            IntrospectRequest {
+                token: first_token_response.access_token.clone(),
+                identity_provider,
+            },
+            request_format.clone(),
+        )
+        .await;
+
+        // different target should return a different token
+        let different_token_response = test_happy_path_token(
+            address,
             TokenRequest {
-                target: "some_target".to_string(),
-                identity_provider: IdentityProvider::IDPorten,
+                target: "different_target".to_string(),
+                identity_provider,
                 resource: None,
                 skip_cache: None,
             },
-            RequestFormat::Json,
+            request_format.clone(),
         )
-        .await
-        .unwrap();
+        .await;
+        assert_ne!(different_token_response.access_token, first_token_response.access_token);
 
-        assert_eq!(response.status(), 400);
-        assert_eq!(
-            response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"identity provider 'idporten' is not enabled"}"#
-        );
+        // second token request with same inputs should return cached token
+        let second_token_response = test_happy_path_token(address, request, request_format.clone()).await;
+        let second_token_introspect = test_happy_path_introspect(
+            address,
+            expected_issuer,
+            IntrospectRequest {
+                token: second_token_response.access_token.clone(),
+                identity_provider,
+            },
+            request_format.clone(),
+        )
+        .await;
 
-        let response = post_request(
-            format!("http://{}/api/v1/token/exchange", address),
+        assert_eq!(second_token_response.access_token, first_token_response.access_token);
+        assert_ne!(second_token_response.access_token, different_token_response.access_token);
+        assert_eq!(second_token_introspect.issuer(), first_token_introspect.issuer());
+        assert_eq!(second_token_introspect.jwt_id(), first_token_introspect.jwt_id());
+
+        // third token request with skip_cache=true should return a new token
+        let third_token_response = test_happy_path_token(
+            address,
+            TokenRequest {
+                target: target.to_string(),
+                identity_provider,
+                resource: None,
+                skip_cache: Some(true),
+            },
+            request_format.clone(),
+        )
+        .await;
+        let third_token_introspect = test_happy_path_introspect(
+            address,
+            expected_issuer,
+            IntrospectRequest {
+                token: third_token_response.access_token.clone(),
+                identity_provider,
+            },
+            request_format.clone(),
+        )
+        .await;
+
+        assert_ne!(third_token_response.access_token, first_token_response.access_token);
+        assert_ne!(third_token_response.access_token, second_token_response.access_token);
+        assert_ne!(third_token_response.access_token, different_token_response.access_token);
+
+        assert_eq!(third_token_introspect.issuer(), first_token_introspect.issuer());
+        assert_eq!(third_token_introspect.issuer(), second_token_introspect.issuer());
+
+        assert_ne!(third_token_introspect.jwt_id(), first_token_introspect.jwt_id());
+        assert_ne!(third_token_introspect.jwt_id(), second_token_introspect.jwt_id());
+    }
+
+    /// this tests the full token exchange roundtrip:
+    ///  1. fetch user token from mock-oauth2-server
+    ///  2. exchange user token for on-behalf-of token at /token/exchange
+    ///  3. introspect the resulting token at /introspect
+    async fn token_exchange_token(expected_issuer: &str, target: &str, address: &str, identity_provider_address: &str, identity_provider: IdentityProvider, request_format: RequestFormat) {
+        let user_token: TokenResponse = get_user_token(identity_provider_address, identity_provider).await;
+        let request = TokenExchangeRequest {
+            target: target.to_string(),
+            identity_provider,
+            user_token: user_token.access_token.clone(),
+            skip_cache: None,
+        };
+        let first_token_response = test_happy_path_token_exchange(address, request.clone(), request_format.clone()).await;
+        let first_token_introspect = test_happy_path_introspect(
+            address,
+            expected_issuer,
+            IntrospectRequest {
+                token: first_token_response.access_token.clone(),
+                identity_provider,
+            },
+            request_format.clone(),
+        )
+        .await;
+
+        assert!(first_token_introspect.subject().is_some());
+
+        // different target should return a different token
+        let different_target_token_response = test_happy_path_token_exchange(
+            address,
             TokenExchangeRequest {
-                target: "some_target".to_string(),
-                identity_provider: IdentityProvider::TokenX,
-                user_token: "some_token".to_string(),
+                target: "different_target".to_string(),
+                identity_provider,
+                user_token: user_token.access_token.clone(),
                 skip_cache: None,
             },
-            RequestFormat::Json,
+            request_format.clone(),
         )
-        .await
-        .unwrap();
+        .await;
+        assert_ne!(different_target_token_response.access_token, first_token_response.access_token);
 
-        assert_eq!(response.status(), 400);
-        assert_eq!(
-            response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"identity provider 'tokenx' is not enabled"}"#
-        );
-
-        let response = post_request(
-            format!("http://{}/api/v1/introspect", address),
-            IntrospectRequest {
-                token: "some_token".to_string(),
-                identity_provider: IdentityProvider::IDPorten,
+        // different user token should return a different token
+        let user_token_2: TokenResponse = get_user_token(identity_provider_address, identity_provider).await;
+        let different_user_token_response = test_happy_path_token_exchange(
+            address,
+            TokenExchangeRequest {
+                target: target.to_string(),
+                identity_provider,
+                user_token: user_token_2.access_token.clone(),
+                skip_cache: None,
             },
-            RequestFormat::Json,
+            request_format.clone(),
         )
-        .await
-        .unwrap();
+        .await;
+        assert_ne!(different_user_token_response.access_token, first_token_response.access_token);
+        assert_ne!(different_user_token_response.access_token, different_target_token_response.access_token);
 
-        assert_eq!(response.status(), 200);
-        assert_eq!(response.text().await.unwrap(), r#"{"active":false,"error":"identity provider 'idporten' is not enabled"}"#);
+        // second token request with same inputs should return cached token
+        let second_token_response = test_happy_path_token_exchange(address, request, request_format.clone()).await;
+        let second_token_introspect = test_happy_path_introspect(
+            address,
+            expected_issuer,
+            IntrospectRequest {
+                token: second_token_response.access_token.clone(),
+                identity_provider,
+            },
+            request_format.clone(),
+        )
+        .await;
 
-        join_handler.abort();
+        assert!(second_token_introspect.subject().is_some());
+
+        assert_eq!(second_token_response.access_token, first_token_response.access_token);
+        assert_ne!(second_token_response.access_token, different_target_token_response.access_token);
+        assert_ne!(second_token_response.access_token, different_user_token_response.access_token);
+        assert_eq!(second_token_introspect.issuer(), first_token_introspect.issuer());
+        assert_eq!(second_token_introspect.jwt_id(), first_token_introspect.jwt_id());
+        assert_eq!(second_token_introspect.subject(), first_token_introspect.subject());
+
+        // third token request with skip_cache=true should return a new token
+        let third_token_response = test_happy_path_token_exchange(
+            address,
+            TokenExchangeRequest {
+                target: target.to_string(),
+                identity_provider,
+                user_token: user_token.access_token.clone(),
+                skip_cache: Some(true),
+            },
+            request_format.clone(),
+        )
+        .await;
+        let third_token_introspect = test_happy_path_introspect(
+            address,
+            expected_issuer,
+            IntrospectRequest {
+                token: third_token_response.access_token.clone(),
+                identity_provider,
+            },
+            request_format.clone(),
+        )
+        .await;
+
+        assert!(third_token_introspect.subject().is_some());
+
+        assert_ne!(third_token_response.access_token, first_token_response.access_token);
+        assert_ne!(third_token_response.access_token, second_token_response.access_token);
+        assert_ne!(third_token_response.access_token, different_target_token_response.access_token);
+        assert_ne!(third_token_response.access_token, different_user_token_response.access_token);
+
+        assert_eq!(third_token_introspect.issuer(), first_token_introspect.issuer());
+        assert_eq!(third_token_introspect.issuer(), second_token_introspect.issuer());
+
+        assert_ne!(third_token_introspect.jwt_id(), first_token_introspect.jwt_id());
+        assert_ne!(third_token_introspect.jwt_id(), second_token_introspect.jwt_id());
+
+        assert_eq!(third_token_introspect.subject(), first_token_introspect.subject());
+        assert_eq!(third_token_introspect.subject(), second_token_introspect.subject());
+    }
+
+    async fn introspect_token(expected_issuer: &str, address: &str, identity_provider_address: &str, identity_provider: IdentityProvider, request_format: RequestFormat) {
+        let user_token: TokenResponse = get_user_token(identity_provider_address, identity_provider).await;
+        let introspect_response = test_happy_path_introspect(
+            address,
+            expected_issuer,
+            IntrospectRequest {
+                token: user_token.access_token.clone(),
+                identity_provider,
+            },
+            request_format,
+        )
+        .await;
+
+        assert!(introspect_response.subject().is_some());
     }
 
     async fn test_introspect_token_unrecognized_issuer(address: &str) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
                 ("iss".into(), Value::String("snafu".into())),
-                ("nbf".into(), (epoch_now_secs()).into()),
-                ("iat".into(), (epoch_now_secs()).into()),
+                ("nbf".into(), epoch_now_secs().into()),
+                ("iat".into(), epoch_now_secs().into()),
                 ("exp".into(), (epoch_now_secs() + 120).into()),
             ]),
             &IdentityProvider::Maskinporten.to_string(),
         );
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token,
                 identity_provider: IdentityProvider::Maskinporten,
@@ -320,15 +560,15 @@ mod tests {
         let token = Token::sign_with_kid(
             TokenClaims::from([
                 ("iss".into(), Value::String(iss)),
-                ("nbf".into(), (epoch_now_secs()).into()),
-                ("iat".into(), (epoch_now_secs()).into()),
+                ("nbf".into(), epoch_now_secs().into()),
+                ("iat".into(), epoch_now_secs().into()),
                 ("exp".into(), (epoch_now_secs() + 120).into()),
             ]),
             &IdentityProvider::Maskinporten.to_string(),
         );
 
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token,
                 identity_provider: IdentityProvider::AzureAD,
@@ -342,15 +582,15 @@ mod tests {
     async fn test_introspect_token_missing_issuer(address: &str) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                ("nbf".into(), (epoch_now_secs()).into()),
-                ("iat".into(), (epoch_now_secs()).into()),
+                ("nbf".into(), epoch_now_secs().into()),
+                ("iat".into(), epoch_now_secs().into()),
                 ("exp".into(), (epoch_now_secs() + 120).into()),
             ]),
             &IdentityProvider::Maskinporten.to_string(),
         );
 
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token,
                 identity_provider: IdentityProvider::Maskinporten,
@@ -363,7 +603,7 @@ mod tests {
 
     async fn test_introspect_token_is_not_a_jwt(address: &str) {
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token: "not a jwt".to_string(),
                 identity_provider: IdentityProvider::AzureAD,
@@ -376,8 +616,9 @@ mod tests {
 
     async fn test_introspect_token_missing_kid(address: &str, identity_provider_address: &str) {
         let token = Token::sign(TokenClaims::from([("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into())]));
+
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token,
                 identity_provider: IdentityProvider::AzureAD,
@@ -392,7 +633,7 @@ mod tests {
         let token = Token::sign_with_kid(TokenClaims::from([("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into())]), "missing-key");
 
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token,
                 identity_provider: IdentityProvider::Maskinporten,
@@ -404,19 +645,18 @@ mod tests {
     }
 
     async fn test_introspect_token_is_expired(address: &str, identity_provider_address: &str) {
-        // token is expired
         let token = Token::sign_with_kid(
             TokenClaims::from([
                 ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
-                ("nbf".into(), (epoch_now_secs()).into()),
-                ("iat".into(), (epoch_now_secs()).into()),
+                ("nbf".into(), epoch_now_secs().into()),
+                ("iat".into(), epoch_now_secs().into()),
                 ("exp".into(), (epoch_now_secs() - 120).into()),
             ]),
             "maskinporten",
         );
 
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token,
                 identity_provider: IdentityProvider::Maskinporten,
@@ -431,7 +671,7 @@ mod tests {
         let token = Token::sign_with_kid(
             TokenClaims::from([
                 ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
-                ("nbf".into(), (epoch_now_secs()).into()),
+                ("nbf".into(), epoch_now_secs().into()),
                 ("iat".into(), (epoch_now_secs() + 120).into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
             ]),
@@ -439,7 +679,7 @@ mod tests {
         );
 
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token,
                 identity_provider: IdentityProvider::Maskinporten,
@@ -455,14 +695,14 @@ mod tests {
             TokenClaims::from([
                 ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
                 ("nbf".into(), (epoch_now_secs() + 120).into()),
-                ("iat".into(), (epoch_now_secs()).into()),
+                ("iat".into(), epoch_now_secs().into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
             ]),
             "maskinporten",
         );
 
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
                 token,
                 identity_provider: IdentityProvider::Maskinporten,
@@ -474,8 +714,8 @@ mod tests {
     }
 
     async fn test_introspect_token_invalid_audience(address: &str) {
-        let response = post_request(
-            format!("http://{}/api/v1/token", address.to_string()),
+        let token_response = test_happy_path_token(
+            address,
             TokenRequest {
                 target: "invalid".to_string(),
                 identity_provider: IdentityProvider::AzureAD,
@@ -484,19 +724,12 @@ mod tests {
             },
             RequestFormat::Json,
         )
-        .await
-        .unwrap();
-
-        assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
-
-        let body: TokenResponse = response.json().await.unwrap();
-        assert!(body.expires_in_seconds > 0);
-        assert!(!body.access_token.is_empty());
+        .await;
 
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/introspect", address),
+            introspect_url(address).as_str(),
             IntrospectRequest {
-                token: body.access_token.clone(),
+                token: token_response.access_token.clone(),
                 identity_provider: IdentityProvider::AzureAD,
             },
             IntrospectResponse::new_invalid("invalid token: InvalidAudience"),
@@ -507,7 +740,7 @@ mod tests {
 
     async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
         test_well_formed_json_request(
-            &format!("http://{}/api/v1/token/exchange", address),
+            token_exchange_url(address).as_str(),
             TokenExchangeRequest {
                 target: "target".to_string(),
                 identity_provider: IdentityProvider::AzureAD,
@@ -524,32 +757,32 @@ mod tests {
     }
 
     async fn test_token_invalid_identity_provider(address: &str) {
-        let response = post_request(
+        let http_response = post_request(
             format!("http://{}/api/v1/token", address),
             json!({"target":"dontcare","identity_provider":"invalid"}),
             RequestFormat::Json,
         )
         .await
         .unwrap();
-
-        assert_eq!(response.status(), 400);
+        let error_response = json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
         assert_eq!(
-            response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten` at line 1 column 30"}"#
+            error_response.description,
+            "Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten` at line 1 column 30"
         );
 
-        let response = post_request(
+        let http_response = post_request(
             format!("http://{}/api/v1/token", address),
             HashMap::from([("target", "dontcare"), ("identity_provider", "invalid")]),
             RequestFormat::Form,
         )
         .await
         .unwrap();
-
-        assert_eq!(response.status(), 400);
+        let error_response = json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
         assert_eq!(
-            response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"Failed to deserialize form body: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten`"}"#
+            error_response.description,
+            "Failed to deserialize form body: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten`"
         );
     }
 
@@ -560,204 +793,50 @@ mod tests {
             .header("accept", "application/json")
             .header("content-type", "text/plain")
             .body("some plain text");
-        let response = request.send().await.unwrap();
+        let http_response = request.send().await.unwrap();
 
-        assert_eq!(response.status(), 400);
+        let error_response = json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
         assert_eq!(
-            response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"unsupported media type: text/plain: expected one of `application/json`, `application/x-www-form-urlencoded`"}"#
+            error_response.description,
+            "unsupported media type: text/plain: expected one of `application/json`, `application/x-www-form-urlencoded`"
         );
     }
 
-    async fn machine_to_machine_token(expected_issuer: String, target: String, address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
-        let response = post_request(
-            format!("http://{}/api/v1/token", address.clone().to_string()),
-            TokenRequest {
-                target,
-                identity_provider,
-                resource: None,
-                skip_cache: None,
-            },
-            request_format.clone(),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
-
-        let body: TokenResponse = response.json().await.unwrap();
-        assert!(body.expires_in_seconds > 0);
-        assert!(!body.access_token.is_empty());
-
-        let response = post_request(
-            format!("http://{}/api/v1/introspect", address.clone().to_string()),
-            IntrospectRequest {
-                token: body.access_token.clone(),
-                identity_provider,
-            },
-            request_format,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(response.status(), 200);
-        let body: HashMap<String, Value> = response.json().await.unwrap();
-        assert_eq!(body["active"], Value::Bool(true));
-        assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
-    }
-
-    /// this tests the full token exchange roundtrip:
-    ///  1. fetch user token from mock-oauth2-server
-    ///  2. exchange user token for on-behalf-of token at /token/exchange
-    ///  3. introspect the resulting token at /introspect
-    async fn token_exchange_token(expected_issuer: String, target: String, address: String, identity_provider_address: String, identity_provider: IdentityProvider, request_format: RequestFormat) {
-        #[derive(Serialize)]
-        struct AuthorizeRequest {
-            grant_type: String,
-            code: String,
-            client_id: String,
-            client_secret: String,
-        }
-
-        // This request goes directly to the mock oauth2 server, which only accepts form encoding
-        let user_token_response = post_request(
-            format!("http://{}/token", identity_provider_address),
-            AuthorizeRequest {
-                grant_type: "authorization_code".to_string(),
-                code: "mycode".to_string(),
-                client_id: "myclientid".to_string(),
-                client_secret: "myclientsecret".to_string(),
-            },
-            RequestFormat::Form,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(user_token_response.status(), 200);
-        let user_token: TokenResponse = user_token_response.json().await.unwrap();
-
-        let response = post_request(
-            format!("http://{}/api/v1/token/exchange", address.clone().to_string()),
-            TokenExchangeRequest {
-                target,
-                identity_provider,
-                user_token: user_token.access_token,
-                skip_cache: None,
-            },
-            request_format.clone(),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(response.status(), 200, "failed to exchange token: {:?}", response.text().await.unwrap());
-
-        let body: TokenResponse = response.json().await.unwrap();
-        assert!(body.expires_in_seconds > 0);
-        assert!(!body.access_token.is_empty());
-
-        let response = post_request(
-            format!("http://{}/api/v1/introspect", address.clone().to_string()),
-            IntrospectRequest {
-                token: body.access_token.clone(),
-                identity_provider,
-            },
-            request_format,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(response.status(), 200);
-        let body: HashMap<String, Value> = response.json().await.unwrap();
-        assert_eq!(body["active"], Value::Bool(true));
-        assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
-        assert!(!body["sub"].to_string().is_empty());
-    }
-
-    async fn introspect_idporten_token(expected_issuer: String, address: String, identity_provider_address: String, request_format: RequestFormat) {
-        #[derive(Serialize)]
-        struct AuthorizeRequest {
-            grant_type: String,
-            code: String,
-            client_id: String,
-            client_secret: String,
-        }
-
-        // This request goes directly to the mock oauth2 server, which only accepts form encoding
-        let user_token_response = post_request(
-            format!("http://{}/idporten/token", identity_provider_address),
-            AuthorizeRequest {
-                grant_type: "authorization_code".to_string(),
-                code: "mycode".to_string(),
-                client_id: "myclientid".to_string(),
-                client_secret: "myclientsecret".to_string(),
-            },
-            RequestFormat::Form,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(user_token_response.status(), 200);
-        let user_token: TokenResponse = user_token_response.json().await.unwrap();
-
-        let response = post_request(
-            format!("http://{}/api/v1/introspect", address.clone().to_string()),
-            IntrospectRequest {
-                token: user_token.access_token.clone(),
-                identity_provider: IdentityProvider::IDPorten,
-            },
-            request_format,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(response.status(), 200);
-        let body: HashMap<String, Value> = response.json().await.unwrap();
-        assert_eq!(body["active"], Value::Bool(true));
-        assert_eq!(body.contains_key("error"), false);
-        assert_eq!(body["iss"], Value::String(expected_issuer.to_string()));
-        assert!(!body["sub"].to_string().is_empty());
-    }
-
     async fn test_token_unsupported_identity_provider(address: &str) {
-        let response = post_request(
-            format!("http://{}/api/v1/token", address),
+        test_well_formed_json_request(
+            token_url(address).as_str(),
             TokenRequest {
                 target: "some_target".to_string(),
                 identity_provider: IdentityProvider::IDPorten,
                 resource: None,
                 skip_cache: None,
             },
-            RequestFormat::Json,
+            ErrorResponse {
+                error: OAuthErrorCode::InvalidRequest,
+                description: "identity provider 'idporten' does not support token requests".to_string(),
+            },
+            StatusCode::BAD_REQUEST,
         )
-        .await
-        .unwrap();
-
-        assert_eq!(response.status(), 400);
-        assert_eq!(
-            response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"identity provider 'idporten' does not support token requests"}"#
-        );
+        .await;
     }
 
     async fn test_token_exchange_unsupported_identity_provider(address: &str) {
-        let response = post_request(
-            format!("http://{}/api/v1/token/exchange", address),
+        test_well_formed_json_request(
+            token_exchange_url(address).as_str(),
             TokenExchangeRequest {
                 target: "some_target".to_string(),
                 identity_provider: IdentityProvider::IDPorten,
                 user_token: "some_token".to_string(),
                 skip_cache: None,
             },
-            RequestFormat::Json,
+            ErrorResponse {
+                error: OAuthErrorCode::InvalidRequest,
+                description: "identity provider 'idporten' does not support token exchange".to_string(),
+            },
+            StatusCode::BAD_REQUEST,
         )
-        .await
-        .unwrap();
-
-        assert_eq!(response.status(), 400);
-        assert_eq!(
-            response.text().await.unwrap(),
-            r#"{"error":"invalid_request","error_description":"identity provider 'idporten' does not support token exchange"}"#
-        );
+        .await;
     }
 
     #[derive(Clone)]
@@ -776,11 +855,96 @@ mod tests {
         request.send().await
     }
 
-    async fn test_well_formed_json_request<T: Serialize, U: DeserializeOwned + PartialEq + Debug>(url: &str, request: T, response: U, status_code: StatusCode) {
-        let http_response = post_request(url.to_string(), request, RequestFormat::Json).await.unwrap();
+    async fn json_response<U: DeserializeOwned + PartialEq + Debug + Clone>(response: Response, status_code: StatusCode) -> U {
+        assert_eq!(response.status(), status_code);
+        response.json::<U>().await.unwrap()
+    }
 
-        assert_eq!(http_response.status(), status_code);
-        assert_eq!(http_response.json::<U>().await.unwrap(), response);
+    async fn test_well_formed_request<T: Serialize, U: DeserializeOwned + PartialEq + Debug + Clone>(
+        url: &str,
+        request: T,
+        request_format: RequestFormat,
+        status_code: StatusCode,
+        assert_response: impl FnOnce(U),
+    ) -> U {
+        let http_response = post_request(url.to_string(), request, request_format).await.unwrap();
+        let actual_response = json_response::<U>(http_response, status_code).await;
+        assert_response(actual_response.clone());
+        actual_response
+    }
+
+    async fn test_well_formed_json_request<T: Serialize, U: DeserializeOwned + PartialEq + Debug + Clone>(url: &str, request: T, expected_response: U, status_code: StatusCode) -> U {
+        test_well_formed_request(url, request, RequestFormat::Json, status_code, |response: U| {
+            assert_eq!(response, expected_response);
+        })
+        .await
+    }
+
+    async fn test_happy_path_token(address: &str, request: TokenRequest, request_format: RequestFormat) -> TokenResponse {
+        test_well_formed_request(token_url(address).as_str(), request, request_format, StatusCode::OK, |resp: TokenResponse| {
+            assert!(resp.expires_in_seconds > 0);
+            assert!(!resp.access_token.is_empty());
+        })
+        .await
+    }
+
+    async fn test_happy_path_token_exchange(address: &str, request: TokenExchangeRequest, request_format: RequestFormat) -> TokenResponse {
+        test_well_formed_request(token_exchange_url(address).as_str(), request, request_format, StatusCode::OK, |resp: TokenResponse| {
+            assert!(resp.expires_in_seconds > 0);
+            assert!(!resp.access_token.is_empty());
+        })
+        .await
+    }
+
+    async fn test_happy_path_introspect(address: &str, expected_issuer: &str, request: IntrospectRequest, request_format: RequestFormat) -> IntrospectResponse {
+        test_well_formed_request(introspect_url(address).as_str(), request, request_format, StatusCode::OK, |resp: IntrospectResponse| {
+            assert!(resp.active);
+            assert!(resp.error.is_none());
+            assert!(resp.has_claims());
+            assert!(resp.issuer().is_some());
+            assert!(resp.jwt_id().is_some());
+            assert_eq!(resp.issuer().unwrap(), expected_issuer);
+        })
+        .await
+    }
+
+    async fn get_user_token(identity_provider_address: &str, identity_provider: IdentityProvider) -> TokenResponse {
+        #[derive(Serialize)]
+        struct AuthorizeRequest {
+            grant_type: String,
+            code: String,
+            client_id: String,
+            client_secret: String,
+        }
+
+        // This request goes directly to the mock oauth2 server, which only accepts form encoding
+        let user_token_response = post_request(
+            format!("http://{}/{}/token", identity_provider_address, identity_provider),
+            AuthorizeRequest {
+                grant_type: "authorization_code".to_string(),
+                code: "mycode".to_string(),
+                client_id: "myclientid".to_string(),
+                client_secret: "myclientsecret".to_string(),
+            },
+            RequestFormat::Form,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(user_token_response.status(), 200);
+        user_token_response.json::<TokenResponse>().await.unwrap()
+    }
+
+    fn token_url(address: &str) -> String {
+        format!("http://{}/api/v1/token", address)
+    }
+
+    fn token_exchange_url(address: &str) -> String {
+        format!("http://{}/api/v1/token/exchange", address)
+    }
+
+    fn introspect_url(address: &str) -> String {
+        format!("http://{}/api/v1/introspect", address)
     }
 
     struct TestApp {
