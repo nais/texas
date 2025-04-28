@@ -9,13 +9,10 @@ use texas::tracing::init_tracing_subscriber;
 async fn main() -> ExitCode {
     dotenv::dotenv().ok();
 
-    let _guard = match init_tracing_subscriber() {
-        Ok(guard) => guard,
-        Err(err) => {
-            error!("initialize tracing: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
+    if let Err(error) = init_tracing_subscriber() {
+        error!("initialize tracing: {error}");
+        return ExitCode::FAILURE;
+    }
 
     #[cfg(feature = "local")]
     texas::config::print_texas_logo();

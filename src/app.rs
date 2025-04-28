@@ -102,8 +102,7 @@ impl App {
                             .map(MatchedPath::as_str);
 
                         // get tracing context from request
-                        let propagator = TraceContextPropagator::new();
-                        let parent_context = propagator.extract(&HeaderExtractor(request.headers()));
+                        let parent_context = TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
 
                         let root_span = info_span!(
                             "Handle incoming request",

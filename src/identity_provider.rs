@@ -368,15 +368,15 @@ pub trait ProviderHandler: ShouldHandler + Send + Sync {
 }
 
 pub trait ShouldHandler: Send + Sync {
-    fn should_handle_token_request(&self, _request: &TokenRequest) -> bool {
+    fn should_handle_token_request(&self, _: &TokenRequest) -> bool {
         false
     }
 
-    fn should_handle_token_exchange_request(&self, _request: &TokenExchangeRequest) -> bool {
+    fn should_handle_token_exchange_request(&self, _: &TokenExchangeRequest) -> bool {
         false
     }
 
-    fn should_handle_introspect_request(&self, _request: &IntrospectRequest) -> bool {
+    fn should_handle_introspect_request(&self, _: &IntrospectRequest) -> bool {
         false
     }
 }
