@@ -16,6 +16,4 @@ bin
 *.swo
 *~
 
-!.env.example
 .env
-.env.*
