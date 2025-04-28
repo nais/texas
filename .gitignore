@@ -17,3 +17,7 @@ bin
 *~
 
 .env
+
+# Nix stuff
+result*
+/.direnv/
