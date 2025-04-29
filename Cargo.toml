@@ -12,36 +12,36 @@ local = []
 [dependencies]
 async-trait = "0.1"
 axum = { version = "0.8", features = ["http2", "macros"] }
-derivative = "2.2.0"
+derivative = "2"
 dotenv = { version = "0.15", features = ["clap"] }
-jsonwebkey = { version = "0.3.5", features = ["jwt-convert"] }
-jsonwebtoken = "8.3.0"
+jsonwebkey = { version = "0.3", features = ["jwt-convert"] }
+jsonwebtoken = "8"
 log = { version = "0.4", features = ["std"] }
-moka = { version = "0.12.10", features = ["future"] }
-opentelemetry = { version = "0.28.0", features = ["metrics", "trace"] }
-opentelemetry-http = "0.28.0"
-opentelemetry-otlp = { version = "0.28.0", features = ["metrics", "trace", "grpc-tonic"] }
-opentelemetry-semantic-conventions = { version = "0.28.0", features = ["semconv_experimental"] }
-opentelemetry_sdk = { version = "0.28.0", features = ["trace"] }
+moka = { version = "0.12", features = ["future"] }
+opentelemetry = { version = "0.28", features = ["metrics", "trace"] }
+opentelemetry-http = "0.28"
+opentelemetry-otlp = { version = "0.28", features = ["metrics", "trace", "grpc-tonic"] }
+opentelemetry-semantic-conventions = { version = "0.28", features = ["semconv_experimental"] }
+opentelemetry_sdk = { version = "0.28", features = ["trace"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1.0.140"
+serde_json = "1"
 thiserror = "2"
-tokio = { version = "1.44", features = ["rt-multi-thread"] }
-tower-http = { version = "0.6.1", features = ["trace"] }
-tracing = { version = "0.1.40", features = [] }
-tracing-opentelemetry = "0.29.0"
-tracing-subscriber = { version = "0.3.18", features = ["json"] }
-utoipa = { version = "5.3.1", features = ["axum_extras", "openapi_extensions"] }
-utoipa-axum = "0.2.0"
-utoipa-swagger-ui = { version = "9.0.1", features = ["axum", "vendored"] }
-uuid = { version = "1.16.0", features = ["v4"] }
-strum_macros = "0.27.1"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tower-http = { version = "0.6", features = ["trace"] }
+tracing = { version = "0.1", features = [] }
+tracing-opentelemetry = "0.29"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+utoipa = { version = "5", features = ["axum_extras", "openapi_extensions"] }
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
+uuid = { version = "1", features = ["v4"] }
+strum_macros = "0.27"
 
 [dev-dependencies]
 env_logger = "0.11"
-jsonwebkey = { version = "0.3.5", features = ["jwt-convert", "generate"] }
-testcontainers = { version = "0.23.3", features = ["http_wait", "properties-config"] }
+jsonwebkey = { version = "0.3", features = ["jwt-convert", "generate"] }
+testcontainers = { version = "0.23", features = ["http_wait", "properties-config"] }
 
 [build-dependencies]
 chrono = { version = "0.4", default-features = false, features = ["now"] }
