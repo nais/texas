@@ -11,6 +11,7 @@ local:
 
 check:
 	cargo clippy
+	cargo fmt --check
 	cargo test --features docker
 
 test_roundtrip:

@@ -31,6 +31,8 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
       - run: rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt
+        run: cargo fmt --check --verbose
       - name: cargo check
         run: cargo check --verbose
       - name: cargo test
