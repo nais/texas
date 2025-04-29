@@ -1,9 +1,9 @@
 use crate::cache::{CachedTokenResponse, TokenResponseExpiry};
 use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
-use crate::config::{Config};
+use crate::config::Config;
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 use crate::identity_provider::*;
-use crate::tracing::{inc_token_requests, inc_handler_errors, inc_token_introspections, inc_token_exchanges, inc_token_cache_hits};
+use crate::tracing::{inc_handler_errors, inc_token_cache_hits, inc_token_exchanges, inc_token_introspections, inc_token_requests};
 use crate::{config, jwks};
 use axum::extract::rejection::{FormRejection, JsonRejection};
 use axum::extract::FromRequest;
@@ -11,8 +11,8 @@ use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use axum::Form;
+use axum::Json;
 use log::{error, info};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -96,9 +96,12 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         if !provider.read().await.should_handle_token_request(&request) {
             continue;
         }
-        let response = provider.read().await.get_token(request.clone()).await.inspect_err(
-            |e| inc_handler_errors(PATH, request.identity_provider, e.as_ref())
-        )?;
+        let response = provider
+            .read()
+            .await
+            .get_token(request.clone())
+            .await
+            .inspect_err(|e| inc_handler_errors(PATH, request.identity_provider, e.as_ref()))?;
         state.token_cache.insert(request, response.clone().into()).await;
         return Ok(Json(response));
     }
@@ -179,9 +182,12 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         if !provider.read().await.should_handle_token_exchange_request(&request) {
             continue;
         }
-        let response = provider.read().await.exchange_token(request.clone()).await.inspect_err(
-            |e| inc_handler_errors(PATH, request.identity_provider, e.as_ref())
-        )?;
+        let response = provider
+            .read()
+            .await
+            .exchange_token(request.clone())
+            .await
+            .inspect_err(|e| inc_handler_errors(PATH, request.identity_provider, e.as_ref()))?;
         state.token_exchange_cache.insert(request, response.clone().into()).await;
         return Ok(Json(response));
     }
@@ -252,10 +258,7 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
     }
 
     if !provider_enabled {
-        return Err(Json(IntrospectResponse::new_invalid(identity_provider_not_enabled_error(
-            PATH,
-            request.identity_provider)
-        )));
+        return Err(Json(IntrospectResponse::new_invalid(identity_provider_not_enabled_error(PATH, request.identity_provider))));
     }
 
     let error_message = match request.issuer() {
@@ -290,7 +293,8 @@ where
             jwks::Jwks::new(&provider_cfg.issuer.clone(), &provider_cfg.jwks_uri.clone(), audience)
                 .await
                 .map_err(InitError::Jwks)?,
-        ).map_err(InitError::Jwk)?,
+        )
+        .map_err(InitError::Jwk)?,
     ))))
 }
 
@@ -395,57 +399,63 @@ impl IntoResponse for ApiError {
             //
             // We propagate the error response as-is from the upstream instead of trying to handle
             // these ambiguities.
-            ApiError::Upstream { status_code, error } => (
-                status_code, error
-            ),
+            ApiError::Upstream { status_code, error } => (status_code, error),
             ApiError::Sign => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorResponse {
                     error: OAuthErrorCode::ServerError,
                     description: "Failed to sign assertion".to_string(),
-                }),
+                },
+            ),
             ApiError::JSON(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorResponse {
                     error: OAuthErrorCode::ServerError,
                     description: format!("Failed to parse JSON: {}", err),
-                }),
+                },
+            ),
             ApiError::UpstreamRequest(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorResponse {
                     error: OAuthErrorCode::ServerError,
                     description: format!("Upstream request failed: {}", err),
-                }),
+                },
+            ),
             ApiError::TokenExchangeUnsupported(_) => (
                 StatusCode::BAD_REQUEST,
                 ErrorResponse {
                     error: OAuthErrorCode::InvalidRequest,
                     description: self.to_string(),
-                }),
+                },
+            ),
             ApiError::TokenRequestUnsupported(_) => (
                 StatusCode::BAD_REQUEST,
                 ErrorResponse {
                     error: OAuthErrorCode::InvalidRequest,
                     description: self.to_string(),
-                }),
+                },
+            ),
             ApiError::IdentityProviderNotEnabled(_) => (
                 StatusCode::BAD_REQUEST,
                 ErrorResponse {
                     error: OAuthErrorCode::InvalidRequest,
                     description: self.to_string(),
-                }),
+                },
+            ),
             ApiError::UnprocessableContent(_) => (
                 StatusCode::BAD_REQUEST,
                 ErrorResponse {
                     error: OAuthErrorCode::InvalidRequest,
                     description: self.to_string(),
-                }),
+                },
+            ),
             ApiError::UnsupportedMediaType(_) => (
                 StatusCode::BAD_REQUEST,
                 ErrorResponse {
                     error: OAuthErrorCode::InvalidRequest,
                     description: self.to_string(),
-                }),
+                },
+            ),
         };
         (status_code, Json(error_response)).into_response()
     }
@@ -457,16 +467,13 @@ impl<S, T> FromRequest<S> for JsonOrForm<T>
 where
     S: Send + Sync,
     T: 'static,
-    Json<T>: FromRequest<S, Rejection=JsonRejection>,
-    Form<T>: FromRequest<S, Rejection=FormRejection>,
+    Json<T>: FromRequest<S, Rejection = JsonRejection>,
+    Form<T>: FromRequest<S, Rejection = FormRejection>,
 {
     type Rejection = ApiError;
 
     #[instrument(skip_all, name = "Deserialize request")]
-    async fn from_request(
-        req: axum::extract::Request,
-        state: &S
-    ) -> Result<Self, Self::Rejection> {
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
         let content_type_header = req.headers().get(CONTENT_TYPE);
         let content_type = content_type_header.and_then(|value| value.to_str().ok());
 

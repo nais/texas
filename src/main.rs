@@ -1,9 +1,9 @@
 use log::{error, info, warn};
 use std::process::ExitCode;
 use std::time::Duration;
-use tokio::time::sleep;
 use texas::app::App;
 use texas::tracing::init_tracing_subscriber;
+use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -49,7 +49,7 @@ async fn init_app_with_retry() -> Option<App> {
                 return None;
             }
         }
-    };
+    }
 
     None
 }
