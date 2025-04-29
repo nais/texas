@@ -1,19 +1,21 @@
-use crate::config::{Config};
+use crate::app::Error::LocalAddress;
+use crate::config::Config;
 use crate::handlers::__path_introspect;
 use crate::handlers::__path_token;
 use crate::handlers::__path_token_exchange;
 use crate::handlers::{introspect, token, token_exchange, HandlerState};
+use crate::{config, handlers};
 use axum::extract::MatchedPath;
 use axum::http::Request;
 use axum::response::Response;
 use axum::Router;
 use log::info;
+use opentelemetry::baggage::BaggageExt;
 use opentelemetry::propagation::TextMapPropagator;
+use opentelemetry::KeyValue;
 use opentelemetry_http::HeaderExtractor;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use std::time::Duration;
-use opentelemetry::baggage::BaggageExt;
-use opentelemetry::KeyValue;
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info_span, Span};
@@ -21,8 +23,6 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utoipa::{openapi, OpenApi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-use crate::app::Error::LocalAddress;
-use crate::{config, handlers};
 
 pub struct App {
     router: Router,
@@ -30,16 +30,11 @@ pub struct App {
 }
 
 #[derive(OpenApi)]
-#[openapi(
-    info(
-        title = "Token Exchange as a Service (Texas)",
-        description = "Texas implements OAuth token fetch, exchange, and validation, so that you don't have to.",
-        contact(
-            name = "Nais",
-            url = "https://nais.io"
-        )
-    )
-)]
+#[openapi(info(
+    title = "Token Exchange as a Service (Texas)",
+    description = "Texas implements OAuth token fetch, exchange, and validation, so that you don't have to.",
+    contact(name = "Nais", url = "https://nais.io")
+))]
 pub struct ApiDoc;
 
 #[derive(thiserror::Error, Debug)]
@@ -64,9 +59,7 @@ impl App {
         let bind_address = cfg.bind_address.clone();
         let listener = TcpListener::bind(bind_address).await.map_err(Error::BindAddress)?;
 
-        let state = HandlerState::from_config(cfg)
-            .await
-            .map_err(Error::InitHandlerState)?;
+        let state = HandlerState::from_config(cfg).await.map_err(Error::InitHandlerState)?;
         let app = Self::router(state);
 
         let local_addr = listener.local_addr().map_err(LocalAddress)?;
@@ -96,10 +89,7 @@ impl App {
                     .make_span_with(move |request: &Request<_>| {
                         // Log the matched route's path (with placeholders not filled in).
                         // Use request.uri() or OriginalUri if you want the real path.
-                        let path = request
-                            .extensions()
-                            .get::<MatchedPath>()
-                            .map(MatchedPath::as_str);
+                        let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
 
                         // get tracing context from request
                         let parent_context = TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
@@ -116,13 +106,9 @@ impl App {
                         root_span
                     })
                     .on_response(move |response: &Response, latency: Duration, span: &Span| {
-                        let path = span.context()
-                            .baggage()
-                            .get("path")
-                            .map(|x| x.to_string())
-                            .unwrap_or_default();
+                        let path = span.context().baggage().get("path").map(|x| x.to_string()).unwrap_or_default();
                         crate::tracing::record_http_response_secs(&path, latency, response.status());
-                    })
+                    }),
             )
             .with_state(state)
             .split_for_parts()
@@ -190,7 +176,7 @@ mod tests {
                 IdentityProvider::Maskinporten,
                 format.clone(),
             )
-                .await;
+            .await;
 
             machine_to_machine_token(
                 testapp.cfg.azure_ad.clone().unwrap().issuer.clone(),
@@ -199,7 +185,7 @@ mod tests {
                 IdentityProvider::AzureAD,
                 format.clone(),
             )
-                .await;
+            .await;
 
             token_exchange_token(
                 testapp.cfg.azure_ad.clone().unwrap().issuer.clone(),
@@ -209,7 +195,7 @@ mod tests {
                 IdentityProvider::AzureAD,
                 format.clone(),
             )
-                .await;
+            .await;
 
             token_exchange_token(
                 testapp.cfg.token_x.clone().unwrap().issuer.clone(),
@@ -219,7 +205,7 @@ mod tests {
                 IdentityProvider::TokenX,
                 format.clone(),
             )
-                .await;
+            .await;
 
             introspect_idporten_token(testapp.cfg.idporten.clone().unwrap().issuer.clone(), address.to_string(), identity_provider_address.to_string(), format).await;
         }
@@ -261,7 +247,9 @@ mod tests {
                 skip_cache: None,
             },
             RequestFormat::Json,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 400);
         assert_eq!(
@@ -278,7 +266,9 @@ mod tests {
                 skip_cache: None,
             },
             RequestFormat::Json,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 400);
         assert_eq!(
@@ -293,13 +283,12 @@ mod tests {
                 identity_provider: IdentityProvider::IDPorten,
             },
             RequestFormat::Json,
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200);
-        assert_eq!(
-            response.text().await.unwrap(),
-            r#"{"active":false,"error":"identity provider 'idporten' is not enabled"}"#
-        );
+        assert_eq!(response.text().await.unwrap(), r#"{"active":false,"error":"identity provider 'idporten' is not enabled"}"#);
 
         join_handler.abort();
     }
@@ -323,17 +312,20 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: InvalidIssuer"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_issuer_mismatch(address: &str, identity_provider_address: &str) {
         let iss = format!("http://{}/maskinporten", identity_provider_address);
-        let token = Token::sign_with_kid(TokenClaims::from([
-            ("iss".into(), Value::String(iss)),
-            ("nbf".into(), (epoch_now_secs()).into()),
-            ("iat".into(), (epoch_now_secs()).into()),
-            ("exp".into(), (epoch_now_secs() + 120).into()),
-        ]), &IdentityProvider::Maskinporten.to_string());
+        let token = Token::sign_with_kid(
+            TokenClaims::from([
+                ("iss".into(), Value::String(iss)),
+                ("nbf".into(), (epoch_now_secs()).into()),
+                ("iat".into(), (epoch_now_secs()).into()),
+                ("exp".into(), (epoch_now_secs() + 120).into()),
+            ]),
+            &IdentityProvider::Maskinporten.to_string(),
+        );
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
@@ -344,15 +336,18 @@ mod tests {
             IntrospectResponse::new_invalid("token can not be validated with this identity provider"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_missing_issuer(address: &str) {
-        let token = Token::sign_with_kid(TokenClaims::from([
-            ("nbf".into(), (epoch_now_secs()).into()),
-            ("iat".into(), (epoch_now_secs()).into()),
-            ("exp".into(), (epoch_now_secs() + 120).into()),
-        ]), &IdentityProvider::Maskinporten.to_string());
+        let token = Token::sign_with_kid(
+            TokenClaims::from([
+                ("nbf".into(), (epoch_now_secs()).into()),
+                ("iat".into(), (epoch_now_secs()).into()),
+                ("exp".into(), (epoch_now_secs() + 120).into()),
+            ]),
+            &IdentityProvider::Maskinporten.to_string(),
+        );
 
         test_well_formed_json_request(
             &format!("http://{}/api/v1/introspect", address),
@@ -363,7 +358,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: Missing required claim: iss"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_is_not_a_jwt(address: &str) {
@@ -376,7 +371,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token header: InvalidToken"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_missing_kid(address: &str, identity_provider_address: &str) {
@@ -390,7 +385,7 @@ mod tests {
             IntrospectResponse::new_invalid("missing key id from token header"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_missing_key_in_jwks(address: &str, identity_provider_address: &str) {
@@ -405,7 +400,7 @@ mod tests {
             IntrospectResponse::new_invalid("token can not be validated with this identity provider"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_is_expired(address: &str, identity_provider_address: &str) {
@@ -429,7 +424,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: ExpiredSignature"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_is_issued_in_the_future(address: &str, identity_provider_address: &str) {
@@ -452,7 +447,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_has_not_before_in_the_future(address: &str, identity_provider_address: &str) {
@@ -475,7 +470,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: ImmatureSignature"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_introspect_token_invalid_audience(address: &str) {
@@ -489,8 +484,8 @@ mod tests {
             },
             RequestFormat::Json,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
 
@@ -507,7 +502,7 @@ mod tests {
             IntrospectResponse::new_invalid("invalid token: InvalidAudience"),
             StatusCode::OK,
         )
-            .await;
+        .await;
     }
 
     async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
@@ -525,7 +520,7 @@ mod tests {
             },
             StatusCode::BAD_REQUEST,
         )
-            .await;
+        .await;
     }
 
     async fn test_token_invalid_identity_provider(address: &str) {
@@ -534,8 +529,8 @@ mod tests {
             json!({"target":"dontcare","identity_provider":"invalid"}),
             RequestFormat::Json,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 400);
         assert_eq!(
@@ -548,8 +543,8 @@ mod tests {
             HashMap::from([("target", "dontcare"), ("identity_provider", "invalid")]),
             RequestFormat::Form,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 400);
         assert_eq!(
@@ -585,8 +580,8 @@ mod tests {
             },
             request_format.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200, "failed to get token: {:?}", response.text().await.unwrap());
 
@@ -602,8 +597,8 @@ mod tests {
             },
             request_format,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
@@ -635,8 +630,8 @@ mod tests {
             },
             RequestFormat::Form,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(user_token_response.status(), 200);
         let user_token: TokenResponse = user_token_response.json().await.unwrap();
@@ -651,8 +646,8 @@ mod tests {
             },
             request_format.clone(),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200, "failed to exchange token: {:?}", response.text().await.unwrap());
 
@@ -668,8 +663,8 @@ mod tests {
             },
             request_format,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
@@ -698,8 +693,8 @@ mod tests {
             },
             RequestFormat::Form,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(user_token_response.status(), 200);
         let user_token: TokenResponse = user_token_response.json().await.unwrap();
@@ -712,8 +707,8 @@ mod tests {
             },
             request_format,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 200);
         let body: HashMap<String, Value> = response.json().await.unwrap();
@@ -734,8 +729,8 @@ mod tests {
             },
             RequestFormat::Json,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 400);
         assert_eq!(
@@ -755,8 +750,8 @@ mod tests {
             },
             RequestFormat::Json,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert_eq!(response.status(), 400);
         assert_eq!(

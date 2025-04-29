@@ -18,18 +18,15 @@ impl From<CachedTokenResponse> for TokenResponse {
 
 impl From<TokenResponse> for CachedTokenResponse {
     fn from(response: TokenResponse) -> Self {
-        Self {
-            response,
-            created_at: Instant::now(),
-        }
+        Self { response, created_at: Instant::now() }
     }
 }
 
 /// Make sure tokens expire from the cache when their validity expires.
-/// 
+///
 /// We subtract a leeway of 60 seconds from the actual expiry to ensure that we don't
 /// return an expired token from the cache.
-/// 
+///
 /// If the expiry is less than the leeway, we expire at the half-life instead.
 pub struct TokenResponseExpiry;
 

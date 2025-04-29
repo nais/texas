@@ -2,6 +2,7 @@ use crate::claims::{serialize, Assertion};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder, TokenRequestBuilderParams};
 use crate::handlers::ApiError;
 use crate::jwks;
+use async_trait::async_trait;
 use derivative::Derivative;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
@@ -13,7 +14,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::time::Duration;
-use async_trait::async_trait;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
@@ -243,17 +243,9 @@ where
     R: TokenRequestBuilder,
     A: Assertion,
 {
-    pub fn new(
-        kind: IdentityProvider,
-        client_id: String,
-        token_endpoint: Option<String>,
-        private_jwk: Option<String>,
-        upstream_jwks: jwks::Jwks,
-    ) -> Result<Self, ProviderError> {
+    pub fn new(kind: IdentityProvider, client_id: String, token_endpoint: Option<String>, private_jwk: Option<String>, upstream_jwks: jwks::Jwks) -> Result<Self, ProviderError> {
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
-            let client_private_jwk: jwk::JsonWebKey = private_jwk
-                .parse()
-                .map_err(ProviderError::PrivateJwkParseError)?;
+            let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().map_err(ProviderError::PrivateJwkParseError)?;
             let alg: jwt::Algorithm = client_private_jwk.algorithm.ok_or(ProviderError::PrivateJwkMissingAlgorithm)?.into();
             let kid: String = client_private_jwk.key_id.clone().ok_or(ProviderError::PrivateJwkMissingKid)?;
 
@@ -316,7 +308,9 @@ where
     async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self.create_assertion(request.target, None).ok_or(ApiError::TokenExchangeUnsupported(self.identity_provider_kind))?,
+            assertion: self
+                .create_assertion(request.target, None)
+                .ok_or(ApiError::TokenExchangeUnsupported(self.identity_provider_kind))?,
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
         };
@@ -324,7 +318,11 @@ where
     }
 
     async fn introspect(&mut self, token: String) -> IntrospectResponse {
-        self.upstream_jwks.validate(&token).await.map(IntrospectResponse::new).unwrap_or_else(IntrospectResponse::new_invalid)
+        self.upstream_jwks
+            .validate(&token)
+            .await
+            .map(IntrospectResponse::new)
+            .unwrap_or_else(IntrospectResponse::new_invalid)
     }
 
     #[instrument(skip_all, name = "Request token from upstream identity provider")]
@@ -333,7 +331,8 @@ where
 
         let headers = crate::tracing::trace_headers_from_current_span();
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?)
             .headers(headers)
             .header("accept", "application/json")

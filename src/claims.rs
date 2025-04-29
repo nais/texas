@@ -44,7 +44,7 @@ impl Assertion for JWTBearerAssertion {
             iss: client_id,      // issuer of the token is the client itself
             aud: token_endpoint, // audience of the token is the issuer
             scope: target,
-            resource,            // resource indicator for audience-restricted tokens
+            resource, // resource indicator for audience-restricted tokens
         }
     }
 }
