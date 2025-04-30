@@ -9,7 +9,7 @@ use axum::extract::MatchedPath;
 use axum::http::Request;
 use axum::response::Response;
 use axum::Router;
-use log::info;
+use log::{debug, info};
 use opentelemetry::baggage::BaggageExt;
 use opentelemetry::propagation::TextMapPropagator;
 use opentelemetry::KeyValue;
@@ -17,6 +17,7 @@ use opentelemetry_http::HeaderExtractor;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::signal;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info_span, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -73,7 +74,31 @@ impl App {
     pub async fn run(self) {
         // Although this future resolves to `io::Result<()>`,
         // it will never actually complete or return an error.
-        axum::serve(self.listener, self.router).await.unwrap()
+        axum::serve(self.listener, self.router)
+            .with_graceful_shutdown(Self::shutdown_signal())
+            .await
+            .unwrap()
+    }
+
+    async fn shutdown_signal() {
+        let ctrl_c = async {
+            signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            signal::unix::signal(signal::unix::SignalKind::terminate())
+                .expect("failed to install SIGTERM handler")
+                .recv()
+                .await;
+        };
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => debug!{"Received Ctrl+C / SIGINT"},
+            _ = terminate => debug!{"Received SIGTERM"},
+        }
     }
 
     #[cfg(test)]
