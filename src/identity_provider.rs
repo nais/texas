@@ -9,7 +9,7 @@ use jsonwebtoken as jwt;
 use reqwest::StatusCode;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies, RetryTransientMiddleware};
-use reqwest_tracing::TracingMiddleware;
+use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::PartialEq;
@@ -289,7 +289,7 @@ where
             .map_err(ProviderError::InitializeHttpClient)?;
 
         let http_client_with_middleware = ClientBuilder::new(http_client)
-            .with(TracingMiddleware::default())
+            .with(TracingMiddleware::<SpanBackendWithUrl>::new())
             .with(RetryTransientMiddleware::new_with_policy(policies::ExponentialBackoff::builder().build_with_max_retries(3)))
             .build();
 
