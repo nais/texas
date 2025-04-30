@@ -7,7 +7,7 @@ setup:
 	([ ! -f .env ] && cp -v .env.example .env) || true
 
 local:
-	cargo run --features local
+	RUST_LOG=info,texas=debug cargo run --features local
 
 check:
 	cargo clippy

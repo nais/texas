@@ -1,5 +1,6 @@
 use crate::identity_provider::IdentityProvider;
 use axum::http::StatusCode;
+use log::debug;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, InstrumentationScope, KeyValue};
@@ -15,11 +16,10 @@ use std::sync::LazyLock;
 use std::time::Duration;
 use tracing;
 use tracing::metadata::LevelFilter;
-use tracing::Level;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing_subscriber::{EnvFilter, Layer};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -42,7 +42,7 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let fmt_layer = tracing_subscriber::fmt::layer().with_thread_names(true).boxed();
 
     tracing_subscriber::registry()
-        .with(LevelFilter::from_level(Level::INFO))
+        .with(EnvFilter::builder().with_default_directive(LevelFilter::INFO.into()).from_env_lossy())
         .with(MetricsLayer::new(meter_provider.clone()))
         .with(fmt_layer)
         .with(OpenTelemetryLayer::new(tracer))
@@ -65,6 +65,7 @@ impl Drop for OtelGuard {
         if let Err(err) = self.tracer_provider.shutdown() {
             eprintln!("{err:?}");
         }
+        debug!("Shut down all OpenTelemetry providers");
     }
 }
 
