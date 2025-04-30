@@ -8,13 +8,11 @@ async fn main() -> ExitCode {
     dotenv::dotenv().ok();
 
     // Keep guard in scope for tracing shutdown on program exit.
-    let _guard = match init_tracing_subscriber() {
-        Ok(guard) => guard,
-        Err(err) => {
-            error!("initialize tracing: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let guard = init_tracing_subscriber();
+    if let Err(err) = guard {
+        error!("initialize tracing: {err}");
+        return ExitCode::FAILURE;
+    }
 
     #[cfg(feature = "local")]
     texas::config::print_texas_logo();
