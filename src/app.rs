@@ -70,8 +70,10 @@ impl App {
         Ok(Self { router: app, listener })
     }
 
-    pub async fn run(self) -> std::io::Result<()> {
-        axum::serve(self.listener, self.router).await
+    pub async fn run(self) {
+        // Although this future resolves to `io::Result<()>`,
+        // it will never actually complete or return an error.
+        axum::serve(self.listener, self.router).await.unwrap()
     }
 
     #[cfg(test)]
@@ -162,7 +164,7 @@ mod tests {
         let testapp = TestApp::new().await;
         let address = testapp.app.address().unwrap();
         let join_handler = tokio::spawn(async move {
-            testapp.app.run().await.unwrap();
+            testapp.app.run().await;
         });
         let docker = testapp.docker.unwrap();
         let identity_provider_address = format!("{}:{}", docker.host.clone(), docker.port);
@@ -262,7 +264,7 @@ mod tests {
         let testapp = TestApp::new_no_providers().await;
         let address = testapp.app.address().unwrap();
         let join_handler = tokio::spawn(async move {
-            testapp.app.run().await.unwrap();
+            testapp.app.run().await;
         });
 
         let providers = [IdentityProvider::AzureAD, IdentityProvider::IDPorten, IdentityProvider::Maskinporten, IdentityProvider::TokenX];

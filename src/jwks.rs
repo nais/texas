@@ -3,6 +3,9 @@ use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use jsonwebtoken::{errors, Validation};
 use log::error;
+use reqwest_middleware::ClientBuilder;
+use reqwest_retry::{policies, RetryTransientMiddleware};
+use reqwest_tracing::TracingMiddleware;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -22,8 +25,10 @@ pub struct Jwks {
 // TODO: some of these errors relate to the keyset itself, some of it relates to validation of a JWT - are we conflating two things here?
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("init client: {0}")]
+    Init(reqwest::Error),
     #[error("fetch: {0}")]
-    Fetch(reqwest::Error),
+    Fetch(reqwest_middleware::Error),
     #[error("decode json: {0}")]
     JsonDecode(reqwest::Error),
     #[error("json web key set has key with blank key id")]
@@ -45,10 +50,18 @@ impl Jwks {
             keys: Vec<jwk::JsonWebKey>,
         }
 
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().map_err(Error::Fetch)?;
-        let request_builder = client.get(endpoint).header("accept", "application/json");
+        let timeout = Duration::from_secs(5);
+        let retry_policy = policies::ExponentialBackoff::builder()
+            .retry_bounds(Duration::from_secs(1), Duration::from_secs(3))
+            .build_with_max_retries(10);
+        let client = reqwest::Client::builder().timeout(timeout).build().map_err(Error::Init)?;
+        let client = ClientBuilder::new(client)
+            .with(TracingMiddleware::default())
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .build();
 
-        let response: Response = request_builder.send().await.map_err(Error::Fetch)?.json().await.map_err(Error::JsonDecode)?;
+        let request = client.get(endpoint).header("accept", "application/json");
+        let response: Response = request.send().await.map_err(Error::Fetch)?.json().await.map_err(Error::JsonDecode)?;
 
         let mut keys: HashMap<String, jwk::JsonWebKey> = HashMap::new();
         for key in response.keys {
