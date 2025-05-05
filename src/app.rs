@@ -1075,9 +1075,9 @@ mod tests {
             // Set up Docker container
             let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
                 .with_exposed_port(8080.tcp())
-                .with_wait_for(WaitFor::Http(
+                .with_wait_for(WaitFor::Http(Box::new(
                     HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK),
-                ))
+                )))
                 .with_env_var("JSON_CONFIG", Self::MOCK_OAUTH_SERVER_JSON_CONFIG)
                 .start()
                 .await
