@@ -19,7 +19,14 @@ Texas is _Token Exchange as a Service_.
                   ``’
 ```
 
-Texas implements OAuth 2 token fetch, exchange, and JSON Web Token (JWT) validation, so that you don't have to.
+Texas implements various OAuth 2 flows and grants for relying parties, so that you don't have to.
+It supports (a subset of):
+
+- [RFC 6749, section 4.4: OAuth 2.0 Client Credentials Grant](https://datatracker.ietf.org/doc/html/rfc6749#section-4.4)
+- [RFC 8693: OAuth 2.0 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693) / [Entra ID On-Behalf-Of flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow)
+- [RFC 7662: OAuth 2.0 Token Introspection](https://datatracker.ietf.org/doc/html/rfc7662)
+- [RFC 7523: OAuth 2.0 JWT Profile for Client Authentication and Authorization Grants](https://datatracker.ietf.org/doc/html/rfc7523)
+
 It is designed to run as a [sidecar container](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/) in Kubernetes environments.
 
 > [!TIP]
@@ -60,7 +67,7 @@ make test_roundtrip
 
 ## Supported providers
 
-Texas is currently tailored for use with a subset of authorizations servers and providers, namely:
+Texas is currently tailored for use with a subset of authorization servers and providers, namely:
 
 - [Entra ID (formerly known as Azure AD)](https://learn.microsoft.com/en-us/entra/identity-platform/v2-overview)
 - [ID-porten](https://docs.digdir.no/docs/idporten/idporten/idporten_overordnet.html)
@@ -100,7 +107,7 @@ Content-Type: application/json
 Example response:
 
 ```http
-HTTP 1.1 200 OK
+HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
@@ -132,7 +139,7 @@ Content-Type: application/json
 Example response:
 
 ```http
-HTTP 1.1 200 OK
+HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
@@ -162,7 +169,7 @@ Content-Type: application/json
 Example response:
 
 ```http
-HTTP 1.1 200 OK
+HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
