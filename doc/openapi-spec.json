@@ -325,6 +325,7 @@
       },
       "OAuthErrorCode": {
         "type": "string",
+        "description": "Known OAuth error codes from RFC 6749. Unknown variants may still be returned as these are propagated from the upstream identity provider.",
         "enum": [
           "invalid_request",
           "invalid_client",

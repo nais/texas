@@ -12,6 +12,7 @@ use reqwest_retry::{policies, RetryTransientMiddleware};
 use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -20,7 +21,8 @@ use std::time::Duration;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
-use utoipa::ToSchema;
+use utoipa::openapi::{ObjectBuilder, RefOr, Schema};
+use utoipa::{PartialSchema, ToSchema};
 
 /// RFC 6749 token response from section 5.1.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Hash, Debug, PartialEq)]
@@ -131,7 +133,7 @@ impl Display for ErrorResponse {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum OAuthErrorCode {
     #[serde(rename = "invalid_request")]
     InvalidRequest,
@@ -147,6 +149,53 @@ pub enum OAuthErrorCode {
     InvalidScope,
     #[serde(rename = "server_error")]
     ServerError,
+    #[serde(untagged)]
+    Unknown(String),
+}
+
+impl ToSchema for OAuthErrorCode {
+    fn name() -> Cow<'static, str> {
+        Cow::Borrowed("OAuthErrorCode")
+    }
+}
+
+// This is a workaround as the "untagged" enum variant results in a schema type with nested objects, which is undesirable.
+impl PartialSchema for OAuthErrorCode {
+    fn schema() -> RefOr<Schema> {
+        RefOr::T(Schema::Object(
+            ObjectBuilder::new()
+                .description(Some(
+                    "Known OAuth error codes from RFC 6749. Unknown variants may still be returned as these are propagated from the upstream identity provider.",
+                ))
+                .schema_type(utoipa::openapi::schema::Type::String)
+                .enum_values(Some([
+                    "invalid_request".to_string(),
+                    "invalid_client".to_string(),
+                    "invalid_grant".to_string(),
+                    "unauthorized_client".to_string(),
+                    "unsupported_grant_type".to_string(),
+                    "invalid_scope".to_string(),
+                    "server_error".to_string(),
+                ]))
+                .build(),
+        ))
+    }
+}
+
+#[test]
+fn test_serde_oauth_error() {
+    let known_code_variant = r#"{"error":"invalid_request","error_description":"some description"}"#;
+    let unknown_code_variant = r#"{"error":"unknown_error","error_description":"some description"}"#;
+
+    let serialized = serde_json::from_str::<ErrorResponse>(known_code_variant);
+    assert!(serialized.is_ok());
+    let error_response = serialized.unwrap();
+    assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
+
+    let serialized = serde_json::from_str::<ErrorResponse>(unknown_code_variant);
+    assert!(serialized.is_ok());
+    let error_response = serialized.unwrap();
+    assert_eq!(error_response.error, OAuthErrorCode::Unknown("unknown_error".to_string()));
 }
 
 /// Identity providers for use with token fetch, exchange and introspection.
@@ -371,7 +420,11 @@ where
 
         let status = response.status();
         if status >= StatusCode::BAD_REQUEST {
-            let err: ErrorResponse = response.json().await.map_err(ApiError::JSON)?;
+            let err: ErrorResponse = response
+                .json()
+                .await
+                .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
+                .map_err(ApiError::JSON)?;
             let err = ApiError::Upstream { status_code: status, error: err };
             error!("get_token_with_config: {}", err);
             return Err(err);
