@@ -1,8 +1,11 @@
 [package]
 name = "texas"
-version = "1.0.0"
-edition = "2021"
+description = "Texas implements OAuth token fetch, exchange, and validation, so that you don't have to"
 default-run = "texas"
+edition = "2024"
+license-file = "LICENSE"
+repository = "https://github.com/nais/texas"
+version = "1.0.0"
 
 [features]
 docker = []
