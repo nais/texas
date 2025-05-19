@@ -163,7 +163,7 @@ mod tests {
     use crate::identity_provider::{ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode, TokenExchangeRequest, TokenRequest, TokenResponse};
     use jsonwebkey as jwk;
     use jsonwebtoken as jwt;
-    use log::{info, LevelFilter};
+    use log::info;
     use reqwest::{Error, Response, StatusCode};
     use serde::Serialize;
     use serde::de::DeserializeOwned;
@@ -982,8 +982,6 @@ mod tests {
 
     impl TestApp {
         async fn new() -> Self {
-            let _ = env_logger::builder().filter_level(LevelFilter::Info).try_init();
-
             let docker = DockerRuntimeParams::init().await;
 
             match docker.container {
@@ -999,8 +997,6 @@ mod tests {
         }
 
         async fn new_no_providers() -> Self {
-            let _ = env_logger::builder().filter_level(LevelFilter::Info).try_init();
-
             // Set up Texas
             let cfg = Config::mock_no_providers();
             let app = App::new_from_config(cfg.clone()).await.unwrap();
