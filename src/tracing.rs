@@ -3,12 +3,12 @@ use axum::http::StatusCode;
 use log::debug;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry::{global, InstrumentationScope, KeyValue};
+use opentelemetry::{InstrumentationScope, KeyValue, global};
 use opentelemetry_otlp::{MetricExporter, SpanExporter};
+use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::{MeterProviderBuilder, PeriodicReader, SdkMeterProvider, Temporality};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::SdkTracerProvider;
-use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::attribute::SERVICE_VERSION;
 use std::env;
 use std::fmt::Debug;
@@ -27,7 +27,7 @@ pub enum Error {
     Exporter(#[from] opentelemetry_otlp::ExporterBuildError),
 }
 
-/// Initialize tracing-subscriber and return OtelGuard for opentelemetry-related termination processing
+/// Initialize tracing-subscriber and return `OtelGuard` for opentelemetry-related termination processing
 pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let meter_provider = init_meter_provider()?;
     let tracer_provider = init_tracing_provider()?;
@@ -102,15 +102,14 @@ fn resource() -> Resource {
 }
 
 static RESOURCE_ATTRIBUTES: LazyLock<Vec<KeyValue>> = LazyLock::new(|| {
-    let extract_key_value = |entry: &str| -> Option<KeyValue> {
-        let mut parts = entry.splitn(2, '=');
-        let key = parts.next()?.trim().replace(".", "_");
-        let value = parts.next()?.trim();
-        if value.contains('=') {
-            None
-        } else {
-            Some(KeyValue::new(key.to_owned(), value.to_owned()))
-        }
+    let extract_key_value = |entry: &str| {
+        entry.split_once('=').and_then(|(k, v)| {
+            if v.contains('=') {
+                None
+            } else {
+                Some(KeyValue::new(k.trim().replace('.', "_"), v.trim().to_owned()))
+            }
+        })
     };
 
     match env::var("OTEL_RESOURCE_ATTRIBUTES") {

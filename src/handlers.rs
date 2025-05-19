@@ -2,17 +2,20 @@ use crate::cache::{CachedTokenResponse, TokenResponseExpiry};
 use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
 use crate::config::Config;
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
-use crate::identity_provider::*;
+use crate::identity_provider::{
+    ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode, Provider, ProviderError, ProviderHandler, ShouldHandler, TokenExchangeRequest, TokenRequest, TokenResponse,
+    TokenType,
+};
 use crate::tracing::{inc_handler_errors, inc_token_cache_hits, inc_token_exchanges, inc_token_introspections, inc_token_requests};
 use crate::{config, jwks};
-use axum::extract::rejection::{FormRejection, JsonRejection};
-use axum::extract::FromRequest;
-use axum::extract::State;
-use axum::http::header::CONTENT_TYPE;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::Form;
 use axum::Json;
+use axum::extract::FromRequest;
+use axum::extract::State;
+use axum::extract::rejection::{FormRejection, JsonRejection};
+use axum::http::StatusCode;
+use axum::http::header::CONTENT_TYPE;
+use axum::response::IntoResponse;
 use log::debug;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -75,7 +78,7 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
 
     if let Some(ref resource) = request.resource {
         span.set_attribute("texas.resource", resource.clone());
-    };
+    }
 
     let skip_cache = request.skip_cache.unwrap_or(false);
     if !skip_cache {
@@ -308,6 +311,7 @@ pub struct HandlerState {
 
 impl HandlerState {
     pub async fn from_config(cfg: Config) -> Result<Self, InitError> {
+        const CACHE_MAX_CAPACITY: u64 = 262144;
         let mut providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>> = vec![];
 
         if let Some(provider_cfg) = &cfg.maskinporten {
@@ -338,8 +342,6 @@ impl HandlerState {
             providers.push(provider);
         }
 
-        const CACHE_MAX_CAPACITY: u64 = 262144;
-
         let token_cache = moka::future::CacheBuilder::default()
             .max_capacity(CACHE_MAX_CAPACITY)
             .expire_after(TokenResponseExpiry)
@@ -352,9 +354,9 @@ impl HandlerState {
 
         Ok(Self {
             cfg,
+            providers,
             token_cache,
             token_exchange_cache,
-            providers,
         })
     }
 }
@@ -411,45 +413,21 @@ impl IntoResponse for ApiError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorResponse {
                     error: OAuthErrorCode::ServerError,
-                    description: format!("Failed to parse JSON: {}", err),
+                    description: format!("Failed to parse JSON: {err}"),
                 },
             ),
             ApiError::UpstreamRequest(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorResponse {
                     error: OAuthErrorCode::ServerError,
-                    description: format!("Upstream request failed: {}", err),
+                    description: format!("Upstream request failed: {err}"),
                 },
             ),
-            ApiError::TokenExchangeUnsupported(_) => (
-                StatusCode::BAD_REQUEST,
-                ErrorResponse {
-                    error: OAuthErrorCode::InvalidRequest,
-                    description: self.to_string(),
-                },
-            ),
-            ApiError::TokenRequestUnsupported(_) => (
-                StatusCode::BAD_REQUEST,
-                ErrorResponse {
-                    error: OAuthErrorCode::InvalidRequest,
-                    description: self.to_string(),
-                },
-            ),
-            ApiError::IdentityProviderNotEnabled(_) => (
-                StatusCode::BAD_REQUEST,
-                ErrorResponse {
-                    error: OAuthErrorCode::InvalidRequest,
-                    description: self.to_string(),
-                },
-            ),
-            ApiError::UnprocessableContent(_) => (
-                StatusCode::BAD_REQUEST,
-                ErrorResponse {
-                    error: OAuthErrorCode::InvalidRequest,
-                    description: self.to_string(),
-                },
-            ),
-            ApiError::UnsupportedMediaType(_) => (
+            ApiError::TokenExchangeUnsupported(_)
+            | ApiError::TokenRequestUnsupported(_)
+            | ApiError::IdentityProviderNotEnabled(_)
+            | ApiError::UnprocessableContent(_)
+            | ApiError::UnsupportedMediaType(_) => (
                 StatusCode::BAD_REQUEST,
                 ErrorResponse {
                     error: OAuthErrorCode::InvalidRequest,

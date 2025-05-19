@@ -3,25 +3,25 @@ use crate::config::Config;
 use crate::handlers::__path_introspect;
 use crate::handlers::__path_token;
 use crate::handlers::__path_token_exchange;
-use crate::handlers::{introspect, token, token_exchange, HandlerState};
+use crate::handlers::{HandlerState, introspect, token, token_exchange};
 use crate::{config, handlers};
+use axum::Router;
 use axum::extract::MatchedPath;
 use axum::http::Request;
 use axum::response::Response;
-use axum::Router;
 use log::{debug, info};
+use opentelemetry::KeyValue;
 use opentelemetry::baggage::BaggageExt;
 use opentelemetry::propagation::TextMapPropagator;
-use opentelemetry::KeyValue;
 use opentelemetry_http::HeaderExtractor;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::trace::TraceLayer;
-use tracing::{error, info_span, Span};
+use tracing::{Span, error, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use utoipa::{openapi, OpenApi};
+use utoipa::{OpenApi, openapi};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -64,7 +64,7 @@ impl App {
         let app = Self::router(state);
 
         let local_addr = listener.local_addr().map_err(LocalAddress)?;
-        info!("Serving on http://{:?}", local_addr);
+        info!("Serving on http://{local_addr:?}");
         #[cfg(feature = "openapi")]
         info!("Swagger API documentation: http://{:?}/swagger-ui", local_addr);
 
@@ -77,7 +77,7 @@ impl App {
         axum::serve(self.listener, self.router)
             .with_graceful_shutdown(Self::shutdown_signal())
             .await
-            .unwrap()
+            .unwrap();
     }
 
     async fn shutdown_signal() {
@@ -96,8 +96,8 @@ impl App {
         let terminate = std::future::pending::<()>();
 
         tokio::select! {
-            _ = ctrl_c => debug!{"Received Ctrl+C / SIGINT"},
-            _ = terminate => debug!{"Received SIGTERM"},
+            () = ctrl_c => debug!{"Received Ctrl+C / SIGINT"},
+            () = terminate => debug!{"Received SIGTERM"},
         }
     }
 
@@ -133,7 +133,7 @@ impl App {
                         root_span
                     })
                     .on_response(move |response: &Response, latency: Duration, span: &Span| {
-                        let path = span.context().baggage().get("path").map(|x| x.to_string()).unwrap_or_default();
+                        let path = span.context().baggage().get("path").map(ToString::to_string).unwrap_or_default();
                         crate::tracing::record_http_response_secs(&path, latency, response.status());
                     }),
             )
@@ -165,9 +165,9 @@ mod tests {
     use jsonwebtoken as jwt;
     use log::{info, LevelFilter};
     use reqwest::{Error, Response, StatusCode};
-    use serde::de::DeserializeOwned;
     use serde::Serialize;
-    use serde_json::{json, Value};
+    use serde::de::DeserializeOwned;
+    use serde_json::{Value, json};
     use std::collections::HashMap;
     use std::fmt::Debug;
     use testcontainers::{ContainerAsync, GenericImage};

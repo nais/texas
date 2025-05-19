@@ -1,10 +1,10 @@
 use crate::claims::epoch_now_secs;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use jsonwebtoken::{errors, Validation};
+use jsonwebtoken::{Validation, errors};
 use log::error;
 use reqwest_middleware::ClientBuilder;
-use reqwest_retry::{policies, RetryTransientMiddleware};
+use reqwest_retry::{RetryTransientMiddleware, policies};
 use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use serde::Deserialize;
 use serde_json::Value;
@@ -129,7 +129,7 @@ impl Jwks {
         // validate the `iat` claim manually as the jsonwebtoken crate does not do this
         let iat = claims
             .get("iat")
-            .and_then(|v| v.as_u64())
+            .and_then(Value::as_u64)
             .ok_or_else(|| Error::InvalidToken(errors::ErrorKind::MissingRequiredClaim("iat".to_string()).into()))?;
 
         if iat > epoch_now_secs() + self.validation.leeway {

@@ -1,4 +1,4 @@
-use crate::claims::{serialize, Assertion};
+use crate::claims::{Assertion, serialize};
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder, TokenRequestBuilderParams};
 use crate::handlers::ApiError;
 use crate::jwks;
@@ -8,7 +8,7 @@ use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use reqwest::StatusCode;
 use reqwest_middleware::ClientBuilder;
-use reqwest_retry::{policies, RetryTransientMiddleware};
+use reqwest_retry::{RetryTransientMiddleware, policies};
 use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -78,7 +78,7 @@ impl IntrospectResponse {
         Self {
             active: false,
             error: Some(error_message.to_string()),
-            extra: Default::default(),
+            extra: HashMap::default(),
         }
     }
 }
@@ -213,11 +213,7 @@ pub enum IdentityProvider {
 
 impl Display for IdentityProvider {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if let Ok(Value::String(s)) = serde_json::to_value(self) {
-            f.write_str(&s)
-        } else {
-            Ok(())
-        }
+        if let Ok(Value::String(s)) = serde_json::to_value(self) { f.write_str(&s) } else { Ok(()) }
     }
 }
 
@@ -350,8 +346,8 @@ where
             http_client: http_client_with_middleware,
             identity_provider_kind: kind,
             private_jwk: client_private_jwk,
-            _fake_request: Default::default(),
-            _fake_assertion: Default::default(),
+            _fake_request: PhantomData,
+            _fake_assertion: PhantomData,
         })
     }
 
@@ -401,8 +397,7 @@ where
         self.upstream_jwks
             .validate(&token)
             .await
-            .map(IntrospectResponse::new)
-            .unwrap_or_else(IntrospectResponse::new_invalid)
+            .map_or_else(IntrospectResponse::new_invalid, IntrospectResponse::new)
     }
 
     #[instrument(skip_all, name = "Request token from upstream identity provider")]
