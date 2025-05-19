@@ -5,7 +5,8 @@ use texas::tracing::init_tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    dotenv::dotenv().ok();
+    #[cfg(feature = "local")]
+    let _ = dotenv::dotenv();
 
     // Keep guard in scope for tracing shutdown on program exit.
     let guard = init_tracing_subscriber();
