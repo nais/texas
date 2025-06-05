@@ -129,7 +129,7 @@ pub struct ErrorResponse {
 impl Display for ErrorResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let err = serde_json::to_string(&self.error).unwrap_or("BUG: unserializable error message".to_string());
-        write!(f, "{}: {}", err, self.description)
+        write!(f, "error={}: error_description={}", err, self.description)
     }
 }
 
@@ -284,7 +284,8 @@ impl IntrospectRequest {
 #[derive(Clone)]
 pub struct Provider<R, A> {
     client_id: String,
-    pub token_endpoint: Option<String>,
+    issuer: String,
+    token_endpoint: Option<String>,
     identity_provider_kind: IdentityProvider,
     private_jwk: Option<jwt::EncodingKey>,
     client_assertion_header: Option<jwt::Header>,
@@ -314,7 +315,7 @@ where
     R: TokenRequestBuilder,
     A: Assertion,
 {
-    pub fn new(kind: IdentityProvider, client_id: String, token_endpoint: Option<String>, private_jwk: Option<String>, upstream_jwks: jwks::Jwks) -> Result<Self, ProviderError> {
+    pub fn new(kind: IdentityProvider, client_id: String, issuer: String, token_endpoint: Option<String>, private_jwk: Option<String>, upstream_jwks: jwks::Jwks) -> Result<Self, ProviderError> {
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
             let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().map_err(ProviderError::PrivateJwkParseError)?;
             let alg: jwt::Algorithm = client_private_jwk.algorithm.ok_or(ProviderError::PrivateJwkMissingAlgorithm)?.into();
@@ -341,6 +342,7 @@ where
         Ok(Self {
             client_id,
             token_endpoint,
+            issuer,
             client_assertion_header,
             upstream_jwks,
             http_client: http_client_with_middleware,
@@ -353,7 +355,7 @@ where
 
     #[instrument(skip_all, name = "Create assertion for token signing request")]
     fn create_assertion(&self, target: String, resource: Option<String>) -> Option<String> {
-        let assertion = A::new(self.token_endpoint.as_ref()?.clone(), self.client_id.clone(), target, resource);
+        let assertion = A::new(self.issuer.clone(), self.client_id.clone(), target, resource);
         serialize(assertion, self.client_assertion_header.as_ref()?, self.private_jwk.as_ref()?).ok()
     }
 }

@@ -1069,7 +1069,7 @@ mod tests {
             use testcontainers::runners::AsyncRunner;
 
             // Set up Docker container
-            let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.1.10")
+            let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.2.1")
                 .with_exposed_port(8080.tcp())
                 .with_wait_for(WaitFor::Http(Box::new(
                     HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK),

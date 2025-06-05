@@ -291,6 +291,7 @@ where
         Provider::<R, A>::new(
             kind,
             provider_cfg.client_id.clone(),
+            provider_cfg.issuer.clone(),
             provider_cfg.token_endpoint.clone(),
             provider_cfg.client_jwk.clone(),
             jwks::Jwks::new(&provider_cfg.issuer.clone(), &provider_cfg.jwks_uri.clone(), audience)
@@ -366,7 +367,7 @@ pub enum ApiError {
     #[error("identity provider error: {0}")]
     UpstreamRequest(reqwest_middleware::Error),
 
-    #[error("upstream: status code {status_code}: {error}")]
+    #[error("upstream: status code={status_code}: {error}")]
     Upstream { status_code: StatusCode, error: ErrorResponse },
 
     #[error("invalid JSON in token response: {0}")]

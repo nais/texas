@@ -4,7 +4,7 @@ use serde::Serialize;
 const EXPIRY_LEEWAY_SECONDS: usize = 30;
 
 pub trait Assertion: Send + Sync + Serialize {
-    fn new(token_endpoint: String, client_id: String, target: String, resource: Option<String>) -> Self;
+    fn new(issuer: String, client_id: String, target: String, resource: Option<String>) -> Self;
 }
 
 #[derive(Serialize)]
@@ -32,7 +32,7 @@ pub struct JWTBearerAssertion {
 }
 
 impl Assertion for JWTBearerAssertion {
-    fn new(token_endpoint: String, client_id: String, target: String, resource: Option<String>) -> Self {
+    fn new(issuer: String, client_id: String, target: String, resource: Option<String>) -> Self {
         let now = epoch_now_secs();
         let jti = uuid::Uuid::new_v4();
 
@@ -41,8 +41,8 @@ impl Assertion for JWTBearerAssertion {
             iat: now as usize,
             nbf: now as usize,
             jti: jti.to_string(),
-            iss: client_id,      // issuer of the token is the client itself
-            aud: token_endpoint, // audience of the token is the issuer
+            iss: client_id, // issuer of the token is the client itself
+            aud: issuer,    // audience of the token is the issuer
             scope: target,
             resource, // resource indicator for audience-restricted tokens
         }
@@ -50,7 +50,7 @@ impl Assertion for JWTBearerAssertion {
 }
 
 impl Assertion for ClientAssertion {
-    fn new(token_endpoint: String, client_id: String, _target: String, _resource: Option<String>) -> Self {
+    fn new(issuer: String, client_id: String, _target: String, _resource: Option<String>) -> Self {
         let now = epoch_now_secs();
         let jti = uuid::Uuid::new_v4();
 
@@ -60,7 +60,7 @@ impl Assertion for ClientAssertion {
             nbf: now as usize,
             jti: jti.to_string(),
             iss: client_id.clone(), // issuer of the token is the client itself
-            aud: token_endpoint,    // audience of the token is the issuer
+            aud: issuer,            // audience of the token is the issuer
             sub: client_id,
         }
     }
