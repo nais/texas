@@ -7,8 +7,9 @@ use crate::handlers::{HandlerState, introspect, token, token_exchange};
 use crate::{config, handlers};
 use axum::Router;
 use axum::extract::MatchedPath;
-use axum::http::Request;
+use axum::http::{Request, StatusCode};
 use axum::response::Response;
+use axum::routing::get;
 use log::{debug, info};
 use opentelemetry::KeyValue;
 use opentelemetry::baggage::BaggageExt;
@@ -107,38 +108,39 @@ impl App {
     }
 
     pub fn routes(state: HandlerState) -> (Router, openapi::OpenApi) {
-        OpenApiRouter::with_openapi(ApiDoc::openapi())
+        let trace_layer = TraceLayer::new_for_http()
+            .make_span_with(move |request: &Request<_>| {
+                // Log the matched route's path (with placeholders not filled in).
+                // Use request.uri() or OriginalUri if you want the real path.
+                let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
+
+                // get tracing context from request
+                let parent_context = TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
+
+                let root_span = info_span!(
+                    "Handle incoming request",
+                    method = ?request.method(),
+                    path,
+                    "otel.kind" = "server",
+                );
+
+                let context = parent_context.with_baggage(vec![KeyValue::new("path".to_string(), path.unwrap_or_default().to_string())]);
+                root_span.set_parent(context.clone());
+                root_span
+            })
+            .on_response(move |response: &Response, latency: Duration, span: &Span| {
+                let path = span.context().baggage().get("path").map(ToString::to_string).unwrap_or_default();
+                crate::tracing::record_http_response_secs(&path, latency, response.status());
+            });
+        let probes = OpenApiRouter::default().route("/ping", get(|| async { (StatusCode::OK, "pong") }));
+        let api = OpenApiRouter::default()
             .routes(routes!(token))
             .routes(routes!(token_exchange))
             .routes(routes!(introspect))
-            .layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(move |request: &Request<_>| {
-                        // Log the matched route's path (with placeholders not filled in).
-                        // Use request.uri() or OriginalUri if you want the real path.
-                        let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
+            .layer(trace_layer)
+            .with_state(state);
 
-                        // get tracing context from request
-                        let parent_context = TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
-
-                        let root_span = info_span!(
-                            "Handle incoming request",
-                            method = ?request.method(),
-                            path,
-                            "otel.kind" = "server",
-                        );
-
-                        let context = parent_context.with_baggage(vec![KeyValue::new("path".to_string(), path.unwrap_or_default().to_string())]);
-                        root_span.set_parent(context.clone());
-                        root_span
-                    })
-                    .on_response(move |response: &Response, latency: Duration, span: &Span| {
-                        let path = span.context().baggage().get("path").map(ToString::to_string).unwrap_or_default();
-                        crate::tracing::record_http_response_secs(&path, latency, response.status());
-                    }),
-            )
-            .with_state(state)
-            .split_for_parts()
+        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(api).merge(probes).split_for_parts()
     }
 
     #[cfg(not(feature = "openapi"))]
@@ -337,6 +339,22 @@ mod tests {
             )
             .await;
         }
+
+        join_handler.abort();
+    }
+
+    #[tokio::test]
+    async fn test_ping() {
+        let testapp = TestApp::new().await;
+        let address = testapp.app.address().unwrap();
+        let join_handler = tokio::spawn(async move {
+            testapp.app.run().await;
+        });
+
+        let client = reqwest::Client::new();
+        let response = client.get(format!("http://{}/ping", address)).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.text().await.unwrap(), "pong");
 
         join_handler.abort();
     }
