@@ -71,7 +71,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/token", fields(texas.cache_hit, texas.cache_skipped, texas.resource, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
+#[instrument(skip_all, name = "Handle /api/v1/token", err, fields(texas.cache_hit, texas.cache_skipped, texas.resource, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
 pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token";
     let span = tracing::Span::current();
@@ -162,7 +162,7 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/token/exchange", fields(texas.cache_hit, texas.cache_skipped, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
+#[instrument(skip_all, name = "Handle /api/v1/token/exchange", err, fields(texas.cache_hit, texas.cache_skipped, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
 pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenExchangeRequest>) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token/exchange";
 
@@ -242,8 +242,8 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         ),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/introspect", fields(texas.identity_provider = %request.identity_provider))]
-pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> Result<impl IntoResponse, Json<IntrospectResponse>> {
+#[instrument(skip_all, name = "Handle /api/v1/introspect", err, fields(texas.identity_provider = %request.identity_provider))]
+pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> IntrospectResult {
     const PATH: &str = "/api/v1/introspect";
     inc_token_introspections(PATH, request.identity_provider);
 
@@ -257,11 +257,11 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
         }
         // We need to acquire a write lock here because introspect
         // might refresh its JWKS in-flight.
-        return Ok(Json(provider.write().await.introspect(request.token).await));
+        return Ok(provider.write().await.introspect(request.token).await);
     }
 
     if !provider_enabled {
-        return Err(Json(IntrospectResponse::new_invalid(identity_provider_not_enabled_error(PATH, request.identity_provider))));
+        return Err(IntrospectResponse::new_invalid(identity_provider_not_enabled_error(PATH, request.identity_provider)));
     }
 
     let error_message = match request.issuer() {
@@ -269,7 +269,17 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
         Some(iss) => format!("unrecognized issuer: '{iss}'"),
     };
 
-    Err(Json(IntrospectResponse::new_invalid(error_message)))
+    Err(IntrospectResponse::new_invalid(error_message))
+}
+
+type IntrospectResult = Result<IntrospectResponse, IntrospectResponse>;
+
+// This allows us to use the `err` attribute for the `instrument` macro,
+// as we can't implement the `Display` trait for Json<IntrospectResponse>.
+impl IntoResponse for IntrospectResponse {
+    fn into_response(self) -> axum::http::Response<axum::body::Body> {
+        (StatusCode::OK, Json(self)).into_response()
+    }
 }
 
 #[derive(Error, Debug)]
@@ -451,7 +461,7 @@ where
 {
     type Rejection = ApiError;
 
-    #[instrument(skip_all, name = "Deserialize request")]
+    #[instrument(skip_all, name = "Deserialize request", err)]
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
         let content_type_header = req.headers().get(CONTENT_TYPE);
         let content_type = content_type_header.and_then(|value| value.to_str().ok());

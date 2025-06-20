@@ -83,6 +83,15 @@ impl IntrospectResponse {
     }
 }
 
+impl Display for IntrospectResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.error.is_some() {
+            return write!(f, "error={}", self.error.as_deref().unwrap_or("unknown error"));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 impl IntrospectResponse {
     pub fn has_claims(&self) -> bool {
