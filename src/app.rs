@@ -20,7 +20,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::trace::TraceLayer;
-use tracing::{Span, error, info_span};
+use tracing::{Span, error, field, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utoipa::{OpenApi, openapi};
 use utoipa_axum::router::OpenApiRouter;
@@ -119,8 +119,10 @@ impl App {
 
                 let root_span = info_span!(
                     "Handle incoming request",
-                    method = ?request.method(),
-                    path,
+                    "http.request.method" = ?request.method(),
+                    "http.response.status_code" = field::Empty, // to be populated in on_response
+                    "http.route" = path,
+                    "http.version" = ?request.version(),
                     "otel.kind" = "server",
                 );
 
@@ -130,6 +132,7 @@ impl App {
             })
             .on_response(move |response: &Response, latency: Duration, span: &Span| {
                 let path = span.context().baggage().get("path").map(ToString::to_string).unwrap_or_default();
+                span.record("http.response.status_code", response.status().as_u16());
                 crate::tracing::record_http_response_secs(&path, latency, response.status());
             });
         let probes = OpenApiRouter::default().route("/ping", get(|| async { (StatusCode::OK, "pong") }));
