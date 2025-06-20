@@ -264,11 +264,7 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
         return Err(IntrospectResponse::new_invalid(identity_provider_not_enabled_error(PATH, request.identity_provider)));
     }
 
-    let error_message = match request.issuer() {
-        None => "token is invalid".to_string(),
-        Some(iss) => format!("unrecognized issuer: '{iss}'"),
-    };
-
+    let error_message = format!("identity provider '{}' does not support introspection", request.identity_provider);
     Err(IntrospectResponse::new_invalid(error_message))
 }
 

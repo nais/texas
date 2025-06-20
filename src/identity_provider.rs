@@ -86,7 +86,7 @@ impl IntrospectResponse {
 impl Display for IntrospectResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.error.is_some() {
-            return write!(f, "error={}", self.error.as_deref().unwrap_or("unknown error"));
+            return write!(f, "{}", self.error.as_deref().unwrap_or("unknown error"));
         }
         Ok(())
     }
@@ -267,27 +267,6 @@ pub struct TokenExchangeRequest {
 pub struct IntrospectRequest {
     pub token: String,
     pub identity_provider: IdentityProvider,
-}
-
-impl IntrospectRequest {
-    /// Decode the token to get the issuer of the request.
-    pub fn issuer(&self) -> Option<String> {
-        #[derive(serde::Deserialize)]
-        struct IssuerClaim {
-            iss: String,
-        }
-
-        let mut validation = jwt::Validation::new(jwt::Algorithm::RS512);
-        validation.validate_exp = false;
-        validation.set_required_spec_claims::<&str>(&[]);
-
-        // To decode the issuer, we have to disable validation.
-        // Validation is done in the Provider.
-        validation.insecure_disable_signature_validation();
-
-        let key = jwt::DecodingKey::from_secret(&[]);
-        jwt::decode::<IssuerClaim>(&self.token, &key, &validation).ok().map(|data| data.claims.iss)
-    }
 }
 
 #[derive(Clone)]

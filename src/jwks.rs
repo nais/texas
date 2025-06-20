@@ -1,8 +1,7 @@
 use crate::claims::epoch_now_secs;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use jsonwebtoken::{Validation, errors};
-use log::error;
+use jsonwebtoken::Validation;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{RetryTransientMiddleware, policies};
 use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
@@ -130,10 +129,10 @@ impl Jwks {
         let iat = claims
             .get("iat")
             .and_then(Value::as_u64)
-            .ok_or_else(|| Error::InvalidToken(errors::ErrorKind::MissingRequiredClaim("iat".to_string()).into()))?;
+            .ok_or_else(|| Error::InvalidToken(jwt::errors::ErrorKind::MissingRequiredClaim("iat".to_string()).into()))?;
 
         if iat > epoch_now_secs() + self.validation.leeway {
-            return Err(Error::InvalidToken(errors::ErrorKind::ImmatureSignature.into()));
+            return Err(Error::InvalidToken(jwt::errors::ErrorKind::ImmatureSignature.into()));
         }
 
         Ok(claims)
