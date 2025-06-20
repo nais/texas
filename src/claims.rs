@@ -1,7 +1,7 @@
 use jsonwebtoken as jwt;
 use serde::Serialize;
 
-const EXPIRY_LEEWAY_SECONDS: usize = 30;
+const EXPIRY_LEEWAY_SECONDS: u64 = 30;
 
 pub trait Assertion: Send + Sync + Serialize {
     fn new(issuer: String, client_id: String, target: String, resource: Option<String>) -> Self;
@@ -9,9 +9,9 @@ pub trait Assertion: Send + Sync + Serialize {
 
 #[derive(Serialize)]
 pub struct ClientAssertion {
-    exp: usize,
-    iat: usize,
-    nbf: usize,
+    exp: u64,
+    iat: u64,
+    nbf: u64,
     jti: String,
     sub: String,
     iss: String,
@@ -20,9 +20,9 @@ pub struct ClientAssertion {
 
 #[derive(Serialize)]
 pub struct JWTBearerAssertion {
-    exp: usize,
-    iat: usize,
-    nbf: usize,
+    exp: u64,
+    iat: u64,
+    nbf: u64,
     jti: String,
     scope: String,
     iss: String,
@@ -37,9 +37,9 @@ impl Assertion for JWTBearerAssertion {
         let jti = uuid::Uuid::new_v4();
 
         Self {
-            exp: now as usize + EXPIRY_LEEWAY_SECONDS,
-            iat: now as usize,
-            nbf: now as usize,
+            exp: now + EXPIRY_LEEWAY_SECONDS,
+            iat: now,
+            nbf: now,
             jti: jti.to_string(),
             iss: client_id, // issuer of the token is the client itself
             aud: issuer,    // audience of the token is the issuer
@@ -55,9 +55,9 @@ impl Assertion for ClientAssertion {
         let jti = uuid::Uuid::new_v4();
 
         Self {
-            exp: now as usize + EXPIRY_LEEWAY_SECONDS,
-            iat: now as usize,
-            nbf: now as usize,
+            exp: now + EXPIRY_LEEWAY_SECONDS,
+            iat: now,
+            nbf: now,
             jti: jti.to_string(),
             iss: client_id.clone(), // issuer of the token is the client itself
             aud: issuer,            // audience of the token is the issuer

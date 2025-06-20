@@ -11,7 +11,7 @@ pub struct CachedTokenResponse {
 impl From<CachedTokenResponse> for TokenResponse {
     fn from(mut cached: CachedTokenResponse) -> Self {
         // Subtract the elapsed time since insertion to get the actual remaining seconds to expiry.
-        cached.response.expires_in_seconds -= cached.created_at.elapsed().as_secs() as usize;
+        cached.response.expires_in_seconds -= cached.created_at.elapsed().as_secs();
         cached.response
     }
 }
@@ -32,13 +32,9 @@ pub struct TokenResponseExpiry;
 
 impl<R> Expiry<R, CachedTokenResponse> for TokenResponseExpiry {
     fn expire_after_create(&self, _key: &R, value: &CachedTokenResponse, _created_at: Instant) -> Option<Duration> {
-        const EXPIRY_LEEWAY_SECS: usize = 60;
+        const EXPIRY_LEEWAY_SECS: u64 = 60;
         let expiry_secs = value.response.expires_in_seconds;
-        let expiry_secs = if expiry_secs > EXPIRY_LEEWAY_SECS {
-            (expiry_secs - EXPIRY_LEEWAY_SECS) as u64
-        } else {
-            (expiry_secs / 2) as u64
-        };
+        let expiry_secs = if expiry_secs > EXPIRY_LEEWAY_SECS { expiry_secs - EXPIRY_LEEWAY_SECS } else { expiry_secs / 2 };
 
         Some(Duration::from_secs(expiry_secs))
     }

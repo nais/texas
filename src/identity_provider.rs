@@ -31,7 +31,7 @@ pub struct TokenResponse {
     pub token_type: TokenType,
     /// Token expiry in seconds. Useful for caching purposes.
     #[serde(rename = "expires_in")]
-    pub expires_in_seconds: usize,
+    pub expires_in_seconds: u64,
 }
 
 /// Token type is always Bearer, but this might change in the future.
