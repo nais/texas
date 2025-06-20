@@ -390,7 +390,7 @@ where
             .map_or_else(IntrospectResponse::new_invalid, IntrospectResponse::new)
     }
 
-    #[instrument(skip_all, name = "Request token from upstream identity provider")]
+    #[instrument(skip_all, name = "Request token from upstream identity provider", err)]
     async fn get_token_from_idprovider(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
