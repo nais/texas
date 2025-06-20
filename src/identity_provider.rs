@@ -1,5 +1,8 @@
 use crate::claims::{Assertion, serialize};
-use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder, TokenRequestBuilderParams};
+use crate::grants::{
+    ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder,
+    TokenRequestBuilderParams,
+};
 use crate::handlers::ApiError;
 use crate::jwks;
 use async_trait::async_trait;
@@ -111,7 +114,11 @@ impl IntrospectResponse {
     }
 
     fn get_string_claim(&self, claim: &str) -> Option<String> {
-        self.extra.get(claim).and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string())
+        self.extra
+            .get(claim)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
     }
 }
 
@@ -137,7 +144,8 @@ pub struct ErrorResponse {
 
 impl Display for ErrorResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let err = serde_json::to_string(&self.error).unwrap_or("BUG: unserializable error message".to_string());
+        let err = serde_json::to_string(&self.error)
+            .unwrap_or("BUG: unserializable error message".to_string());
         write!(f, "error={}: error_description={}", err, self.description)
     }
 }
@@ -193,8 +201,10 @@ impl PartialSchema for OAuthErrorCode {
 
 #[test]
 fn test_serde_oauth_error() {
-    let known_code_variant = r#"{"error":"invalid_request","error_description":"some description"}"#;
-    let unknown_code_variant = r#"{"error":"unknown_error","error_description":"some description"}"#;
+    let known_code_variant =
+        r#"{"error":"invalid_request","error_description":"some description"}"#;
+    let unknown_code_variant =
+        r#"{"error":"unknown_error","error_description":"some description"}"#;
 
     let serialized = serde_json::from_str::<ErrorResponse>(known_code_variant);
     assert!(serialized.is_ok());
@@ -204,7 +214,10 @@ fn test_serde_oauth_error() {
     let serialized = serde_json::from_str::<ErrorResponse>(unknown_code_variant);
     assert!(serialized.is_ok());
     let error_response = serialized.unwrap();
-    assert_eq!(error_response.error, OAuthErrorCode::Unknown("unknown_error".to_string()));
+    assert_eq!(
+        error_response.error,
+        OAuthErrorCode::Unknown("unknown_error".to_string())
+    );
 }
 
 /// Identity providers for use with token fetch, exchange and introspection.
@@ -222,7 +235,11 @@ pub enum IdentityProvider {
 
 impl Display for IdentityProvider {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if let Ok(Value::String(s)) = serde_json::to_value(self) { f.write_str(&s) } else { Ok(()) }
+        if let Ok(Value::String(s)) = serde_json::to_value(self) {
+            f.write_str(&s)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -303,11 +320,23 @@ where
     R: TokenRequestBuilder,
     A: Assertion,
 {
-    pub fn new(kind: IdentityProvider, client_id: String, issuer: String, token_endpoint: Option<String>, private_jwk: Option<String>, upstream_jwks: jwks::Jwks) -> Result<Self, ProviderError> {
+    pub fn new(
+        kind: IdentityProvider,
+        client_id: String,
+        issuer: String,
+        token_endpoint: Option<String>,
+        private_jwk: Option<String>,
+        upstream_jwks: jwks::Jwks,
+    ) -> Result<Self, ProviderError> {
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
-            let client_private_jwk: jwk::JsonWebKey = private_jwk.parse().map_err(ProviderError::PrivateJwkParseError)?;
-            let alg: jwt::Algorithm = client_private_jwk.algorithm.ok_or(ProviderError::PrivateJwkMissingAlgorithm)?.into();
-            let kid: String = client_private_jwk.key_id.clone().ok_or(ProviderError::PrivateJwkMissingKid)?;
+            let client_private_jwk: jwk::JsonWebKey =
+                private_jwk.parse().map_err(ProviderError::PrivateJwkParseError)?;
+            let alg: jwt::Algorithm = client_private_jwk
+                .algorithm
+                .ok_or(ProviderError::PrivateJwkMissingAlgorithm)?
+                .into();
+            let kid: String =
+                client_private_jwk.key_id.clone().ok_or(ProviderError::PrivateJwkMissingKid)?;
 
             let mut header = jwt::Header::new(alg);
             header.kid = Some(kid);
@@ -324,7 +353,9 @@ where
 
         let http_client_with_middleware = ClientBuilder::new(http_client)
             .with(TracingMiddleware::<SpanBackendWithUrl>::new())
-            .with(RetryTransientMiddleware::new_with_policy(policies::ExponentialBackoff::builder().build_with_max_retries(3)))
+            .with(RetryTransientMiddleware::new_with_policy(
+                policies::ExponentialBackoff::builder().build_with_max_retries(3),
+            ))
             .build();
 
         Ok(Self {
@@ -343,8 +374,18 @@ where
 
     #[instrument(skip_all, name = "Create assertion for token signing request")]
     fn create_assertion(&self, target: String, resource: Option<String>) -> Option<String> {
-        let assertion = A::new(self.issuer.clone(), self.client_id.clone(), target, resource);
-        serialize(assertion, self.client_assertion_header.as_ref()?, self.private_jwk.as_ref()?).ok()
+        let assertion = A::new(
+            self.issuer.clone(),
+            self.client_id.clone(),
+            target,
+            resource,
+        );
+        serialize(
+            assertion,
+            self.client_assertion_header.as_ref()?,
+            self.private_jwk.as_ref()?,
+        )
+        .ok()
     }
 }
 
@@ -362,21 +403,24 @@ where
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self
-                .create_assertion(request.target, request.resource)
-                .ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?,
+            assertion: self.create_assertion(request.target, request.resource).ok_or(
+                ApiError::TokenRequestUnsupported(self.identity_provider_kind),
+            )?,
             client_id: Some(self.client_id.clone()),
             user_token: None,
         };
         self.get_token_from_idprovider(token_request).await
     }
 
-    async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError> {
+    async fn exchange_token(
+        &self,
+        request: TokenExchangeRequest,
+    ) -> Result<TokenResponse, ApiError> {
         let token_request = TokenRequestBuilderParams {
             target: request.target.clone(),
-            assertion: self
-                .create_assertion(request.target, None)
-                .ok_or(ApiError::TokenExchangeUnsupported(self.identity_provider_kind))?,
+            assertion: self.create_assertion(request.target, None).ok_or(
+                ApiError::TokenExchangeUnsupported(self.identity_provider_kind),
+            )?,
             client_id: Some(self.client_id.clone()),
             user_token: Some(request.user_token),
         };
@@ -391,12 +435,19 @@ where
     }
 
     #[instrument(skip_all, name = "Request token from upstream identity provider", err)]
-    async fn get_token_from_idprovider(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError> {
+    async fn get_token_from_idprovider(
+        &self,
+        config: TokenRequestBuilderParams,
+    ) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
         let response = self
             .http_client
-            .post(self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(self.identity_provider_kind))?)
+            .post(
+                self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(
+                    self.identity_provider_kind,
+                ))?,
+            )
             .header("accept", "application/json")
             .form(&params)
             .send()
@@ -410,7 +461,10 @@ where
                 .await
                 .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
                 .map_err(ApiError::JSON)?;
-            let err = ApiError::Upstream { status_code: status, error: err };
+            let err = ApiError::Upstream {
+                status_code: status,
+                error: err,
+            };
             error!("get_token_with_config: {}", err);
             return Err(err);
         }
@@ -427,9 +481,15 @@ where
 pub trait ProviderHandler: ShouldHandler + Send + Sync {
     fn identity_provider_matches(&self, identity_provider: IdentityProvider) -> bool;
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError>;
-    async fn exchange_token(&self, request: TokenExchangeRequest) -> Result<TokenResponse, ApiError>;
+    async fn exchange_token(
+        &self,
+        request: TokenExchangeRequest,
+    ) -> Result<TokenResponse, ApiError>;
     async fn introspect(&mut self, token: String) -> IntrospectResponse;
-    async fn get_token_from_idprovider(&self, config: TokenRequestBuilderParams) -> Result<TokenResponse, ApiError>;
+    async fn get_token_from_idprovider(
+        &self,
+        config: TokenRequestBuilderParams,
+    ) -> Result<TokenResponse, ApiError>;
 }
 
 pub trait ShouldHandler: Send + Sync {

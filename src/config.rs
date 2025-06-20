@@ -34,7 +34,9 @@ pub enum Error {
 impl Provider {
     fn is_provider_enabled(prefix: &str) -> Result<bool, Error> {
         let key = format!("{prefix}_ENABLED");
-        let Ok(envvar) = std::env::var(&key) else { return Ok(false) };
+        let Ok(envvar) = std::env::var(&key) else {
+            return Ok(false);
+        };
 
         envvar.parse().map_err(|err| ParseBool(key, err))
     }

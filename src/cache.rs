@@ -18,7 +18,10 @@ impl From<CachedTokenResponse> for TokenResponse {
 
 impl From<TokenResponse> for CachedTokenResponse {
     fn from(response: TokenResponse) -> Self {
-        Self { response, created_at: Instant::now() }
+        Self {
+            response,
+            created_at: Instant::now(),
+        }
     }
 }
 
@@ -31,10 +34,19 @@ impl From<TokenResponse> for CachedTokenResponse {
 pub struct TokenResponseExpiry;
 
 impl<R> Expiry<R, CachedTokenResponse> for TokenResponseExpiry {
-    fn expire_after_create(&self, _key: &R, value: &CachedTokenResponse, _created_at: Instant) -> Option<Duration> {
+    fn expire_after_create(
+        &self,
+        _key: &R,
+        value: &CachedTokenResponse,
+        _created_at: Instant,
+    ) -> Option<Duration> {
         const EXPIRY_LEEWAY_SECS: u64 = 60;
         let expiry_secs = value.response.expires_in_seconds;
-        let expiry_secs = if expiry_secs > EXPIRY_LEEWAY_SECS { expiry_secs - EXPIRY_LEEWAY_SECS } else { expiry_secs / 2 };
+        let expiry_secs = if expiry_secs > EXPIRY_LEEWAY_SECS {
+            expiry_secs - EXPIRY_LEEWAY_SECS
+        } else {
+            expiry_secs / 2
+        };
 
         Some(Duration::from_secs(expiry_secs))
     }

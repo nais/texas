@@ -59,7 +59,8 @@ impl TokenRequestBuilder for ClientCredentials {
             grant_type: "client_credentials".to_string(),
             client_id: config.client_id?,
             client_assertion: config.assertion,
-            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".to_string(),
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                .to_string(),
             scope: config.target,
         })
     }
@@ -71,7 +72,8 @@ impl TokenRequestBuilder for OnBehalfOf {
             grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer".to_string(),
             client_id: config.client_id?,
             client_assertion: config.assertion,
-            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".to_string(),
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                .to_string(),
             scope: config.target,
             requested_token_use: "on_behalf_of".to_string(),
             assertion: config.user_token?,
@@ -93,7 +95,8 @@ impl TokenRequestBuilder for TokenExchange {
         Some(Self {
             grant_type: "urn:ietf:params:oauth:grant-type:token-exchange".to_string(),
             client_assertion: config.assertion,
-            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".to_string(),
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                .to_string(),
             subject_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
             subject_token: config.user_token?,
             audience: config.target,

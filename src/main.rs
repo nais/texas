@@ -18,7 +18,12 @@ async fn main() -> ExitCode {
     #[cfg(feature = "local")]
     texas::config::print_texas_logo();
 
-    info!("Starting {} {} built on {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("BUILD_TIME"));
+    info!(
+        "Starting {} {} built on {}",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        env!("BUILD_TIME")
+    );
 
     match App::new_from_env().await {
         Ok(app) => {

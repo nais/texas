@@ -43,7 +43,11 @@ pub enum Error {
 }
 
 impl Jwks {
-    pub async fn new(issuer: &str, endpoint: &str, required_audience: Option<String>) -> Result<Jwks, Error> {
+    pub async fn new(
+        issuer: &str,
+        endpoint: &str,
+        required_audience: Option<String>,
+    ) -> Result<Jwks, Error> {
         #[derive(Deserialize)]
         struct Response {
             keys: Vec<jwk::JsonWebKey>,
@@ -60,7 +64,8 @@ impl Jwks {
             .build();
 
         let request = client.get(endpoint).header("accept", "application/json");
-        let response: Response = request.send().await.map_err(Error::Fetch)?.json().await.map_err(Error::JsonDecode)?;
+        let response: Response =
+            request.send().await.map_err(Error::Fetch)?.json().await.map_err(Error::JsonDecode)?;
 
         let mut keys: HashMap<String, jwk::JsonWebKey> = HashMap::new();
         for key in response.keys {
@@ -97,7 +102,8 @@ impl Jwks {
     /// Pull a new version of the JWKS from the original endpoint.
     #[instrument(skip_all, name = "Refresh JWKS", err)]
     pub async fn refresh(&mut self) -> Result<(), Error> {
-        let new_jwks = Self::new(&self.issuer, &self.endpoint, self.required_audience.clone()).await?;
+        let new_jwks =
+            Self::new(&self.issuer, &self.endpoint, self.required_audience.clone()).await?;
         self.keys = new_jwks.keys;
         Ok(())
     }
@@ -121,18 +127,25 @@ impl Jwks {
             Some(key) => key,
         };
 
-        let claims = jwt::decode::<HashMap<String, Value>>(token, &signing_key.key.to_decoding_key(), &self.validation)
-            .map_err(Error::InvalidToken)?
-            .claims;
+        let claims = jwt::decode::<HashMap<String, Value>>(
+            token,
+            &signing_key.key.to_decoding_key(),
+            &self.validation,
+        )
+        .map_err(Error::InvalidToken)?
+        .claims;
 
         // validate the `iat` claim manually as the jsonwebtoken crate does not do this
-        let iat = claims
-            .get("iat")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| Error::InvalidToken(jwt::errors::ErrorKind::MissingRequiredClaim("iat".to_string()).into()))?;
+        let iat = claims.get("iat").and_then(Value::as_u64).ok_or_else(|| {
+            Error::InvalidToken(
+                jwt::errors::ErrorKind::MissingRequiredClaim("iat".to_string()).into(),
+            )
+        })?;
 
         if iat > epoch_now_secs() + self.validation.leeway {
-            return Err(Error::InvalidToken(jwt::errors::ErrorKind::ImmatureSignature.into()));
+            return Err(Error::InvalidToken(
+                jwt::errors::ErrorKind::ImmatureSignature.into(),
+            ));
         }
 
         Ok(claims)

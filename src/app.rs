@@ -67,9 +67,15 @@ impl App {
         let local_addr = listener.local_addr().map_err(LocalAddress)?;
         info!("Serving on http://{local_addr:?}");
         #[cfg(feature = "openapi")]
-        info!("Swagger API documentation: http://{:?}/swagger-ui", local_addr);
+        info!(
+            "Swagger API documentation: http://{:?}/swagger-ui",
+            local_addr
+        );
 
-        Ok(Self { router: app, listener })
+        Ok(Self {
+            router: app,
+            listener,
+        })
     }
 
     pub async fn run(self) {
@@ -115,7 +121,8 @@ impl App {
                 let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
 
                 // get tracing context from request
-                let parent_context = TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
+                let parent_context =
+                    TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
 
                 let root_span = info_span!(
                     "Handle incoming request",
@@ -126,16 +133,25 @@ impl App {
                     "otel.kind" = "server",
                 );
 
-                let context = parent_context.with_baggage(vec![KeyValue::new("path".to_string(), path.unwrap_or_default().to_string())]);
+                let context = parent_context.with_baggage(vec![KeyValue::new(
+                    "path".to_string(),
+                    path.unwrap_or_default().to_string(),
+                )]);
                 root_span.set_parent(context.clone());
                 root_span
             })
             .on_response(move |response: &Response, latency: Duration, span: &Span| {
-                let path = span.context().baggage().get("path").map(ToString::to_string).unwrap_or_default();
+                let path = span
+                    .context()
+                    .baggage()
+                    .get("path")
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
                 span.record("http.response.status_code", response.status().as_u16());
                 crate::tracing::record_http_response_secs(&path, latency, response.status());
             });
-        let probes = OpenApiRouter::default().route("/ping", get(|| async { (StatusCode::OK, "pong") }));
+        let probes =
+            OpenApiRouter::default().route("/ping", get(|| async { (StatusCode::OK, "pong") }));
         let api = OpenApiRouter::default()
             .routes(routes!(token))
             .routes(routes!(token_exchange))
@@ -165,7 +181,10 @@ mod tests {
     use crate::app::App;
     use crate::claims::epoch_now_secs;
     use crate::config::Config;
-    use crate::identity_provider::{ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode, TokenExchangeRequest, TokenRequest, TokenResponse};
+    use crate::identity_provider::{
+        ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode,
+        TokenExchangeRequest, TokenRequest, TokenResponse,
+    };
     use jsonwebkey as jwk;
     use jsonwebtoken as jwt;
     use log::info;
@@ -201,7 +220,14 @@ mod tests {
 
         // All happy cases
         for format in [RequestFormat::Form, RequestFormat::Json] {
-            machine_to_machine_token(&testapp.cfg.maskinporten.clone().unwrap().issuer, "scope", &address, IdentityProvider::Maskinporten, format.clone()).await;
+            machine_to_machine_token(
+                &testapp.cfg.maskinporten.clone().unwrap().issuer,
+                "scope",
+                &address,
+                IdentityProvider::Maskinporten,
+                format.clone(),
+            )
+            .await;
 
             machine_to_machine_token(
                 &testapp.cfg.azure_ad.clone().unwrap().issuer,
@@ -280,7 +306,8 @@ mod tests {
         test_introspect_token_missing_key_in_jwks(&address, &identity_provider_address).await;
         test_introspect_token_is_expired(&address, &identity_provider_address).await;
         test_introspect_token_is_issued_in_the_future(&address, &identity_provider_address).await;
-        test_introspect_token_has_not_before_in_the_future(&address, &identity_provider_address).await;
+        test_introspect_token_has_not_before_in_the_future(&address, &identity_provider_address)
+            .await;
         test_introspect_token_invalid_audience(&address).await;
         test_token_unsupported_identity_provider(&address).await;
         test_token_exchange_unsupported_identity_provider(&address).await;
@@ -297,7 +324,12 @@ mod tests {
             testapp.app.run().await;
         });
 
-        let providers = [IdentityProvider::AzureAD, IdentityProvider::IDPorten, IdentityProvider::Maskinporten, IdentityProvider::TokenX];
+        let providers = [
+            IdentityProvider::AzureAD,
+            IdentityProvider::IDPorten,
+            IdentityProvider::Maskinporten,
+            IdentityProvider::TokenX,
+        ];
         for provider in providers {
             test_well_formed_json_request(
                 token_url(&address).as_str(),
@@ -337,7 +369,9 @@ mod tests {
                     token: "some_token".to_string(),
                     identity_provider: provider,
                 },
-                IntrospectResponse::new_invalid(format!("identity provider '{provider}' is not enabled")),
+                IntrospectResponse::new_invalid(format!(
+                    "identity provider '{provider}' is not enabled"
+                )),
                 StatusCode::OK,
             )
             .await;
@@ -362,14 +396,21 @@ mod tests {
         join_handler.abort();
     }
 
-    async fn machine_to_machine_token(expected_issuer: &str, target: &str, address: &str, identity_provider: IdentityProvider, request_format: RequestFormat) {
+    async fn machine_to_machine_token(
+        expected_issuer: &str,
+        target: &str,
+        address: &str,
+        identity_provider: IdentityProvider,
+        request_format: RequestFormat,
+    ) {
         let request = TokenRequest {
             target: target.to_string(),
             identity_provider,
             resource: None,
             skip_cache: None,
         };
-        let first_token_response = test_happy_path_token(address, request.clone(), request_format.clone()).await;
+        let first_token_response =
+            test_happy_path_token(address, request.clone(), request_format.clone()).await;
         let first_token_introspect = test_happy_path_introspect(
             address,
             expected_issuer,
@@ -393,10 +434,14 @@ mod tests {
             request_format.clone(),
         )
         .await;
-        assert_ne!(different_token_response.access_token, first_token_response.access_token);
+        assert_ne!(
+            different_token_response.access_token,
+            first_token_response.access_token
+        );
 
         // second token request with same inputs should return cached token
-        let second_token_response = test_happy_path_token(address, request, request_format.clone()).await;
+        let second_token_response =
+            test_happy_path_token(address, request, request_format.clone()).await;
         let second_token_introspect = test_happy_path_introspect(
             address,
             expected_issuer,
@@ -408,10 +453,22 @@ mod tests {
         )
         .await;
 
-        assert_eq!(second_token_response.access_token, first_token_response.access_token);
-        assert_ne!(second_token_response.access_token, different_token_response.access_token);
-        assert_eq!(second_token_introspect.issuer(), first_token_introspect.issuer());
-        assert_eq!(second_token_introspect.jwt_id(), first_token_introspect.jwt_id());
+        assert_eq!(
+            second_token_response.access_token,
+            first_token_response.access_token
+        );
+        assert_ne!(
+            second_token_response.access_token,
+            different_token_response.access_token
+        );
+        assert_eq!(
+            second_token_introspect.issuer(),
+            first_token_introspect.issuer()
+        );
+        assert_eq!(
+            second_token_introspect.jwt_id(),
+            first_token_introspect.jwt_id()
+        );
 
         // third token request with skip_cache=true should return a new token
         let third_token_response = test_happy_path_token(
@@ -436,30 +493,60 @@ mod tests {
         )
         .await;
 
-        assert_ne!(third_token_response.access_token, first_token_response.access_token);
-        assert_ne!(third_token_response.access_token, second_token_response.access_token);
-        assert_ne!(third_token_response.access_token, different_token_response.access_token);
+        assert_ne!(
+            third_token_response.access_token,
+            first_token_response.access_token
+        );
+        assert_ne!(
+            third_token_response.access_token,
+            second_token_response.access_token
+        );
+        assert_ne!(
+            third_token_response.access_token,
+            different_token_response.access_token
+        );
 
-        assert_eq!(third_token_introspect.issuer(), first_token_introspect.issuer());
-        assert_eq!(third_token_introspect.issuer(), second_token_introspect.issuer());
+        assert_eq!(
+            third_token_introspect.issuer(),
+            first_token_introspect.issuer()
+        );
+        assert_eq!(
+            third_token_introspect.issuer(),
+            second_token_introspect.issuer()
+        );
 
-        assert_ne!(third_token_introspect.jwt_id(), first_token_introspect.jwt_id());
-        assert_ne!(third_token_introspect.jwt_id(), second_token_introspect.jwt_id());
+        assert_ne!(
+            third_token_introspect.jwt_id(),
+            first_token_introspect.jwt_id()
+        );
+        assert_ne!(
+            third_token_introspect.jwt_id(),
+            second_token_introspect.jwt_id()
+        );
     }
 
     /// this tests the full token exchange roundtrip:
     ///  1. fetch user token from mock-oauth2-server
     ///  2. exchange user token for on-behalf-of token at /token/exchange
     ///  3. introspect the resulting token at /introspect
-    async fn token_exchange_token(expected_issuer: &str, target: &str, address: &str, identity_provider_address: &str, identity_provider: IdentityProvider, request_format: RequestFormat) {
-        let user_token: TokenResponse = get_user_token(identity_provider_address, identity_provider).await;
+    async fn token_exchange_token(
+        expected_issuer: &str,
+        target: &str,
+        address: &str,
+        identity_provider_address: &str,
+        identity_provider: IdentityProvider,
+        request_format: RequestFormat,
+    ) {
+        let user_token: TokenResponse =
+            get_user_token(identity_provider_address, identity_provider).await;
         let request = TokenExchangeRequest {
             target: target.to_string(),
             identity_provider,
             user_token: user_token.access_token.clone(),
             skip_cache: None,
         };
-        let first_token_response = test_happy_path_token_exchange(address, request.clone(), request_format.clone()).await;
+        let first_token_response =
+            test_happy_path_token_exchange(address, request.clone(), request_format.clone()).await;
         let first_token_introspect = test_happy_path_introspect(
             address,
             expected_issuer,
@@ -485,10 +572,14 @@ mod tests {
             request_format.clone(),
         )
         .await;
-        assert_ne!(different_target_token_response.access_token, first_token_response.access_token);
+        assert_ne!(
+            different_target_token_response.access_token,
+            first_token_response.access_token
+        );
 
         // different user token should return a different token
-        let user_token_2: TokenResponse = get_user_token(identity_provider_address, identity_provider).await;
+        let user_token_2: TokenResponse =
+            get_user_token(identity_provider_address, identity_provider).await;
         let different_user_token_response = test_happy_path_token_exchange(
             address,
             TokenExchangeRequest {
@@ -500,11 +591,18 @@ mod tests {
             request_format.clone(),
         )
         .await;
-        assert_ne!(different_user_token_response.access_token, first_token_response.access_token);
-        assert_ne!(different_user_token_response.access_token, different_target_token_response.access_token);
+        assert_ne!(
+            different_user_token_response.access_token,
+            first_token_response.access_token
+        );
+        assert_ne!(
+            different_user_token_response.access_token,
+            different_target_token_response.access_token
+        );
 
         // second token request with same inputs should return cached token
-        let second_token_response = test_happy_path_token_exchange(address, request, request_format.clone()).await;
+        let second_token_response =
+            test_happy_path_token_exchange(address, request, request_format.clone()).await;
         let second_token_introspect = test_happy_path_introspect(
             address,
             expected_issuer,
@@ -518,12 +616,30 @@ mod tests {
 
         assert!(second_token_introspect.subject().is_some());
 
-        assert_eq!(second_token_response.access_token, first_token_response.access_token);
-        assert_ne!(second_token_response.access_token, different_target_token_response.access_token);
-        assert_ne!(second_token_response.access_token, different_user_token_response.access_token);
-        assert_eq!(second_token_introspect.issuer(), first_token_introspect.issuer());
-        assert_eq!(second_token_introspect.jwt_id(), first_token_introspect.jwt_id());
-        assert_eq!(second_token_introspect.subject(), first_token_introspect.subject());
+        assert_eq!(
+            second_token_response.access_token,
+            first_token_response.access_token
+        );
+        assert_ne!(
+            second_token_response.access_token,
+            different_target_token_response.access_token
+        );
+        assert_ne!(
+            second_token_response.access_token,
+            different_user_token_response.access_token
+        );
+        assert_eq!(
+            second_token_introspect.issuer(),
+            first_token_introspect.issuer()
+        );
+        assert_eq!(
+            second_token_introspect.jwt_id(),
+            first_token_introspect.jwt_id()
+        );
+        assert_eq!(
+            second_token_introspect.subject(),
+            first_token_introspect.subject()
+        );
 
         // third token request with skip_cache=true should return a new token
         let third_token_response = test_happy_path_token_exchange(
@@ -550,23 +666,60 @@ mod tests {
 
         assert!(third_token_introspect.subject().is_some());
 
-        assert_ne!(third_token_response.access_token, first_token_response.access_token);
-        assert_ne!(third_token_response.access_token, second_token_response.access_token);
-        assert_ne!(third_token_response.access_token, different_target_token_response.access_token);
-        assert_ne!(third_token_response.access_token, different_user_token_response.access_token);
+        assert_ne!(
+            third_token_response.access_token,
+            first_token_response.access_token
+        );
+        assert_ne!(
+            third_token_response.access_token,
+            second_token_response.access_token
+        );
+        assert_ne!(
+            third_token_response.access_token,
+            different_target_token_response.access_token
+        );
+        assert_ne!(
+            third_token_response.access_token,
+            different_user_token_response.access_token
+        );
 
-        assert_eq!(third_token_introspect.issuer(), first_token_introspect.issuer());
-        assert_eq!(third_token_introspect.issuer(), second_token_introspect.issuer());
+        assert_eq!(
+            third_token_introspect.issuer(),
+            first_token_introspect.issuer()
+        );
+        assert_eq!(
+            third_token_introspect.issuer(),
+            second_token_introspect.issuer()
+        );
 
-        assert_ne!(third_token_introspect.jwt_id(), first_token_introspect.jwt_id());
-        assert_ne!(third_token_introspect.jwt_id(), second_token_introspect.jwt_id());
+        assert_ne!(
+            third_token_introspect.jwt_id(),
+            first_token_introspect.jwt_id()
+        );
+        assert_ne!(
+            third_token_introspect.jwt_id(),
+            second_token_introspect.jwt_id()
+        );
 
-        assert_eq!(third_token_introspect.subject(), first_token_introspect.subject());
-        assert_eq!(third_token_introspect.subject(), second_token_introspect.subject());
+        assert_eq!(
+            third_token_introspect.subject(),
+            first_token_introspect.subject()
+        );
+        assert_eq!(
+            third_token_introspect.subject(),
+            second_token_introspect.subject()
+        );
     }
 
-    async fn introspect_token(expected_issuer: &str, address: &str, identity_provider_address: &str, identity_provider: IdentityProvider, request_format: RequestFormat) {
-        let user_token: TokenResponse = get_user_token(identity_provider_address, identity_provider).await;
+    async fn introspect_token(
+        expected_issuer: &str,
+        address: &str,
+        identity_provider_address: &str,
+        identity_provider: IdentityProvider,
+        request_format: RequestFormat,
+    ) {
+        let user_token: TokenResponse =
+            get_user_token(identity_provider_address, identity_provider).await;
         let introspect_response = test_happy_path_introspect(
             address,
             expected_issuer,
@@ -621,7 +774,9 @@ mod tests {
                 token,
                 identity_provider: IdentityProvider::AzureAD,
             },
-            IntrospectResponse::new_invalid("token can not be validated with this identity provider"),
+            IntrospectResponse::new_invalid(
+                "token can not be validated with this identity provider",
+            ),
             StatusCode::OK,
         )
         .await;
@@ -663,7 +818,10 @@ mod tests {
     }
 
     async fn test_introspect_token_missing_kid(address: &str, identity_provider_address: &str) {
-        let token = Token::sign(TokenClaims::from([("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into())]));
+        let token = Token::sign(TokenClaims::from([(
+            "iss".into(),
+            format!("http://{}/maskinporten", identity_provider_address).into(),
+        )]));
 
         test_well_formed_json_request(
             introspect_url(address).as_str(),
@@ -677,8 +835,17 @@ mod tests {
         .await;
     }
 
-    async fn test_introspect_token_missing_key_in_jwks(address: &str, identity_provider_address: &str) {
-        let token = Token::sign_with_kid(TokenClaims::from([("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into())]), "missing-key");
+    async fn test_introspect_token_missing_key_in_jwks(
+        address: &str,
+        identity_provider_address: &str,
+    ) {
+        let token = Token::sign_with_kid(
+            TokenClaims::from([(
+                "iss".into(),
+                format!("http://{}/maskinporten", identity_provider_address).into(),
+            )]),
+            "missing-key",
+        );
 
         test_well_formed_json_request(
             introspect_url(address).as_str(),
@@ -686,7 +853,9 @@ mod tests {
                 token,
                 identity_provider: IdentityProvider::Maskinporten,
             },
-            IntrospectResponse::new_invalid("token can not be validated with this identity provider"),
+            IntrospectResponse::new_invalid(
+                "token can not be validated with this identity provider",
+            ),
             StatusCode::OK,
         )
         .await;
@@ -695,7 +864,10 @@ mod tests {
     async fn test_introspect_token_is_expired(address: &str, identity_provider_address: &str) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
+                (
+                    "iss".into(),
+                    format!("http://{}/maskinporten", identity_provider_address).into(),
+                ),
                 ("nbf".into(), epoch_now_secs().into()),
                 ("iat".into(), epoch_now_secs().into()),
                 ("exp".into(), (epoch_now_secs() - 120).into()),
@@ -715,10 +887,16 @@ mod tests {
         .await;
     }
 
-    async fn test_introspect_token_is_issued_in_the_future(address: &str, identity_provider_address: &str) {
+    async fn test_introspect_token_is_issued_in_the_future(
+        address: &str,
+        identity_provider_address: &str,
+    ) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
+                (
+                    "iss".into(),
+                    format!("http://{}/maskinporten", identity_provider_address).into(),
+                ),
                 ("nbf".into(), epoch_now_secs().into()),
                 ("iat".into(), (epoch_now_secs() + 120).into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
@@ -738,10 +916,16 @@ mod tests {
         .await;
     }
 
-    async fn test_introspect_token_has_not_before_in_the_future(address: &str, identity_provider_address: &str) {
+    async fn test_introspect_token_has_not_before_in_the_future(
+        address: &str,
+        identity_provider_address: &str,
+    ) {
         let token = Token::sign_with_kid(
             TokenClaims::from([
-                ("iss".into(), format!("http://{}/maskinporten", identity_provider_address).into()),
+                (
+                    "iss".into(),
+                    format!("http://{}/maskinporten", identity_provider_address).into(),
+                ),
                 ("nbf".into(), (epoch_now_secs() + 120).into()),
                 ("iat".into(), epoch_now_secs().into()),
                 ("exp".into(), (epoch_now_secs() + 300).into()),
@@ -812,7 +996,8 @@ mod tests {
         )
         .await
         .unwrap();
-        let error_response = json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        let error_response =
+            json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
         assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
         assert_eq!(
             error_response.description,
@@ -826,7 +1011,8 @@ mod tests {
         )
         .await
         .unwrap();
-        let error_response = json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        let error_response =
+            json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
         assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
         assert_eq!(
             error_response.description,
@@ -843,7 +1029,8 @@ mod tests {
             .body("some plain text");
         let http_response = request.send().await.unwrap();
 
-        let error_response = json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        let error_response =
+            json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
         assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
         assert_eq!(
             error_response.description,
@@ -862,7 +1049,8 @@ mod tests {
             },
             ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,
-                description: "identity provider 'idporten' does not support token requests".to_string(),
+                description: "identity provider 'idporten' does not support token requests"
+                    .to_string(),
             },
             StatusCode::BAD_REQUEST,
         )
@@ -880,7 +1068,8 @@ mod tests {
             },
             ErrorResponse {
                 error: OAuthErrorCode::InvalidRequest,
-                description: "identity provider 'idporten' does not support token exchange".to_string(),
+                description: "identity provider 'idporten' does not support token exchange"
+                    .to_string(),
             },
             StatusCode::BAD_REQUEST,
         )
@@ -893,7 +1082,11 @@ mod tests {
         Form,
     }
 
-    async fn post_request(url: String, params: impl Serialize, format: RequestFormat) -> Result<Response, Error> {
+    async fn post_request(
+        url: String,
+        params: impl Serialize,
+        format: RequestFormat,
+    ) -> Result<Response, Error> {
         let client = reqwest::Client::new();
         let request = client.post(url).header("accept", "application/json");
         let request = match format {
@@ -903,12 +1096,18 @@ mod tests {
         request.send().await
     }
 
-    async fn json_response<U: DeserializeOwned + PartialEq + Debug + Clone>(response: Response, status_code: StatusCode) -> U {
+    async fn json_response<U: DeserializeOwned + PartialEq + Debug + Clone>(
+        response: Response,
+        status_code: StatusCode,
+    ) -> U {
         assert_eq!(response.status(), status_code);
         response.json::<U>().await.unwrap()
     }
 
-    async fn test_well_formed_request<T: Serialize, U: DeserializeOwned + PartialEq + Debug + Clone>(
+    async fn test_well_formed_request<
+        T: Serialize,
+        U: DeserializeOwned + PartialEq + Debug + Clone,
+    >(
         url: &str,
         request: T,
         request_format: RequestFormat,
@@ -921,42 +1120,90 @@ mod tests {
         actual_response
     }
 
-    async fn test_well_formed_json_request<T: Serialize, U: DeserializeOwned + PartialEq + Debug + Clone>(url: &str, request: T, expected_response: U, status_code: StatusCode) -> U {
-        test_well_formed_request(url, request, RequestFormat::Json, status_code, |response: U| {
-            assert_eq!(response, expected_response);
-        })
+    async fn test_well_formed_json_request<
+        T: Serialize,
+        U: DeserializeOwned + PartialEq + Debug + Clone,
+    >(
+        url: &str,
+        request: T,
+        expected_response: U,
+        status_code: StatusCode,
+    ) -> U {
+        test_well_formed_request(
+            url,
+            request,
+            RequestFormat::Json,
+            status_code,
+            |response: U| {
+                assert_eq!(response, expected_response);
+            },
+        )
         .await
     }
 
-    async fn test_happy_path_token(address: &str, request: TokenRequest, request_format: RequestFormat) -> TokenResponse {
-        test_well_formed_request(token_url(address).as_str(), request, request_format, StatusCode::OK, |resp: TokenResponse| {
-            assert!(resp.expires_in_seconds > 0);
-            assert!(!resp.access_token.is_empty());
-        })
+    async fn test_happy_path_token(
+        address: &str,
+        request: TokenRequest,
+        request_format: RequestFormat,
+    ) -> TokenResponse {
+        test_well_formed_request(
+            token_url(address).as_str(),
+            request,
+            request_format,
+            StatusCode::OK,
+            |resp: TokenResponse| {
+                assert!(resp.expires_in_seconds > 0);
+                assert!(!resp.access_token.is_empty());
+            },
+        )
         .await
     }
 
-    async fn test_happy_path_token_exchange(address: &str, request: TokenExchangeRequest, request_format: RequestFormat) -> TokenResponse {
-        test_well_formed_request(token_exchange_url(address).as_str(), request, request_format, StatusCode::OK, |resp: TokenResponse| {
-            assert!(resp.expires_in_seconds > 0);
-            assert!(!resp.access_token.is_empty());
-        })
+    async fn test_happy_path_token_exchange(
+        address: &str,
+        request: TokenExchangeRequest,
+        request_format: RequestFormat,
+    ) -> TokenResponse {
+        test_well_formed_request(
+            token_exchange_url(address).as_str(),
+            request,
+            request_format,
+            StatusCode::OK,
+            |resp: TokenResponse| {
+                assert!(resp.expires_in_seconds > 0);
+                assert!(!resp.access_token.is_empty());
+            },
+        )
         .await
     }
 
-    async fn test_happy_path_introspect(address: &str, expected_issuer: &str, request: IntrospectRequest, request_format: RequestFormat) -> IntrospectResponse {
-        test_well_formed_request(introspect_url(address).as_str(), request, request_format, StatusCode::OK, |resp: IntrospectResponse| {
-            assert!(resp.active);
-            assert!(resp.error.is_none());
-            assert!(resp.has_claims());
-            assert!(resp.issuer().is_some());
-            assert!(resp.jwt_id().is_some());
-            assert_eq!(resp.issuer().unwrap(), expected_issuer);
-        })
+    async fn test_happy_path_introspect(
+        address: &str,
+        expected_issuer: &str,
+        request: IntrospectRequest,
+        request_format: RequestFormat,
+    ) -> IntrospectResponse {
+        test_well_formed_request(
+            introspect_url(address).as_str(),
+            request,
+            request_format,
+            StatusCode::OK,
+            |resp: IntrospectResponse| {
+                assert!(resp.active);
+                assert!(resp.error.is_none());
+                assert!(resp.has_claims());
+                assert!(resp.issuer().is_some());
+                assert!(resp.jwt_id().is_some());
+                assert_eq!(resp.issuer().unwrap(), expected_issuer);
+            },
+        )
         .await
     }
 
-    async fn get_user_token(identity_provider_address: &str, identity_provider: IdentityProvider) -> TokenResponse {
+    async fn get_user_token(
+        identity_provider_address: &str,
+        identity_provider: IdentityProvider,
+    ) -> TokenResponse {
         #[derive(Serialize)]
         struct AuthorizeRequest {
             grant_type: String,
@@ -967,7 +1214,10 @@ mod tests {
 
         // This request goes directly to the mock oauth2 server, which only accepts form encoding
         let user_token_response = post_request(
-            format!("http://{}/{}/token", identity_provider_address, identity_provider),
+            format!(
+                "http://{}/{}/token",
+                identity_provider_address, identity_provider
+            ),
             AuthorizeRequest {
                 grant_type: "authorization_code".to_string(),
                 code: "mycode".to_string(),
@@ -1006,15 +1256,24 @@ mod tests {
             let docker = DockerRuntimeParams::init().await;
 
             match docker.container {
-                None => info!("Expecting mock-oauth2-server natively in docker-compose on localhost:8080"),
-                Some(_) => info!("Running mock-oauth2-server on {}:{}", docker.host, docker.port,),
+                None => info!(
+                    "Expecting mock-oauth2-server natively in docker-compose on localhost:8080"
+                ),
+                Some(_) => info!(
+                    "Running mock-oauth2-server on {}:{}",
+                    docker.host, docker.port,
+                ),
             }
 
             // Set up Texas
             let cfg = Config::mock(docker.host.clone(), docker.port);
             let app = App::new_from_config(cfg.clone()).await.unwrap();
 
-            Self { app, cfg, docker: Some(docker) }
+            Self {
+                app,
+                cfg,
+                docker: Some(docker),
+            }
         }
 
         async fn new_no_providers() -> Self {
@@ -1022,7 +1281,11 @@ mod tests {
             let cfg = Config::mock_no_providers();
             let app = App::new_from_config(cfg.clone()).await.unwrap();
 
-            Self { app, cfg, docker: None }
+            Self {
+                app,
+                cfg,
+                docker: None,
+            }
         }
     }
 
@@ -1093,7 +1356,8 @@ mod tests {
             let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.2.1")
                 .with_exposed_port(8080.tcp())
                 .with_wait_for(WaitFor::Http(Box::new(
-                    HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration").with_expected_status_code(StatusCode::OK),
+                    HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration")
+                        .with_expected_status_code(StatusCode::OK),
                 )))
                 .with_env_var("JSON_CONFIG", Self::MOCK_OAUTH_SERVER_JSON_CONFIG)
                 .start()

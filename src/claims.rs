@@ -67,13 +67,23 @@ impl Assertion for ClientAssertion {
 }
 
 impl Assertion for () {
-    fn new(_token_endpoint: String, _client_id: String, _target: String, _resource: Option<String>) -> Self {}
+    fn new(
+        _token_endpoint: String,
+        _client_id: String,
+        _target: String,
+        _resource: Option<String>,
+    ) -> Self {
+    }
 }
 
 pub fn epoch_now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
 }
 
-pub fn serialize<T: Serialize>(claims: T, client_assertion_header: &jwt::Header, key: &jwt::EncodingKey) -> Result<String, jsonwebtoken::errors::Error> {
+pub fn serialize<T: Serialize>(
+    claims: T,
+    client_assertion_header: &jwt::Header,
+    key: &jwt::EncodingKey,
+) -> Result<String, jsonwebtoken::errors::Error> {
     jwt::encode(client_assertion_header, &claims, key)
 }

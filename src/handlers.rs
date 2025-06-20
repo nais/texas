@@ -3,10 +3,14 @@ use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
 use crate::config::Config;
 use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
 use crate::identity_provider::{
-    ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode, Provider, ProviderError, ProviderHandler, ShouldHandler, TokenExchangeRequest, TokenRequest, TokenResponse,
-    TokenType,
+    ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode,
+    Provider, ProviderError, ProviderHandler, ShouldHandler, TokenExchangeRequest, TokenRequest,
+    TokenResponse, TokenType,
 };
-use crate::tracing::{inc_handler_errors, inc_token_cache_hits, inc_token_exchanges, inc_token_introspections, inc_token_requests};
+use crate::tracing::{
+    inc_handler_errors, inc_token_cache_hits, inc_token_exchanges, inc_token_introspections,
+    inc_token_requests,
+};
 use crate::{config, jwks};
 use axum::Form;
 use axum::Json;
@@ -71,8 +75,17 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/token", err, fields(texas.cache_hit, texas.cache_skipped, texas.resource, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
-pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenRequest>) -> Result<impl IntoResponse, ApiError> {
+#[instrument(skip_all, name = "Handle /api/v1/token", err, fields(
+    texas.cache_hit,
+    texas.cache_skipped,
+    texas.resource,
+    texas.identity_provider = %request.identity_provider,
+    texas.target = %request.target
+))]
+pub async fn token(
+    State(state): State<HandlerState>,
+    JsonOrForm(request): JsonOrForm<TokenRequest>,
+) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token";
     let span = tracing::Span::current();
 
@@ -110,7 +123,10 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
     }
 
     if !provider_enabled {
-        return Err(identity_provider_not_enabled_error(PATH, request.identity_provider));
+        return Err(identity_provider_not_enabled_error(
+            PATH,
+            request.identity_provider,
+        ));
     }
 
     let err = ApiError::TokenRequestUnsupported(request.identity_provider);
@@ -162,8 +178,16 @@ pub async fn token(State(state): State<HandlerState>, JsonOrForm(request): JsonO
         (status = INTERNAL_SERVER_ERROR, description = "Server error", body = ErrorResponse, content_type = "application/json"),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/token/exchange", err, fields(texas.cache_hit, texas.cache_skipped, texas.identity_provider = %request.identity_provider, texas.target = %request.target))]
-pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<TokenExchangeRequest>) -> Result<impl IntoResponse, ApiError> {
+#[instrument(skip_all, name = "Handle /api/v1/token/exchange", err, fields(
+    texas.cache_hit,
+    texas.cache_skipped,
+    texas.identity_provider = %request.identity_provider,
+    texas.target = %request.target
+))]
+pub async fn token_exchange(
+    State(state): State<HandlerState>,
+    JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
+) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token/exchange";
 
     let skip_cache = request.skip_cache.unwrap_or(false);
@@ -196,7 +220,10 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
     }
 
     if !provider_enabled {
-        return Err(identity_provider_not_enabled_error(PATH, request.identity_provider));
+        return Err(identity_provider_not_enabled_error(
+            PATH,
+            request.identity_provider,
+        ));
     }
 
     let err = ApiError::TokenExchangeUnsupported(request.identity_provider);
@@ -242,8 +269,13 @@ pub async fn token_exchange(State(state): State<HandlerState>, JsonOrForm(reques
         ),
     )
 )]
-#[instrument(skip_all, name = "Handle /api/v1/introspect", err, fields(texas.identity_provider = %request.identity_provider))]
-pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): JsonOrForm<IntrospectRequest>) -> IntrospectResult {
+#[instrument(skip_all, name = "Handle /api/v1/introspect", err, fields(
+    texas.identity_provider = %request.identity_provider
+))]
+pub async fn introspect(
+    State(state): State<HandlerState>,
+    JsonOrForm(request): JsonOrForm<IntrospectRequest>,
+) -> IntrospectResult {
     const PATH: &str = "/api/v1/introspect";
     inc_token_introspections(PATH, request.identity_provider);
 
@@ -261,10 +293,15 @@ pub async fn introspect(State(state): State<HandlerState>, JsonOrForm(request): 
     }
 
     if !provider_enabled {
-        return Err(IntrospectResponse::new_invalid(identity_provider_not_enabled_error(PATH, request.identity_provider)));
+        return Err(IntrospectResponse::new_invalid(
+            identity_provider_not_enabled_error(PATH, request.identity_provider),
+        ));
     }
 
-    let error_message = format!("identity provider '{}' does not support introspection", request.identity_provider);
+    let error_message = format!(
+        "identity provider '{}' does not support introspection",
+        request.identity_provider
+    );
     Err(IntrospectResponse::new_invalid(error_message))
 }
 
@@ -287,7 +324,11 @@ pub enum InitError {
     Jwks(#[from] jwks::Error),
 }
 
-async fn new<R, A>(kind: IdentityProvider, provider_cfg: &config::Provider, audience: Option<String>) -> Result<Arc<RwLock<Box<dyn ProviderHandler>>>, InitError>
+async fn new<R, A>(
+    kind: IdentityProvider,
+    provider_cfg: &config::Provider,
+    audience: Option<String>,
+) -> Result<Arc<RwLock<Box<dyn ProviderHandler>>>, InitError>
 where
     R: TokenRequestBuilder + 'static,
     A: Assertion + 'static,
@@ -300,9 +341,13 @@ where
             provider_cfg.issuer.clone(),
             provider_cfg.token_endpoint.clone(),
             provider_cfg.client_jwk.clone(),
-            jwks::Jwks::new(&provider_cfg.issuer.clone(), &provider_cfg.jwks_uri.clone(), audience)
-                .await
-                .map_err(InitError::Jwks)?,
+            jwks::Jwks::new(
+                &provider_cfg.issuer.clone(),
+                &provider_cfg.jwks_uri.clone(),
+                audience,
+            )
+            .await
+            .map_err(InitError::Jwks)?,
         )
         .map_err(InitError::Jwk)?,
     ))))
@@ -322,30 +367,67 @@ impl HandlerState {
         let mut providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>> = vec![];
 
         if let Some(provider_cfg) = &cfg.maskinporten {
-            debug!("Fetch JWKS for Maskinporten from '{}'...", provider_cfg.jwks_uri);
-            let provider = new::<JWTBearer, JWTBearerAssertion>(IdentityProvider::Maskinporten, provider_cfg, None).await?;
+            debug!(
+                "Fetch JWKS for Maskinporten from '{}'...",
+                provider_cfg.jwks_uri
+            );
+            let provider = new::<JWTBearer, JWTBearerAssertion>(
+                IdentityProvider::Maskinporten,
+                provider_cfg,
+                None,
+            )
+            .await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.azure_ad {
-            debug!("Fetch JWKS for Azure AD (on behalf of) from '{}'...", provider_cfg.jwks_uri);
-            let provider = new::<OnBehalfOf, ClientAssertion>(IdentityProvider::AzureAD, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
+            debug!(
+                "Fetch JWKS for Azure AD (on behalf of) from '{}'...",
+                provider_cfg.jwks_uri
+            );
+            let provider = new::<OnBehalfOf, ClientAssertion>(
+                IdentityProvider::AzureAD,
+                provider_cfg,
+                Some(provider_cfg.client_id.clone()),
+            )
+            .await?;
             providers.push(provider);
 
-            debug!("Fetch JWKS for Azure AD (client credentials) from '{}'...", provider_cfg.jwks_uri);
-            let provider = new::<ClientCredentials, ClientAssertion>(IdentityProvider::AzureAD, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
+            debug!(
+                "Fetch JWKS for Azure AD (client credentials) from '{}'...",
+                provider_cfg.jwks_uri
+            );
+            let provider = new::<ClientCredentials, ClientAssertion>(
+                IdentityProvider::AzureAD,
+                provider_cfg,
+                Some(provider_cfg.client_id.clone()),
+            )
+            .await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.token_x {
             debug!("Fetch JWKS for TokenX from '{}'...", provider_cfg.jwks_uri);
-            let provider = new::<TokenExchange, ClientAssertion>(IdentityProvider::TokenX, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
+            let provider = new::<TokenExchange, ClientAssertion>(
+                IdentityProvider::TokenX,
+                provider_cfg,
+                Some(provider_cfg.client_id.clone()),
+            )
+            .await?;
             providers.push(provider);
         }
 
         if let Some(provider_cfg) = &cfg.idporten {
-            debug!("Fetch JWKS for ID-porten from '{}'...", provider_cfg.jwks_uri);
-            let provider = new::<(), ()>(IdentityProvider::IDPorten, provider_cfg, Some(provider_cfg.client_id.clone())).await?;
+            debug!(
+                "Fetch JWKS for ID-porten from '{}'...",
+                provider_cfg.jwks_uri
+            );
+            let provider = new::<(), ()>(
+                IdentityProvider::IDPorten,
+                provider_cfg,
+                Some(provider_cfg.client_id.clone()),
+            )
+            .await?;
             providers.push(provider);
         }
 
@@ -374,7 +456,10 @@ pub enum ApiError {
     UpstreamRequest(reqwest_middleware::Error),
 
     #[error("upstream: status code={status_code}: {error}")]
-    Upstream { status_code: StatusCode, error: ErrorResponse },
+    Upstream {
+        status_code: StatusCode,
+        error: ErrorResponse,
+    },
 
     #[error("invalid JSON in token response: {0}")]
     JSON(reqwest::Error),
@@ -467,10 +552,18 @@ where
                 return match Json::<T>::from_request(req, state).await {
                     Ok(payload) => Ok(Self(payload.0)),
                     Err(rejection) => Err(match rejection {
-                        JsonRejection::MissingJsonContentType(err) => ApiError::UnsupportedMediaType(err.body_text()),
-                        JsonRejection::JsonDataError(err) => ApiError::UnprocessableContent(err.body_text()),
-                        JsonRejection::JsonSyntaxError(err) => ApiError::UnprocessableContent(err.body_text()),
-                        JsonRejection::BytesRejection(err) => ApiError::UnprocessableContent(err.body_text()),
+                        JsonRejection::MissingJsonContentType(err) => {
+                            ApiError::UnsupportedMediaType(err.body_text())
+                        }
+                        JsonRejection::JsonDataError(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        JsonRejection::JsonSyntaxError(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        JsonRejection::BytesRejection(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
                         err => ApiError::UnprocessableContent(err.body_text()),
                     }),
                 };
@@ -480,10 +573,18 @@ where
                 return match Form::<T>::from_request(req, state).await {
                     Ok(payload) => Ok(Self(payload.0)),
                     Err(rejection) => Err(match rejection {
-                        FormRejection::InvalidFormContentType(err) => ApiError::UnsupportedMediaType(err.body_text()),
-                        FormRejection::FailedToDeserializeForm(err) => ApiError::UnprocessableContent(err.body_text()),
-                        FormRejection::FailedToDeserializeFormBody(err) => ApiError::UnprocessableContent(err.body_text()),
-                        FormRejection::BytesRejection(err) => ApiError::UnprocessableContent(err.body_text()),
+                        FormRejection::InvalidFormContentType(err) => {
+                            ApiError::UnsupportedMediaType(err.body_text())
+                        }
+                        FormRejection::FailedToDeserializeForm(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        FormRejection::FailedToDeserializeFormBody(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
+                        FormRejection::BytesRejection(err) => {
+                            ApiError::UnprocessableContent(err.body_text())
+                        }
                         err => ApiError::UnprocessableContent(err.body_text()),
                     }),
                 };
