@@ -410,6 +410,7 @@
           },
           "expires_in": {
             "type": "integer",
+            "format": "int64",
             "description": "Token expiry in seconds. Useful for caching purposes.",
             "minimum": 0
           },
