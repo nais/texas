@@ -1,10 +1,10 @@
-use crate::claims::{Assertion, serialize};
-use crate::grants::{
+use crate::handler::ApiError;
+use crate::oauth::assertion::{Assertion, serialize};
+use crate::oauth::grant::{
     ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder,
     TokenRequestBuilderParams,
 };
-use crate::handlers::ApiError;
-use crate::jwks;
+use crate::oauth::token;
 use async_trait::async_trait;
 use derivative::Derivative;
 use jsonwebkey as jwk;
@@ -271,7 +271,7 @@ pub struct Provider<R, A> {
     identity_provider_kind: IdentityProvider,
     private_jwk: Option<jwt::EncodingKey>,
     client_assertion_header: Option<jwt::Header>,
-    upstream_jwks: jwks::Jwks,
+    upstream_jwks: token::Jwks,
     http_client: reqwest_middleware::ClientWithMiddleware,
     _fake_request: PhantomData<R>,
     _fake_assertion: PhantomData<A>,
@@ -303,7 +303,7 @@ where
         issuer: String,
         token_endpoint: Option<String>,
         private_jwk: Option<String>,
-        upstream_jwks: jwks::Jwks,
+        upstream_jwks: token::Jwks,
     ) -> Result<Self, ProviderError> {
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
             let client_private_jwk: jwk::JsonWebKey =

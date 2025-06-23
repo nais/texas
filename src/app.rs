@@ -1,10 +1,10 @@
 use crate::app::Error::LocalAddress;
 use crate::config::Config;
-use crate::handlers::__path_introspect;
-use crate::handlers::__path_token;
-use crate::handlers::__path_token_exchange;
-use crate::handlers::{HandlerState, introspect, token, token_exchange};
-use crate::{config, handlers};
+use crate::handler::__path_introspect;
+use crate::handler::__path_token;
+use crate::handler::__path_token_exchange;
+use crate::handler::{HandlerState, introspect, token, token_exchange};
+use crate::{config, handler};
 use axum::Router;
 use axum::extract::MatchedPath;
 use axum::http::{Request, StatusCode};
@@ -46,7 +46,7 @@ pub enum Error {
     #[error("describe socket local address: {0}")]
     LocalAddress(std::io::Error),
     #[error("{0}")]
-    InitHandlerState(handlers::InitError),
+    InitHandlerState(handler::InitError),
     #[error("invalid configuration: {0}")]
     Configuration(config::Error),
 }

@@ -1,9 +1,11 @@
 pub mod app;
 pub mod cache;
-pub mod claims;
 pub mod config;
-pub mod grants;
-pub mod handlers;
-pub mod identity_provider;
-pub mod jwks;
+pub mod handler;
+pub mod oauth {
+    pub mod assertion;
+    pub mod grant;
+    pub mod identity_provider;
+    pub mod token;
+}
 pub mod tracing;

@@ -1,4 +1,4 @@
-use crate::claims::epoch_now_secs;
+use crate::oauth::assertion::epoch_now_secs;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use jsonwebtoken::Validation;

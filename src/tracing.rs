@@ -1,4 +1,4 @@
-use crate::identity_provider::IdentityProvider;
+use crate::oauth::identity_provider::IdentityProvider;
 use axum::http::StatusCode;
 use log::debug;
 use opentelemetry::metrics::{Counter, Histogram, Meter};

@@ -3,7 +3,7 @@ use crate::helpers::{app, http, jwt};
 use pretty_assertions::{assert_eq, assert_ne};
 use reqwest::StatusCode;
 use test_log::test;
-use texas::identity_provider::{
+use texas::oauth::identity_provider::{
     ErrorResponse, IdentityProvider, IntrospectRequest, OAuthErrorCode, TokenExchangeRequest,
     TokenResponse,
 };

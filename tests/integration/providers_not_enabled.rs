@@ -1,7 +1,7 @@
 use crate::helpers::{app, http};
 use axum::http::StatusCode;
 use test_log::test;
-use texas::identity_provider::{
+use texas::oauth::identity_provider::{
     ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode,
     TokenExchangeRequest, TokenRequest,
 };

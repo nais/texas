@@ -5,7 +5,7 @@ use log::info;
 use pretty_assertions::assert_eq;
 use texas::app::App;
 use texas::config::Config;
-use texas::identity_provider::{
+use texas::oauth::identity_provider::{
     IntrospectRequest, IntrospectResponse, TokenExchangeRequest, TokenRequest, TokenResponse,
 };
 

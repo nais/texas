@@ -1,6 +1,6 @@
 use std::io::Write;
 use texas::app::App;
-use texas::handlers::HandlerState;
+use texas::handler::HandlerState;
 
 /// Write the OpenAPI specification to standard output.
 #[tokio::main]

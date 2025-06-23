@@ -2,7 +2,7 @@ use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use serde_json::Value;
 use std::collections::HashMap;
-use texas::identity_provider::IntrospectResponse;
+use texas::oauth::identity_provider::IntrospectResponse;
 
 pub type TokenClaims = HashMap<String, Value>;
 

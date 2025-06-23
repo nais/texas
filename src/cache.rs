@@ -1,4 +1,4 @@
-use crate::identity_provider::TokenResponse;
+use crate::oauth::identity_provider::TokenResponse;
 use moka::Expiry;
 use std::time::{Duration, Instant};
 

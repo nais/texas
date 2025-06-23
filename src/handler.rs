@@ -1,17 +1,20 @@
 use crate::cache::{CachedTokenResponse, TokenResponseExpiry};
-use crate::claims::{Assertion, ClientAssertion, JWTBearerAssertion};
+use crate::config;
 use crate::config::Config;
-use crate::grants::{ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder};
-use crate::identity_provider::{
+use crate::oauth::assertion::{Assertion, ClientAssertion, JWTBearerAssertion};
+use crate::oauth::grant::{
+    ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder,
+};
+use crate::oauth::identity_provider::{
     ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode,
     Provider, ProviderError, ProviderHandler, ShouldHandler, TokenExchangeRequest, TokenRequest,
     TokenResponse, TokenType,
 };
+use crate::oauth::token;
 use crate::tracing::{
     inc_handler_errors, inc_token_cache_hits, inc_token_exchanges, inc_token_introspections,
     inc_token_requests,
 };
-use crate::{config, jwks};
 use axum::Form;
 use axum::Json;
 use axum::extract::FromRequest;
@@ -321,7 +324,7 @@ pub enum InitError {
     Jwk(ProviderError),
 
     #[error("fetch JWKS from remote endpoint: {0}")]
-    Jwks(#[from] jwks::Error),
+    Jwks(#[from] token::Error),
 }
 
 async fn new<R, A>(
@@ -341,7 +344,7 @@ where
             provider_cfg.issuer.clone(),
             provider_cfg.token_endpoint.clone(),
             provider_cfg.client_jwk.clone(),
-            jwks::Jwks::new(
+            token::Jwks::new(
                 &provider_cfg.issuer.clone(),
                 &provider_cfg.jwks_uri.clone(),
                 audience,

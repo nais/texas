@@ -5,7 +5,7 @@ use reqwest::StatusCode;
 use serde_json::json;
 use std::collections::HashMap;
 use test_log::test;
-use texas::identity_provider::{
+use texas::oauth::identity_provider::{
     ErrorResponse, IdentityProvider, IntrospectRequest, OAuthErrorCode, TokenRequest,
 };
 

@@ -4,7 +4,7 @@ use reqwest::{Error, Response};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
-use texas::identity_provider::{IdentityProvider, TokenResponse};
+use texas::oauth::identity_provider::{IdentityProvider, TokenResponse};
 
 #[derive(Clone)]
 pub enum RequestFormat {

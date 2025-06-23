@@ -4,8 +4,8 @@ use crate::helpers::{app, http, jwt};
 use reqwest::StatusCode;
 use serde_json::Value;
 use test_log::test;
-use texas::claims::epoch_now_secs;
-use texas::identity_provider::{
+use texas::oauth::assertion::epoch_now_secs;
+use texas::oauth::identity_provider::{
     IdentityProvider, IntrospectRequest, IntrospectResponse, TokenRequest, TokenResponse,
 };
 
