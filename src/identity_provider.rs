@@ -95,35 +95,10 @@ impl Display for IntrospectResponse {
     }
 }
 
-#[cfg(test)]
-impl IntrospectResponse {
-    pub fn has_claims(&self) -> bool {
-        !self.extra.is_empty()
-    }
-
-    pub fn subject(&self) -> Option<String> {
-        self.get_string_claim("sub")
-    }
-
-    pub fn issuer(&self) -> Option<String> {
-        self.get_string_claim("iss")
-    }
-
-    pub fn jwt_id(&self) -> Option<String> {
-        self.get_string_claim("jti")
-    }
-
-    fn get_string_claim(&self, claim: &str) -> Option<String> {
-        self.extra
-            .get(claim)
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-    }
-}
-
 #[test]
 fn test_introspect_response_serialization_format() {
+    use pretty_assertions::assert_eq;
+
     let ok = IntrospectResponse::new([("foo".into(), Value::String("bar".into()))]);
     let failed = IntrospectResponse::new_invalid("my error");
 
@@ -201,6 +176,8 @@ impl PartialSchema for OAuthErrorCode {
 
 #[test]
 fn test_serde_oauth_error() {
+    use pretty_assertions::assert_eq;
+
     let known_code_variant =
         r#"{"error":"invalid_request","error_description":"some description"}"#;
     let unknown_code_variant =
