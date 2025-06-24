@@ -1,6 +1,3 @@
-dependencies:
-  - allOf:
-      - naiserator
 environmentKinds:
   - tenant
   - legacy
