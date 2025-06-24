@@ -433,17 +433,14 @@ where
 
         let status = response.status();
         if status >= StatusCode::BAD_REQUEST {
-            let err: ErrorResponse = response
-                .json()
-                .await
-                .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-                .map_err(ApiError::JSON)?;
-            let err = ApiError::Upstream {
+            return Err(ApiError::Upstream {
                 status_code: status,
-                error: err,
-            };
-            error!("get_token_with_config: {}", err);
-            return Err(err);
+                error: response
+                    .json()
+                    .await
+                    .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
+                    .map_err(ApiError::JSON)?,
+            });
         }
 
         Ok(response
