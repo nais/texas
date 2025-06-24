@@ -100,7 +100,7 @@ impl Jwks {
     }
 
     /// Pull a new version of the JWKS from the original endpoint.
-    #[instrument(skip_all, name = "Refresh JWKS", err)]
+    #[instrument(skip_all, name = "Refresh JWKS")]
     pub async fn refresh(&mut self) -> Result<(), Error> {
         let new_jwks =
             Self::new(&self.issuer, &self.endpoint, self.required_audience.clone()).await?;
@@ -111,7 +111,7 @@ impl Jwks {
     /// Check a JWT against a JWKS.
     /// Returns the JWT's claims on success.
     /// May update the list of signing keys if the key ID is not found.
-    #[instrument(skip_all, name = "Validate token signature and claims", err)]
+    #[instrument(skip_all, name = "Validate token signature and claims")]
     pub async fn validate(&mut self, token: &str) -> Result<HashMap<String, Value>, Error> {
         let key_id = jwt::decode_header(token)
             .map_err(Error::InvalidTokenHeader)?

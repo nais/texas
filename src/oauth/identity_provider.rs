@@ -411,7 +411,7 @@ where
             .map_or_else(IntrospectResponse::new_invalid, IntrospectResponse::new)
     }
 
-    #[instrument(skip_all, name = "Request token from upstream identity provider", err)]
+    #[instrument(skip_all, name = "Request token from upstream identity provider")]
     async fn get_token_from_idprovider(
         &self,
         config: TokenRequestBuilderParams,
