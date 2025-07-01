@@ -82,7 +82,7 @@ Texas abstracts away and handles the boring parts of OAuth 2 and JWTs.
 It does this by offering a simple API for acquiring, exchanging, and introspecting tokens.
 
 For further details, see the [OpenAPI specification](./doc/openapi-spec.json)
-([view in Swagger Editor](https://editor.swagger.io/?url=https://raw.githubusercontent.com/nais/texas/refs/heads/master/doc/openapi-spec.json)).
+([view in Swagger Editor](https://editor-next.swagger.io/?url=https://raw.githubusercontent.com/nais/texas/refs/heads/master/doc/openapi-spec.json)).
 
 ### `/api/v1/token`
 
