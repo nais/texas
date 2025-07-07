@@ -7,6 +7,7 @@ use thiserror::Error;
 #[derive(Serialize, Debug, Clone, Default)]
 pub struct Config {
     pub bind_address: String,
+    pub probe_bind_address: Option<String>,
     pub maskinporten: Option<Provider>,
     pub azure_ad: Option<Provider>,
     pub token_x: Option<Provider>,
@@ -119,6 +120,7 @@ impl Config {
     pub fn new_from_env() -> Result<Self, Error> {
         Ok(Self {
             bind_address: std::env::var("BIND_ADDRESS").unwrap_or("127.0.0.1:3000".to_string()),
+            probe_bind_address: std::env::var("PROBE_BIND_ADDRESS").ok(),
             azure_ad: Provider::new_from_azure_env()?,
             maskinporten: Provider::new_from_env_with_prefix("MASKINPORTEN")?,
             token_x: Provider::new_from_tokenx_env()?,

@@ -6,7 +6,7 @@ mod helpers {
     pub mod jwt;
 }
 mod introspect;
-mod ping;
+mod probe;
 mod providers_not_enabled;
 mod token;
 mod token_exchange;

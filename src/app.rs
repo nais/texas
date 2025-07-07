@@ -1,4 +1,3 @@
-use crate::app::Error::LocalAddress;
 use crate::config::Config;
 use crate::handler::__path_introspect;
 use crate::handler::__path_token;
@@ -29,6 +28,7 @@ use utoipa_axum::routes;
 pub struct App {
     router: Router,
     pub listener: TcpListener,
+    pub probe_listener: Option<TcpListener>,
 }
 
 #[derive(OpenApi)]
@@ -43,8 +43,6 @@ pub struct ApiDoc;
 pub enum Error {
     #[error("set up listening socket: {0}")]
     BindAddress(std::io::Error),
-    #[error("describe socket local address: {0}")]
-    LocalAddress(std::io::Error),
     #[error("{0}")]
     InitHandlerState(handler::InitError),
     #[error("invalid configuration: {0}")]
@@ -61,51 +59,54 @@ impl App {
         let bind_address = cfg.bind_address.clone();
         let listener = TcpListener::bind(bind_address).await.map_err(Error::BindAddress)?;
 
+        let probe_listener = if let Some(addr) = cfg.probe_bind_address.as_ref() {
+            Some(TcpListener::bind(addr).await.map_err(Error::BindAddress)?)
+        } else {
+            None
+        };
+
         let state = HandlerState::from_config(cfg).await.map_err(Error::InitHandlerState)?;
         let app = Self::router(state);
-
-        let local_addr = listener.local_addr().map_err(LocalAddress)?;
-        info!("Serving on http://{local_addr:?}");
-        #[cfg(feature = "openapi")]
-        info!(
-            "Swagger API documentation: http://{:?}/swagger-ui",
-            local_addr
-        );
 
         Ok(Self {
             router: app,
             listener,
+            probe_listener,
         })
     }
 
     pub async fn run(self) {
-        // Although this future resolves to `io::Result<()>`,
-        // it will never actually complete or return an error.
-        axum::serve(self.listener, self.router)
-            .with_graceful_shutdown(Self::shutdown_signal())
-            .await
-            .unwrap();
-    }
+        let api_addr =
+            self.listener.local_addr().expect("failed to get local address of api listener");
+        info!("Serving API on http://{api_addr:?}");
+        #[cfg(feature = "openapi")]
+        info!(
+            "Swagger API documentation: http://{:?}/swagger-ui",
+            api_addr
+        );
 
-    async fn shutdown_signal() {
-        let ctrl_c = async {
-            signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
-        };
+        if let Some(probe_listener) = self.probe_listener {
+            let probe_addr =
+                probe_listener.local_addr().expect("failed to get local address of probe listener");
+            debug!("Serving probes on http://{probe_addr:?}");
 
-        #[cfg(unix)]
-        let terminate = async {
-            signal::unix::signal(signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler")
-                .recv()
-                .await;
-        };
-        #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
-
-        tokio::select! {
-            () = ctrl_c => debug!{"Received Ctrl+C / SIGINT"},
-            () = terminate => debug!{"Received SIGTERM"},
+            let api_service = tokio::task::spawn(async move {
+                serve(self.listener, self.router).await;
+            });
+            let probe_service = tokio::task::spawn(async move {
+                async fn healthz() -> (StatusCode, &'static str) {
+                    (StatusCode::OK, "ok")
+                }
+                let probe_router =
+                    Router::new().route("/", get(healthz)).route("/healthz", get(healthz));
+                serve(probe_listener, probe_router).await;
+            });
+            let _ = tokio::try_join!(api_service, probe_service);
+        } else {
+            serve(self.listener, self.router).await;
         }
+
+        debug!("Texas shut down gracefully");
     }
 
     pub fn routes(state: HandlerState) -> (Router, openapi::OpenApi) {
@@ -145,8 +146,6 @@ impl App {
                 span.record("http.response.status_code", response.status().as_u16());
                 crate::tracing::record_http_response_secs(&path, latency, response.status());
             });
-        let probes =
-            OpenApiRouter::default().route("/ping", get(|| async { (StatusCode::OK, "pong") }));
         let api = OpenApiRouter::default()
             .routes(routes!(token))
             .routes(routes!(token_exchange))
@@ -154,7 +153,7 @@ impl App {
             .layer(trace_layer)
             .with_state(state);
 
-        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(api).merge(probes).split_for_parts()
+        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(api).split_for_parts()
     }
 
     #[cfg(not(feature = "openapi"))]
@@ -168,5 +167,31 @@ impl App {
         use utoipa_swagger_ui::SwaggerUi;
         let (router, openapi) = Self::routes(state);
         router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()))
+    }
+}
+
+async fn serve(listener: TcpListener, router: Router) {
+    // axum::serve doesn't actually return an error according to the documentation, so we unwrap here
+    axum::serve(listener, router).with_graceful_shutdown(shutdown_signal()).await.unwrap();
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => debug!{"Received Ctrl+C / SIGINT"},
+        () = terminate => debug!{"Received SIGTERM"},
     }
 }

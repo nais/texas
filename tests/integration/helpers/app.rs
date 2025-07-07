@@ -57,6 +57,10 @@ impl TestApp {
         self.app.listener.local_addr().map(|addr| addr.to_string()).unwrap()
     }
 
+    pub fn probe_address(&self) -> Option<String> {
+        self.app.probe_listener.as_ref()?.local_addr().map(|addr| addr.to_string()).ok()
+    }
+
     pub async fn run(self) {
         self.app.run().await;
     }

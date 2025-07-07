@@ -16,12 +16,21 @@ impl RuntimeParams {
         use testcontainers::core::{ImageExt, IntoContainerPort, WaitFor};
         use testcontainers::runners::AsyncRunner;
 
+        fn wait_for_provider(identity_provider: &str) -> WaitFor {
+            WaitFor::Http(Box::new(
+                HttpWaitStrategy::new(format!(
+                    "/{identity_provider}/.well-known/openid-configuration"
+                ))
+                .with_expected_status_code(StatusCode::OK),
+            ))
+        }
+
         let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "2.2.1")
             .with_exposed_port(8080.tcp())
-            .with_wait_for(WaitFor::Http(Box::new(
-                HttpWaitStrategy::new("/maskinporten/.well-known/openid-configuration")
-                    .with_expected_status_code(StatusCode::OK),
-            )))
+            .with_wait_for(wait_for_provider("azuread"))
+            .with_wait_for(wait_for_provider("idporten"))
+            .with_wait_for(wait_for_provider("maskinporten"))
+            .with_wait_for(wait_for_provider("tokenx"))
             .with_env_var("JSON_CONFIG", MockOAuthServerConfig::new().to_json())
             .start()
             .await
