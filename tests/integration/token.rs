@@ -21,14 +21,18 @@ use texas::oauth::identity_provider::{
 async fn all_providers() {
     let testapp = app::TestApp::new().await;
     let address = testapp.address();
+    let azure_issuer = testapp.azure_issuer();
+    let azure_client_id = testapp.azure_client_id();
+    let maskinporten_issuer = testapp.maskinporten_issuer();
+
     let join_handler = tokio::spawn(async move {
-        testapp.app.run().await;
+        testapp.run().await;
     });
 
     // All happy cases
     for format in [RequestFormat::Form, RequestFormat::Json] {
         machine_to_machine_token(
-            &testapp.cfg.maskinporten.clone().unwrap().issuer,
+            &maskinporten_issuer,
             "scope",
             &address,
             IdentityProvider::Maskinporten,
@@ -37,8 +41,8 @@ async fn all_providers() {
         .await;
 
         machine_to_machine_token(
-            &testapp.cfg.azure_ad.clone().unwrap().issuer,
-            &testapp.cfg.azure_ad.clone().unwrap().client_id,
+            &azure_issuer,
+            &azure_client_id,
             &address,
             IdentityProvider::AzureAD,
             format.clone(),

@@ -11,9 +11,9 @@ use texas::oauth::identity_provider::{
 };
 
 pub struct TestApp {
-    pub app: App,
-    pub cfg: Config,
-    pub docker: Option<docker::RuntimeParams>,
+    app: App,
+    cfg: Config,
+    docker: Option<docker::RuntimeParams>,
 }
 
 impl TestApp {
@@ -59,6 +59,38 @@ impl TestApp {
 
     pub fn probe_address(&self) -> Option<String> {
         self.app.probe_listener.as_ref()?.local_addr().map(|addr| addr.to_string()).ok()
+    }
+
+    pub fn identity_provider_address(&self) -> String {
+        if let Some(docker) = &self.docker {
+            format!("{}:{}", docker.host, docker.port)
+        } else {
+            "localhost:8080".to_string()
+        }
+    }
+
+    pub fn azure_issuer(&self) -> String {
+        self.cfg.azure_ad.clone().unwrap().issuer
+    }
+
+    pub fn azure_client_id(&self) -> String {
+        self.cfg.azure_ad.clone().unwrap().client_id
+    }
+
+    pub fn idporten_issuer(&self) -> String {
+        self.cfg.idporten.clone().unwrap().issuer
+    }
+
+    pub fn maskinporten_issuer(&self) -> String {
+        self.cfg.maskinporten.clone().unwrap().issuer
+    }
+
+    pub fn token_x_issuer(&self) -> String {
+        self.cfg.token_x.clone().unwrap().issuer
+    }
+
+    pub fn token_x_client_id(&self) -> String {
+        self.cfg.token_x.clone().unwrap().client_id
     }
 
     pub async fn run(self) {

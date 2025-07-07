@@ -21,17 +21,21 @@ use texas::oauth::identity_provider::{
 async fn all_providers() {
     let testapp = app::TestApp::new().await;
     let address = testapp.address();
+    let identity_provider_address = testapp.identity_provider_address();
+    let azure_issuer = testapp.azure_issuer();
+    let azure_client_id = testapp.azure_client_id();
+    let token_x_issuer = testapp.token_x_issuer();
+    let token_x_client_id = testapp.token_x_client_id();
+
     let join_handler = tokio::spawn(async move {
-        testapp.app.run().await;
+        testapp.run().await;
     });
-    let docker = testapp.docker.unwrap();
-    let identity_provider_address = format!("{}:{}", docker.host.clone(), docker.port);
 
     // All happy cases
     for format in [RequestFormat::Form, RequestFormat::Json] {
         token_exchange_token(
-            &testapp.cfg.azure_ad.clone().unwrap().issuer,
-            &testapp.cfg.azure_ad.clone().unwrap().client_id,
+            &azure_issuer,
+            &azure_client_id,
             &address,
             &identity_provider_address,
             IdentityProvider::AzureAD,
@@ -40,8 +44,8 @@ async fn all_providers() {
         .await;
 
         token_exchange_token(
-            &testapp.cfg.token_x.clone().unwrap().issuer,
-            &testapp.cfg.token_x.clone().unwrap().client_id,
+            &token_x_issuer,
+            &token_x_client_id,
             &address,
             &identity_provider_address,
             IdentityProvider::TokenX,

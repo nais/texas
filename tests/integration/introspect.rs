@@ -16,16 +16,20 @@ use texas::oauth::identity_provider::{
 async fn all_providers() {
     let testapp = app::TestApp::new().await;
     let address = testapp.address();
+    let identity_provider_address = testapp.identity_provider_address();
+    let azure_issuer = testapp.azure_issuer();
+    let idporten_issuer = testapp.idporten_issuer();
+    let maskinporten_issuer = testapp.maskinporten_issuer();
+    let token_x_issuer = testapp.token_x_issuer();
+
     let join_handler = tokio::spawn(async move {
-        testapp.app.run().await;
+        testapp.run().await;
     });
-    let docker = testapp.docker.unwrap();
-    let identity_provider_address = format!("{}:{}", docker.host.clone(), docker.port);
 
     // All happy cases
     for format in [RequestFormat::Form, RequestFormat::Json] {
         introspect_token(
-            &testapp.cfg.azure_ad.clone().unwrap().issuer,
+            &azure_issuer,
             &address,
             &identity_provider_address,
             IdentityProvider::AzureAD,
@@ -34,7 +38,7 @@ async fn all_providers() {
         .await;
 
         introspect_token(
-            &testapp.cfg.idporten.clone().unwrap().issuer,
+            &idporten_issuer,
             &address,
             &identity_provider_address,
             IdentityProvider::IDPorten,
@@ -43,7 +47,7 @@ async fn all_providers() {
         .await;
 
         introspect_token(
-            &testapp.cfg.maskinporten.clone().unwrap().issuer,
+            &maskinporten_issuer,
             &address,
             &identity_provider_address,
             IdentityProvider::Maskinporten,
@@ -52,7 +56,7 @@ async fn all_providers() {
         .await;
 
         introspect_token(
-            &testapp.cfg.token_x.clone().unwrap().issuer,
+            &token_x_issuer,
             &address,
             &identity_provider_address,
             IdentityProvider::TokenX,
