@@ -1,5 +1,5 @@
 use crate::helpers::http::RequestFormat;
-use crate::helpers::jwt::{Token, TokenClaims};
+use crate::helpers::jwt::{IntrospectClaims, Token, TokenClaims};
 use crate::helpers::{app, http, jwt};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -95,7 +95,7 @@ async fn introspect_token(
     )
     .await;
 
-    assert!(jwt::subject(&introspect_response).is_some());
+    assert!(introspect_response.subject().is_some());
 }
 
 async fn test_introspect_token_has_not_before_in_the_future(

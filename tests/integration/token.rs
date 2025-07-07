@@ -1,5 +1,6 @@
 use crate::helpers::http::RequestFormat;
-use crate::helpers::{app, http, jwt};
+use crate::helpers::jwt::IntrospectClaims;
+use crate::helpers::{app, http};
 use pretty_assertions::{assert_eq, assert_ne};
 use reqwest::StatusCode;
 use serde_json::json;
@@ -118,12 +119,12 @@ async fn machine_to_machine_token(
         different_token_response.access_token
     );
     assert_eq!(
-        jwt::issuer(&second_token_introspect),
-        jwt::issuer(&first_token_introspect)
+        second_token_introspect.issuer(),
+        first_token_introspect.issuer()
     );
     assert_eq!(
-        jwt::jwt_id(&second_token_introspect),
-        jwt::jwt_id(&first_token_introspect)
+        second_token_introspect.issuer(),
+        first_token_introspect.issuer()
     );
 
     // third token request with skip_cache=true should return a new token
@@ -163,21 +164,21 @@ async fn machine_to_machine_token(
     );
 
     assert_eq!(
-        jwt::issuer(&third_token_introspect),
-        jwt::issuer(&first_token_introspect)
+        third_token_introspect.issuer(),
+        first_token_introspect.issuer()
     );
     assert_eq!(
-        jwt::issuer(&third_token_introspect),
-        jwt::issuer(&second_token_introspect)
+        third_token_introspect.issuer(),
+        second_token_introspect.issuer()
     );
 
     assert_ne!(
-        jwt::jwt_id(&third_token_introspect),
-        jwt::jwt_id(&first_token_introspect)
+        third_token_introspect.jwt_id(),
+        first_token_introspect.jwt_id()
     );
     assert_ne!(
-        jwt::jwt_id(&third_token_introspect),
-        jwt::jwt_id(&second_token_introspect)
+        third_token_introspect.jwt_id(),
+        second_token_introspect.jwt_id()
     );
 }
 

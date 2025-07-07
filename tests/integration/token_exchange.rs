@@ -1,5 +1,6 @@
 use crate::helpers::http::RequestFormat;
-use crate::helpers::{app, http, jwt};
+use crate::helpers::jwt::IntrospectClaims;
+use crate::helpers::{app, http};
 use pretty_assertions::{assert_eq, assert_ne};
 use reqwest::StatusCode;
 use test_log::test;
@@ -88,7 +89,7 @@ async fn token_exchange_token(
     )
     .await;
 
-    assert!(jwt::subject(&first_token_introspect).is_some());
+    assert!(first_token_introspect.subject().is_some());
 
     // different target should return a different token
     let different_target_token_response = app::test_happy_path_token_exchange(
@@ -144,7 +145,7 @@ async fn token_exchange_token(
     )
     .await;
 
-    assert!(jwt::subject(&second_token_introspect).is_some());
+    assert!(second_token_introspect.subject().is_some());
 
     assert_eq!(
         second_token_response.access_token,
@@ -159,16 +160,16 @@ async fn token_exchange_token(
         different_user_token_response.access_token
     );
     assert_eq!(
-        jwt::issuer(&second_token_introspect),
-        jwt::issuer(&first_token_introspect)
+        second_token_introspect.issuer(),
+        first_token_introspect.issuer()
     );
     assert_eq!(
-        jwt::jwt_id(&second_token_introspect),
-        jwt::jwt_id(&first_token_introspect)
+        second_token_introspect.jwt_id(),
+        first_token_introspect.jwt_id()
     );
     assert_eq!(
-        jwt::subject(&second_token_introspect),
-        jwt::subject(&first_token_introspect)
+        second_token_introspect.subject(),
+        first_token_introspect.subject()
     );
 
     // third token request with skip_cache=true should return a new token
@@ -194,7 +195,7 @@ async fn token_exchange_token(
     )
     .await;
 
-    assert!(jwt::subject(&third_token_introspect).is_some());
+    assert!(third_token_introspect.subject().is_some());
 
     assert_ne!(
         third_token_response.access_token,
@@ -214,30 +215,30 @@ async fn token_exchange_token(
     );
 
     assert_eq!(
-        jwt::issuer(&third_token_introspect),
-        jwt::issuer(&first_token_introspect)
+        third_token_introspect.issuer(),
+        first_token_introspect.issuer()
     );
     assert_eq!(
-        jwt::issuer(&third_token_introspect),
-        jwt::issuer(&second_token_introspect)
+        third_token_introspect.issuer(),
+        second_token_introspect.issuer()
     );
 
     assert_ne!(
-        jwt::jwt_id(&third_token_introspect),
-        jwt::jwt_id(&first_token_introspect)
+        third_token_introspect.jwt_id(),
+        first_token_introspect.jwt_id()
     );
     assert_ne!(
-        jwt::jwt_id(&third_token_introspect),
-        jwt::jwt_id(&second_token_introspect)
+        third_token_introspect.jwt_id(),
+        second_token_introspect.jwt_id()
     );
 
     assert_eq!(
-        jwt::subject(&third_token_introspect),
-        jwt::subject(&first_token_introspect)
+        third_token_introspect.subject(),
+        first_token_introspect.subject()
     );
     assert_eq!(
-        jwt::subject(&third_token_introspect),
-        jwt::subject(&second_token_introspect)
+        third_token_introspect.subject(),
+        second_token_introspect.subject()
     );
 }
 

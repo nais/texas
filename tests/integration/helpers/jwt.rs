@@ -42,27 +42,36 @@ impl Token {
     }
 }
 
-pub fn has_claims(introspect_response: &IntrospectResponse) -> bool {
-    !introspect_response.extra.is_empty()
+pub trait IntrospectClaims {
+    fn has_claims(&self) -> bool;
+    fn subject(&self) -> Option<String>;
+    fn issuer(&self) -> Option<String>;
+    fn jwt_id(&self) -> Option<String>;
+    fn get_string_claim(&self, claim: &str) -> Option<String>;
 }
 
-pub fn subject(introspect_response: &IntrospectResponse) -> Option<String> {
-    get_string_claim(introspect_response, "sub")
-}
+impl IntrospectClaims for IntrospectResponse {
+    fn has_claims(&self) -> bool {
+        !self.extra.is_empty()
+    }
 
-pub fn issuer(introspect_response: &IntrospectResponse) -> Option<String> {
-    get_string_claim(introspect_response, "iss")
-}
+    fn subject(&self) -> Option<String> {
+        self.get_string_claim("sub")
+    }
 
-pub fn jwt_id(introspect_response: &IntrospectResponse) -> Option<String> {
-    get_string_claim(introspect_response, "jti")
-}
+    fn issuer(&self) -> Option<String> {
+        self.get_string_claim("iss")
+    }
 
-fn get_string_claim(introspect_response: &IntrospectResponse, claim: &str) -> Option<String> {
-    introspect_response
-        .extra
-        .get(claim)
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+    fn jwt_id(&self) -> Option<String> {
+        self.get_string_claim("jti")
+    }
+
+    fn get_string_claim(&self, claim: &str) -> Option<String> {
+        self.extra
+            .get(claim)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    }
 }

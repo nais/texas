@@ -1,5 +1,6 @@
 use crate::helpers::http::RequestFormat;
-use crate::helpers::{config, docker, http, jwt};
+use crate::helpers::jwt::IntrospectClaims;
+use crate::helpers::{config, docker, http};
 use axum::http::StatusCode;
 use log::info;
 use pretty_assertions::assert_eq;
@@ -123,10 +124,10 @@ pub async fn test_happy_path_introspect(
         |resp: IntrospectResponse| {
             assert!(resp.active);
             assert!(resp.error.is_none());
-            assert!(jwt::has_claims(&resp));
-            assert!(jwt::issuer(&resp).is_some());
-            assert!(jwt::jwt_id(&resp).is_some());
-            assert_eq!(jwt::issuer(&resp).unwrap(), expected_issuer);
+            assert!(resp.has_claims());
+            assert!(resp.issuer().is_some());
+            assert!(resp.jwt_id().is_some());
+            assert_eq!(resp.issuer().unwrap(), expected_issuer);
         },
     )
     .await
