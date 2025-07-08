@@ -3,6 +3,7 @@ use crate::handler::__path_introspect;
 use crate::handler::__path_token;
 use crate::handler::__path_token_exchange;
 use crate::handler::{HandlerState, introspect, token, token_exchange};
+use crate::tracing::record_http_response_secs;
 use crate::{config, handler};
 use axum::Router;
 use axum::extract::MatchedPath;
@@ -43,6 +44,8 @@ pub struct ApiDoc;
 pub enum Error {
     #[error("set up listening socket: {0}")]
     BindAddress(std::io::Error),
+    #[error("describe socket local address: {0}")]
+    LocalAddress(std::io::Error),
     #[error("{0}")]
     InitHandlerState(handler::InitError),
     #[error("invalid configuration: {0}")]
@@ -58,116 +61,111 @@ impl App {
     pub async fn new_from_config(cfg: Config) -> Result<Self, Error> {
         let bind_address = cfg.bind_address.clone();
         let listener = TcpListener::bind(bind_address).await.map_err(Error::BindAddress)?;
+        let api_address = listener.local_addr().map_err(Error::LocalAddress)?;
+        info!("Serving API on http://{api_address:?}");
+        #[cfg(feature = "openapi")]
+        info!(
+            "Swagger API documentation: http://{:?}/swagger-ui",
+            api_address
+        );
 
         let probe_listener = if let Some(addr) = cfg.probe_bind_address.as_ref() {
-            Some(TcpListener::bind(addr).await.map_err(Error::BindAddress)?)
+            let listener = TcpListener::bind(addr).await.map_err(Error::BindAddress)?;
+            let probe_address = listener.local_addr().map_err(Error::LocalAddress)?;
+            debug!("Serving probes on http://{probe_address:?}");
+            Some(listener)
         } else {
             None
         };
 
         let state = HandlerState::from_config(cfg).await.map_err(Error::InitHandlerState)?;
-        let app = Self::router(state);
+
+        #[cfg(not(feature = "openapi"))]
+        let router = || -> Router {
+            let (router, _) = api_router(state);
+            router
+        };
+        #[cfg(feature = "openapi")]
+        let router = || -> Router {
+            use utoipa_swagger_ui::SwaggerUi;
+            let (router, openapi) = api_router(state);
+            router
+                .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()))
+        };
 
         Ok(Self {
-            router: app,
+            router: router(),
             listener,
             probe_listener,
         })
     }
 
     pub async fn run(self) {
-        let api_addr =
-            self.listener.local_addr().expect("failed to get local address of api listener");
-        info!("Serving API on http://{api_addr:?}");
-        #[cfg(feature = "openapi")]
-        info!(
-            "Swagger API documentation: http://{:?}/swagger-ui",
-            api_addr
-        );
-
         if let Some(probe_listener) = self.probe_listener {
-            let probe_addr =
-                probe_listener.local_addr().expect("failed to get local address of probe listener");
-            debug!("Serving probes on http://{probe_addr:?}");
-
-            let api_service = tokio::task::spawn(async move {
+            let api_handler = tokio::task::spawn(async move {
                 serve(self.listener, self.router).await;
             });
-            let probe_service = tokio::task::spawn(async move {
-                async fn healthz() -> (StatusCode, &'static str) {
-                    (StatusCode::OK, "ok")
-                }
-                let probe_router =
-                    Router::new().route("/", get(healthz)).route("/healthz", get(healthz));
-                serve(probe_listener, probe_router).await;
+            let probe_handler = tokio::task::spawn(async move {
+                serve(probe_listener, probe_router()).await;
             });
-            let _ = tokio::try_join!(api_service, probe_service);
+            let _ = tokio::try_join!(api_handler, probe_handler);
         } else {
             serve(self.listener, self.router).await;
         }
 
         debug!("Texas shut down gracefully");
     }
+}
 
-    pub fn routes(state: HandlerState) -> (Router, openapi::OpenApi) {
-        let trace_layer = TraceLayer::new_for_http()
-            .make_span_with(move |request: &Request<_>| {
-                // Log the matched route's path (with placeholders not filled in).
-                // Use request.uri() or OriginalUri if you want the real path.
-                let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
+pub fn api_router(state: HandlerState) -> (Router, openapi::OpenApi) {
+    let trace_layer = TraceLayer::new_for_http()
+        .make_span_with(move |request: &Request<_>| {
+            // Log the matched route's path (with placeholders not filled in).
+            // Use request.uri() or OriginalUri if you want the real path.
+            let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
 
-                // get tracing context from request
-                let parent_context =
-                    TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
+            // get tracing context from request
+            let parent_context =
+                TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
 
-                let root_span = info_span!(
-                    "Handle incoming request",
-                    "http.request.method" = ?request.method(),
-                    "http.response.status_code" = field::Empty, // to be populated in on_response
-                    "http.route" = path,
-                    "http.version" = ?request.version(),
-                    "otel.kind" = "server",
-                );
+            let root_span = info_span!(
+                "Handle incoming request",
+                "http.request.method" = ?request.method(),
+                "http.response.status_code" = field::Empty, // to be populated in on_response
+                "http.route" = path,
+                "http.version" = ?request.version(),
+                "otel.kind" = "server",
+            );
 
-                let context = parent_context.with_baggage(vec![KeyValue::new(
-                    "path".to_string(),
-                    path.unwrap_or_default().to_string(),
-                )]);
-                root_span.set_parent(context.clone());
-                root_span
-            })
-            .on_response(move |response: &Response, latency: Duration, span: &Span| {
-                let path = span
-                    .context()
-                    .baggage()
-                    .get("path")
-                    .map(ToString::to_string)
-                    .unwrap_or_default();
-                span.record("http.response.status_code", response.status().as_u16());
-                crate::tracing::record_http_response_secs(&path, latency, response.status());
-            });
-        let api = OpenApiRouter::default()
-            .routes(routes!(token))
-            .routes(routes!(token_exchange))
-            .routes(routes!(introspect))
-            .layer(trace_layer)
-            .with_state(state);
+            let context = parent_context.with_baggage(vec![KeyValue::new(
+                "path".to_string(),
+                path.unwrap_or_default().to_string(),
+            )]);
+            root_span.set_parent(context.clone());
+            root_span
+        })
+        .on_response(move |response: &Response, latency: Duration, span: &Span| {
+            let path =
+                span.context().baggage().get("path").map(ToString::to_string).unwrap_or_default();
+            span.record("http.response.status_code", response.status().as_u16());
+            record_http_response_secs(&path, latency, response.status());
+        });
+    let api = OpenApiRouter::default()
+        .routes(routes!(token))
+        .routes(routes!(token_exchange))
+        .routes(routes!(introspect))
+        .layer(trace_layer)
+        .with_state(state);
 
-        OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(api).split_for_parts()
+    OpenApiRouter::with_openapi(ApiDoc::openapi()).merge(api).split_for_parts()
+}
+
+fn probe_router() -> Router {
+    async fn healthz() -> (StatusCode, &'static str) {
+        (StatusCode::OK, "ok")
     }
 
-    #[cfg(not(feature = "openapi"))]
-    fn router(state: HandlerState) -> Router {
-        let (router, _) = Self::routes(state);
-        router
-    }
-
-    #[cfg(feature = "openapi")]
-    fn router(state: HandlerState) -> Router {
-        use utoipa_swagger_ui::SwaggerUi;
-        let (router, openapi) = Self::routes(state);
-        router.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi.clone()))
-    }
+    Router::new().route("/", get(healthz)).route("/healthz", get(healthz))
 }
 
 async fn serve(listener: TcpListener, router: Router) {

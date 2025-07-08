@@ -1,5 +1,4 @@
 use std::io::Write;
-use texas::app::App;
 use texas::handler::HandlerState;
 
 /// Write the OpenAPI specification to standard output.
@@ -9,7 +8,7 @@ async fn main() {
     let cfg = texas::config::Config::default();
     let token_cache = moka::future::Cache::new(0);
     let token_exchange_cache = moka::future::Cache::new(0);
-    let (_, openapi) = App::routes(HandlerState {
+    let (_, openapi) = texas::app::api_router(HandlerState {
         cfg,
         token_cache,
         token_exchange_cache,
