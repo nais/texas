@@ -44,10 +44,16 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     #[cfg(feature = "local")]
     let fmt_layer = tracing_subscriber::fmt::layer().with_thread_names(true).boxed();
 
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        // we don't care about internal opentelemetry logs
+        // (there's an internal-logs feature for these crates that can be excluded, though doesn't quite work)
+        // see https://github.com/open-telemetry/opentelemetry-rust/issues/2972
+        .add_directive("opentelemetry=off".parse().unwrap());
+
     tracing_subscriber::registry()
-        .with(
-            EnvFilter::builder().with_default_directive(LevelFilter::INFO.into()).from_env_lossy(),
-        )
+        .with(env_filter)
         .with(MetricsLayer::new(meter_provider.clone()))
         .with(fmt_layer)
         .with(OpenTelemetryLayer::new(tracer))
@@ -66,13 +72,9 @@ pub struct OtelGuard {
 
 impl Drop for OtelGuard {
     fn drop(&mut self) {
-        if let Err(err) = self.meter_provider.shutdown() {
-            eprintln!("{err:?}");
-        }
+        let _ = self.meter_provider.shutdown();
+        let _ = self.tracer_provider.shutdown();
 
-        if let Err(err) = self.tracer_provider.shutdown() {
-            eprintln!("{err:?}");
-        }
         debug!("Shut down all OpenTelemetry providers");
     }
 }
