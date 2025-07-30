@@ -11,9 +11,30 @@ pub struct CachedTokenResponse {
 impl From<CachedTokenResponse> for TokenResponse {
     fn from(mut cached: CachedTokenResponse) -> Self {
         // Subtract the elapsed time since insertion to get the actual remaining seconds to expiry.
-        cached.response.expires_in_seconds -= cached.created_at.elapsed().as_secs();
+        cached.response.expires_in_seconds = cached
+            .response
+            .expires_in_seconds
+            .saturating_sub(cached.created_at.elapsed().as_secs());
         cached.response
     }
+}
+
+#[test]
+fn test_cached_token_response_from_token_response() {
+    use crate::oauth::identity_provider::TokenType;
+    use pretty_assertions::assert_eq;
+
+    let cached_response = CachedTokenResponse {
+        created_at: Instant::now().checked_sub(Duration::from_secs(3601)).unwrap(),
+        response: TokenResponse {
+            access_token: "some-token".to_string(),
+            expires_in_seconds: 3600,
+            token_type: TokenType::Bearer,
+        },
+    };
+
+    let token_response: TokenResponse = cached_response.into();
+    assert_eq!(token_response.expires_in_seconds, 0);
 }
 
 impl From<TokenResponse> for CachedTokenResponse {
