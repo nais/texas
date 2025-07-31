@@ -15,7 +15,7 @@ pub struct CachedTokenResponse {
 
 impl CachedTokenResponse {
     // expires_in calculates the actual time left until the token expires.
-    fn expires_in(&self) -> Duration {
+    pub fn expires_in(&self) -> Duration {
         if let Some(expires_at) = self.expires_at {
             expires_at.saturating_duration_since(Instant::now())
         } else {
@@ -25,7 +25,7 @@ impl CachedTokenResponse {
 
     // ttl calculates the remaining time to live (TTL) for preemptive cache expiration,
     // i.e. cache entries should be removed before the token expires.
-    fn ttl(&self) -> Duration {
+    pub fn ttl(&self) -> Duration {
         const EXPIRY_LEEWAY: Duration = Duration::from_secs(60);
 
         let expires_in = self.expires_in();
