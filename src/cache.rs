@@ -68,6 +68,16 @@ impl<R> Expiry<R, CachedTokenResponse> for TokenResponseExpiry {
     ) -> Option<Duration> {
         Some(value.ttl())
     }
+
+    fn expire_after_update(
+        &self,
+        _key: &R,
+        value: &CachedTokenResponse,
+        _updated_at: std::time::Instant,
+        _duration_until_expiry: Option<Duration>,
+    ) -> Option<Duration> {
+        Some(value.ttl())
+    }
 }
 
 #[cfg(test)]
