@@ -80,7 +80,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 )]
 #[instrument(skip_all, name = "Handle /api/v1/token", err, fields(
     texas.cache_hit,
-    texas.cache_skipped,
+    texas.cache_force_skipped,
     texas.resource,
     texas.identity_provider = %request.identity_provider,
     texas.target = %request.target
@@ -104,7 +104,8 @@ pub async fn token(
             return Ok(Json(TokenResponse::from(cached_response)));
         }
     }
-    tracing::Span::current().set_attribute("texas.cache_skipped", skip_cache);
+    tracing::Span::current().set_attribute("texas.cache_force_skipped", skip_cache);
+    tracing::Span::current().set_attribute("texas.cache_hit", false);
     inc_token_requests(PATH, request.identity_provider);
 
     let mut provider_enabled = false;
@@ -183,7 +184,7 @@ pub async fn token(
 )]
 #[instrument(skip_all, name = "Handle /api/v1/token/exchange", err, fields(
     texas.cache_hit,
-    texas.cache_skipped,
+    texas.cache_force_skipped,
     texas.identity_provider = %request.identity_provider,
     texas.target = %request.target
 ))]
@@ -201,7 +202,8 @@ pub async fn token_exchange(
             return Ok(Json(TokenResponse::from(cached_response)));
         }
     }
-    tracing::Span::current().set_attribute("texas.cache_skipped", skip_cache);
+    tracing::Span::current().set_attribute("texas.cache_force_skipped", skip_cache);
+    tracing::Span::current().set_attribute("texas.cache_hit", false);
     inc_token_exchanges(PATH, request.identity_provider);
 
     let mut provider_enabled = false;
