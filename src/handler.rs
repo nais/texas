@@ -101,7 +101,7 @@ pub async fn token(
         if let Some(cached_response) = state.token_cache.get(&request).await {
             inc_token_cache_hits(PATH, request.identity_provider);
             inc_token_requests(PATH, request.identity_provider);
-            return Ok(Json(cached_response.into()));
+            return Ok(Json(TokenResponse::from(cached_response)));
         }
     }
     tracing::Span::current().set_attribute("texas.cache_skipped", skip_cache);
@@ -115,13 +115,13 @@ pub async fn token(
         if !provider.read().await.should_handle_token_request(&request) {
             continue;
         }
-        let response = provider
+        let response: TokenResponse = provider
             .read()
             .await
             .get_token(request.clone())
             .await
             .inspect_err(|e| inc_handler_errors(PATH, request.identity_provider, e.as_ref()))?;
-        state.token_cache.insert(request, response.clone().into()).await;
+        state.token_cache.insert(request, CachedTokenResponse::from(response.clone())).await;
         return Ok(Json(response));
     }
 
@@ -198,7 +198,7 @@ pub async fn token_exchange(
         if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
             inc_token_cache_hits(PATH, request.identity_provider);
             inc_token_exchanges(PATH, request.identity_provider);
-            return Ok(Json(cached_response.into()));
+            return Ok(Json(TokenResponse::from(cached_response)));
         }
     }
     tracing::Span::current().set_attribute("texas.cache_skipped", skip_cache);
@@ -212,13 +212,17 @@ pub async fn token_exchange(
         if !provider.read().await.should_handle_token_exchange_request(&request) {
             continue;
         }
-        let response = provider
-            .read()
-            .await
-            .exchange_token(request.clone())
-            .await
-            .inspect_err(|e| inc_handler_errors(PATH, request.identity_provider, e.as_ref()))?;
-        state.token_exchange_cache.insert(request, response.clone().into()).await;
+        let response: TokenResponse =
+            provider
+                .read()
+                .await
+                .exchange_token(request.clone())
+                .await
+                .inspect_err(|e| inc_handler_errors(PATH, request.identity_provider, e.as_ref()))?;
+        state
+            .token_exchange_cache
+            .insert(request, CachedTokenResponse::from(response.clone()))
+            .await;
         return Ok(Json(response));
     }
 
