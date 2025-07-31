@@ -100,6 +100,7 @@ pub async fn token(
 
     if request.skip_cache.unwrap_or(false) {
         span.set_attribute("texas.cache_force_skipped", true);
+        state.token_cache.invalidate(&request).await;
     } else if let Some(cached_response) = state.token_cache.get(&request).await {
         inc_token_cache_hits(PATH, request.identity_provider);
         span.set_attribute(
@@ -213,6 +214,7 @@ pub async fn token_exchange(
 
     if request.skip_cache.unwrap_or(false) {
         span.set_attribute("texas.cache_force_skipped", true);
+        state.token_exchange_cache.invalidate(&request).await;
     } else if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
         inc_token_cache_hits(PATH, request.identity_provider);
         span.set_attribute(
