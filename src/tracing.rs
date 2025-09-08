@@ -39,8 +39,12 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let tracer = tracer_provider.tracer("tracing-otel-subscriber");
 
     #[cfg(not(feature = "local"))]
-    let fmt_layer =
-        tracing_subscriber::fmt::layer().json().flatten_event(true).with_thread_names(true).boxed();
+    let fmt_layer = json_subscriber::layer()
+        .flatten_event(true)
+        .with_current_span(false)
+        .with_span_list(false)
+        .with_opentelemetry_ids(true)
+        .boxed();
     #[cfg(feature = "local")]
     let fmt_layer = tracing_subscriber::fmt::layer().with_thread_names(true).boxed();
 

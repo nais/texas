@@ -10,17 +10,14 @@ use axum::extract::MatchedPath;
 use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use axum::routing::get;
-use log::{debug, info};
-use opentelemetry::KeyValue;
 use opentelemetry::baggage::BaggageExt;
-use opentelemetry::propagation::TextMapPropagator;
+use opentelemetry::{KeyValue, global};
 use opentelemetry_http::HeaderExtractor;
-use opentelemetry_sdk::propagation::TraceContextPropagator;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tower_http::trace::TraceLayer;
-use tracing::{Span, error, field, info_span};
+use tracing::{Span, field, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use utoipa::{OpenApi, openapi};
 use utoipa_axum::router::OpenApiRouter;
@@ -62,7 +59,7 @@ impl App {
         let bind_address = cfg.bind_address.clone();
         let listener = TcpListener::bind(bind_address).await.map_err(Error::BindAddress)?;
         let api_address = listener.local_addr().map_err(Error::LocalAddress)?;
-        info!("Serving API on http://{api_address:?}");
+        log::info!("Serving API on http://{api_address:?}");
         #[cfg(feature = "openapi")]
         info!(
             "Swagger API documentation: http://{:?}/swagger-ui",
@@ -72,7 +69,7 @@ impl App {
         let probe_listener = if let Some(addr) = cfg.probe_bind_address.as_ref() {
             let listener = TcpListener::bind(addr).await.map_err(Error::BindAddress)?;
             let probe_address = listener.local_addr().map_err(Error::LocalAddress)?;
-            debug!("Serving probes on http://{probe_address:?}");
+            log::debug!("Serving probes on http://{probe_address:?}");
             Some(listener)
         } else {
             None
@@ -113,7 +110,7 @@ impl App {
             serve(self.listener, self.router).await;
         }
 
-        debug!("Texas shut down gracefully");
+        log::debug!("Texas shut down gracefully");
     }
 }
 
@@ -124,10 +121,6 @@ pub fn api_router(state: HandlerState) -> (Router, openapi::OpenApi) {
             // Use request.uri() or OriginalUri if you want the real path.
             let path = request.extensions().get::<MatchedPath>().map(MatchedPath::as_str);
 
-            // get tracing context from request
-            let parent_context =
-                TraceContextPropagator::new().extract(&HeaderExtractor(request.headers()));
-
             let root_span = info_span!(
                 "Handle incoming request",
                 "http.request.method" = ?request.method(),
@@ -137,6 +130,9 @@ pub fn api_router(state: HandlerState) -> (Router, openapi::OpenApi) {
                 "otel.kind" = "server",
             );
 
+            let parent_context = global::get_text_map_propagator(|propagator| {
+                propagator.extract(&HeaderExtractor(request.headers()))
+            });
             let context = parent_context.with_baggage(vec![KeyValue::new(
                 "path".to_string(),
                 path.unwrap_or_default().to_string(),
@@ -189,7 +185,7 @@ async fn shutdown_signal() {
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        () = ctrl_c => debug!{"Received Ctrl+C / SIGINT"},
-        () = terminate => debug!{"Received SIGTERM"},
+        () = ctrl_c => log::debug!{"Received Ctrl+C / SIGINT"},
+        () = terminate => log::debug!{"Received SIGTERM"},
     }
 }

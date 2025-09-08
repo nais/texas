@@ -12,6 +12,7 @@ updates:
         patterns:
           - opentelemetry*
           - tracing-opentelemetry
+          - json-subscriber
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

@@ -1572,6 +1572,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "json-subscriber"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39891c6f2a8e066540984e1050747baa3ad274fd416d2e79dec79f91c6221c33"
+dependencies = [
+ "opentelemetry",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-core",
+ "tracing-opentelemetry",
+ "tracing-serde",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "jsonwebkey"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3223,6 +3240,7 @@ dependencies = [
  "chrono",
  "derivative",
  "dotenv",
+ "json-subscriber",
  "jsonwebkey",
  "jsonwebtoken",
  "log",
