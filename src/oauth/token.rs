@@ -3,7 +3,7 @@ use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use jsonwebtoken::Validation;
 use reqwest_middleware::ClientBuilder;
-use reqwest_retry::{RetryTransientMiddleware, policies};
+use reqwest_retry::{Jitter, RetryTransientMiddleware, policies};
 use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use serde::Deserialize;
 use serde_json::Value;
@@ -53,9 +53,10 @@ impl Jwks {
             keys: Vec<jwk::JsonWebKey>,
         }
 
-        let timeout = Duration::from_secs(5);
+        let timeout = Duration::from_secs(1);
         let retry_policy = policies::ExponentialBackoff::builder()
-            .retry_bounds(Duration::from_secs(1), Duration::from_secs(3))
+            .retry_bounds(Duration::from_millis(100), Duration::from_secs(1))
+            .jitter(Jitter::None)
             .build_with_max_retries(10);
         let client = reqwest::Client::builder().timeout(timeout).build().map_err(Error::Init)?;
         let client = ClientBuilder::new(client)
