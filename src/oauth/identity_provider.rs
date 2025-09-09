@@ -430,6 +430,7 @@ where
             .form(&params)
             .send()
             .await
+            .inspect_err(|err| error!("Failed to get token from identity provider: {:?}", err))
             .map_err(ApiError::UpstreamRequest)?;
 
         let status = response.status();

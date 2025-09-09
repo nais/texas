@@ -491,7 +491,7 @@ impl HandlerState {
 
 #[derive(Debug, AsRefStr, Error)]
 pub enum ApiError {
-    #[error("identity provider error: {0}")]
+    #[error("identity provider error: {0:?}")]
     UpstreamRequest(reqwest_middleware::Error),
 
     #[error("upstream: status code={status_code}: {error}")]

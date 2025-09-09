@@ -26,7 +26,7 @@ pub struct Jwks {
 pub enum Error {
     #[error("init client: {0}")]
     Init(reqwest::Error),
-    #[error("fetch: {0}")]
+    #[error("fetch: {0:?}")]
     Fetch(reqwest_middleware::Error),
     #[error("decode json: {0}")]
     JsonDecode(reqwest::Error),
