@@ -1,10 +1,8 @@
+use crate::http;
 use crate::oauth::assertion::epoch_now_secs;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use jsonwebtoken::Validation;
-use reqwest_middleware::ClientBuilder;
-use reqwest_retry::{Jitter, RetryTransientMiddleware, policies};
-use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -53,16 +51,13 @@ impl Jwks {
             keys: Vec<jwk::JsonWebKey>,
         }
 
-        let timeout = Duration::from_secs(1);
-        let retry_policy = policies::ExponentialBackoff::builder()
-            .retry_bounds(Duration::from_millis(100), Duration::from_secs(1))
-            .jitter(Jitter::None)
-            .build_with_max_retries(10);
-        let client = reqwest::Client::builder().timeout(timeout).build().map_err(Error::Init)?;
-        let client = ClientBuilder::new(client)
-            .with(TracingMiddleware::<SpanBackendWithUrl>::new())
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
-            .build();
+        let client = http::new_client(
+            http::Retry::default()
+                .max_retries(10)
+                .min_interval(Duration::from_millis(100))
+                .max_interval(Duration::from_secs(1)),
+        )
+        .map_err(Error::Init)?;
 
         let request = client.get(endpoint).header("accept", "application/json");
         let response: Response =

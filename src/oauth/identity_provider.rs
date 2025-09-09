@@ -1,4 +1,5 @@
 use crate::handler::ApiError;
+use crate::http;
 use crate::oauth::assertion::{Assertion, serialize};
 use crate::oauth::grant::{
     ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder,
@@ -10,9 +11,6 @@ use derivative::Derivative;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use reqwest::StatusCode;
-use reqwest_middleware::ClientBuilder;
-use reqwest_retry::{Jitter, RetryTransientMiddleware, policies};
-use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::borrow::Cow;
@@ -20,7 +18,6 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
-use std::time::Duration;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
@@ -323,18 +320,8 @@ where
             (None, None)
         };
 
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(1))
-            .build()
-            .map_err(ProviderError::InitializeHttpClient)?;
-        let retry_policy = policies::ExponentialBackoff::builder()
-            .retry_bounds(Duration::from_millis(10), Duration::from_millis(100))
-            .jitter(Jitter::None)
-            .build_with_max_retries(5);
-        let http_client_with_middleware = ClientBuilder::new(http_client)
-            .with(TracingMiddleware::<SpanBackendWithUrl>::new())
-            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
-            .build();
+        let http_client =
+            http::new_default_client().map_err(ProviderError::InitializeHttpClient)?;
 
         Ok(Self {
             client_id,
@@ -342,7 +329,7 @@ where
             issuer,
             client_assertion_header,
             upstream_jwks,
-            http_client: http_client_with_middleware,
+            http_client,
             identity_provider_kind: kind,
             private_jwk: client_private_jwk,
             _fake_request: PhantomData,
