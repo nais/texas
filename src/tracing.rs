@@ -41,6 +41,8 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     #[cfg(not(feature = "local"))]
     let fmt_layer = json_subscriber::layer()
         .flatten_event(true)
+        .with_thread_ids(true)
+        .with_thread_names(true)
         .with_current_span(false)
         .with_span_list(false)
         .with_opentelemetry_ids(true)
