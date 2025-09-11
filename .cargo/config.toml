@@ -1,3 +1,0 @@
-[build]
-rustflags = ["--cfg", "hyper_unstable_tracing"]
-

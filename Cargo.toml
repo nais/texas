@@ -44,8 +44,6 @@ utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 uuid = { version = "1", features = ["v4"] }
 strum_macros = "0.27"
 json-subscriber = { version = "0.2.6", features = ["tracing-opentelemetry-0-31"] }
-hyper = { version = "1.6", features = ["tracing"] }
-hyper-util = { version = "0.1.14", features = ["tracing"] }
 
 [dev-dependencies]
 jsonwebkey = { version = "0.3", features = ["jwt-convert", "generate"] }

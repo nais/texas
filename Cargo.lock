@@ -1224,7 +1224,6 @@ dependencies = [
  "pin-project-lite",
  "smallvec",
  "tokio",
- "tracing",
  "want",
 ]
 
@@ -3234,8 +3233,6 @@ dependencies = [
  "chrono",
  "derivative",
  "dotenv",
- "hyper",
- "hyper-util",
  "json-subscriber",
  "jsonwebkey",
  "jsonwebtoken",
