@@ -21,11 +21,11 @@ jsonwebkey = { version = "0.3", features = ["jwt-convert"] }
 jsonwebtoken = "8"
 log = { version = "0.4", features = ["std"] }
 moka = { version = "0.12", features = ["future"] }
-opentelemetry = { version = "0.30", features = ["metrics", "trace"] }
-opentelemetry-http = "0.30"
-opentelemetry-otlp = { version = "0.30", features = ["metrics", "trace", "grpc-tonic"] }
-opentelemetry-semantic-conventions = { version = "0.30", features = ["semconv_experimental"] }
-opentelemetry_sdk = { version = "0.30", features = ["trace"] }
+opentelemetry = { version = "0.31", features = ["metrics", "trace"] }
+opentelemetry-http = "0.31"
+opentelemetry-otlp = { version = "0.31", features = ["metrics", "trace", "grpc-tonic"] }
+opentelemetry-semantic-conventions = { version = "0.31", features = ["semconv_experimental"] }
+opentelemetry_sdk = { version = "0.31", features = ["trace"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 reqwest-middleware = "0.4"
 reqwest-retry = "0.7"
