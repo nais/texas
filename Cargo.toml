@@ -26,7 +26,7 @@ opentelemetry-http = "0.31"
 opentelemetry-otlp = { version = "0.31", features = ["metrics", "trace", "grpc-tonic"] }
 opentelemetry-semantic-conventions = { version = "0.31", features = ["semconv_experimental"] }
 opentelemetry_sdk = { version = "0.31", features = ["trace"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "http2", "charset"] }
 reqwest-middleware = "0.4"
 reqwest-retry = "0.7"
 reqwest-tracing = {  version = "0.5", features = ["opentelemetry_0_30"] }
