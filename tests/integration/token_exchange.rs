@@ -15,7 +15,7 @@ use texas::oauth::identity_provider::{
 ///
 /// Test token exchange as follows:
 ///   1. Request an initial token from the mock oauth2 server using the `/token` endpoint
-///   2. Exchange that token into a on-behalf-of token using Texas' `/token` endpoint
+///   2. Exchange that token into an on-behalf-of token using Texas' `/token` endpoint
 ///   3. Introspect the resulting token and check parameters
 #[test(tokio::test)]
 async fn all_providers() {

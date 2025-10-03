@@ -18,7 +18,7 @@
         "tags": [
           "Endpoints"
         ],
-        "operationId": "introspect",
+        "operationId": "token_introspect",
         "requestBody": {
           "description": "Validate a token and return its claims and metadata. The response object's _active_ field will be set to either true or false for valid and invalid tokens, respectively. The identity provider determines which claims are returned. Please see the examples and/or Nais documentation for details.",
           "content": {

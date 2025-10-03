@@ -428,7 +428,7 @@ where
                     .json()
                     .await
                     .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-                    .map_err(ApiError::JSON)?,
+                    .map_err(ApiError::Json)?,
             });
         }
 
@@ -436,7 +436,7 @@ where
             .json()
             .await
             .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-            .map_err(ApiError::JSON)?)
+            .map_err(ApiError::Json)?)
     }
 }
 

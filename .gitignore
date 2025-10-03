@@ -8,7 +8,7 @@
 *.dll
 *.so
 *.dylib
-bin
+/bin
 
 # editor and IDE paraphernalia
 .idea
