@@ -38,7 +38,7 @@ async fn all_providers() {
             &azure_client_id,
             &address,
             &identity_provider_address,
-            IdentityProvider::AzureAD,
+            IdentityProvider::EntraID,
             format.clone(),
         )
         .await;
@@ -251,7 +251,7 @@ async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
         app::token_exchange_url(address).as_str(),
         TokenExchangeRequest {
             target: "target".to_string(),
-            identity_provider: IdentityProvider::AzureAD,
+            identity_provider: IdentityProvider::EntraID,
             user_token: "".to_string(),
             skip_cache: None,
         },

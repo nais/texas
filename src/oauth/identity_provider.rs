@@ -46,8 +46,8 @@ pub enum TokenType {
 /// The claims present depend on the identity provider.
 /// Please refer to the Nais documentation for details:
 ///
-/// - [Azure AD](https://doc.nais.io/auth/entra-id/reference/#claims)
-/// - [IDPorten](https://doc.nais.io/auth/idporten/reference/#claims)
+/// - [Entra ID](https://doc.nais.io/auth/entra-id/reference/#claims)
+/// - [ID-porten](https://doc.nais.io/auth/idporten/reference/#claims)
 /// - [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)
 /// - [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)
 #[derive(Serialize, Deserialize, ToSchema, Debug, PartialEq, Clone)]
@@ -197,8 +197,8 @@ fn test_serde_oauth_error() {
 /// Identity providers for use with token fetch, exchange and introspection.
 #[derive(Deserialize, Serialize, ToSchema, Clone, Debug, Hash, PartialEq, Eq, Copy)]
 pub enum IdentityProvider {
-    #[serde(rename = "azuread")]
-    AzureAD,
+    #[serde(rename = "entra_id", alias = "azuread")]
+    EntraID,
     #[serde(rename = "tokenx")]
     TokenX,
     #[serde(rename = "maskinporten")]
@@ -533,5 +533,30 @@ where
 {
     fn should_handle_introspect_request(&self, request: &IntrospectRequest) -> bool {
         self.identity_provider_kind == request.identity_provider
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IdentityProvider;
+    use pretty_assertions::assert_eq;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case("azuread", IdentityProvider::EntraID)]
+    #[case("entra_id", IdentityProvider::EntraID)]
+    #[case("tokenx", IdentityProvider::TokenX)]
+    #[case("maskinporten", IdentityProvider::Maskinporten)]
+    #[case("idporten", IdentityProvider::IDPorten)]
+    fn test_deserialize_identity_provider(
+        #[case] input: String,
+        #[case] expected: IdentityProvider,
+    ) {
+        // wrap input in quotes to make it a valid JSON string
+        let serialized = format!(r#""{input}""#);
+        let deserialized = serde_json::from_str::<IdentityProvider>(serialized.as_str())
+            .inspect_err(|err| eprintln!("Failed to deserialize '{}': {:?}", input, err));
+        assert_eq!(deserialized.is_ok(), true);
+        assert_eq!(deserialized.unwrap(), expected);
     }
 }

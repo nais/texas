@@ -16,7 +16,7 @@ async fn all_providers() {
     });
 
     let providers = [
-        IdentityProvider::AzureAD,
+        IdentityProvider::EntraID,
         IdentityProvider::IDPorten,
         IdentityProvider::Maskinporten,
         IdentityProvider::TokenX,

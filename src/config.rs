@@ -9,7 +9,7 @@ pub struct Config {
     pub bind_address: String,
     pub probe_bind_address: Option<String>,
     pub maskinporten: Option<Provider>,
-    pub azure_ad: Option<Provider>,
+    pub entra_id: Option<Provider>,
     pub token_x: Option<Provider>,
     pub idporten: Option<Provider>,
 }
@@ -121,7 +121,7 @@ impl Config {
         Ok(Self {
             bind_address: std::env::var("BIND_ADDRESS").unwrap_or("127.0.0.1:3000".to_string()),
             probe_bind_address: std::env::var("PROBE_BIND_ADDRESS").ok(),
-            azure_ad: Provider::new_from_azure_env()?,
+            entra_id: Provider::new_from_azure_env()?,
             maskinporten: Provider::new_from_env_with_prefix("MASKINPORTEN")?,
             token_x: Provider::new_from_tokenx_env()?,
             idporten: Provider::new_from_idporten_env()?,

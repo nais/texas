@@ -28,14 +28,14 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
                 resource: Some("http://resource.example/api".to_string()),
                 skip_cache: None,
             }))),
-            ("Generate a token for Azure AD" = (value = json!(TokenRequest{
-                identity_provider: IdentityProvider::AzureAD,
+            ("Generate a token for Entra ID" = (value = json!(TokenRequest{
+                identity_provider: IdentityProvider::EntraID,
                 target: "api://cluster.namespace.application/.default".to_string(),
                 resource: None,
                 skip_cache: None,
             }))),
-            ("Force renewal of token for Azure AD" = (value = json!(TokenRequest{
-                identity_provider: IdentityProvider::AzureAD,
+            ("Force renewal of token for Entra ID" = (value = json!(TokenRequest{
+                identity_provider: IdentityProvider::EntraID,
                 target: "api://cluster.namespace.application/.default".to_string(),
                 resource: None,
                 skip_cache: Some(true),

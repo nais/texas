@@ -51,13 +51,13 @@ impl State {
             providers.push(provider);
         }
 
-        if let Some(provider_cfg) = &cfg.azure_ad {
+        if let Some(provider_cfg) = &cfg.entra_id {
             debug!(
-                "Fetch JWKS for Azure AD (on behalf of) from '{}'...",
+                "Fetch JWKS for Entra ID (on behalf of) from '{}'...",
                 provider_cfg.jwks_uri
             );
             let provider = new::<OnBehalfOf, ClientAssertion>(
-                IdentityProvider::AzureAD,
+                IdentityProvider::EntraID,
                 provider_cfg,
                 Some(provider_cfg.client_id.clone()),
             )
@@ -65,11 +65,11 @@ impl State {
             providers.push(provider);
 
             debug!(
-                "Fetch JWKS for Azure AD (client credentials) from '{}'...",
+                "Fetch JWKS for Entra ID (client credentials) from '{}'...",
                 provider_cfg.jwks_uri
             );
             let provider = new::<ClientCredentials, ClientAssertion>(
-                IdentityProvider::AzureAD,
+                IdentityProvider::EntraID,
                 provider_cfg,
                 Some(provider_cfg.client_id.clone()),
             )

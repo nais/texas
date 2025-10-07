@@ -70,11 +70,11 @@ impl TestApp {
     }
 
     pub fn azure_issuer(&self) -> String {
-        self.cfg.azure_ad.clone().unwrap().issuer
+        self.cfg.entra_id.clone().unwrap().issuer
     }
 
     pub fn azure_client_id(&self) -> String {
-        self.cfg.azure_ad.clone().unwrap().client_id
+        self.cfg.entra_id.clone().unwrap().client_id
     }
 
     pub fn idporten_issuer(&self) -> String {

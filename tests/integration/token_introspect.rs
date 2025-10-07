@@ -32,7 +32,7 @@ async fn all_providers() {
             &azure_issuer,
             &address,
             &identity_provider_address,
-            IdentityProvider::AzureAD,
+            IdentityProvider::EntraID,
             format.clone(),
         )
         .await;
@@ -136,7 +136,7 @@ async fn test_introspect_token_invalid_audience(address: &str) {
         address,
         TokenRequest {
             target: "invalid".to_string(),
-            identity_provider: IdentityProvider::AzureAD,
+            identity_provider: IdentityProvider::EntraID,
             resource: None,
             skip_cache: None,
         },
@@ -148,7 +148,7 @@ async fn test_introspect_token_invalid_audience(address: &str) {
         app::introspect_url(address).as_str(),
         IntrospectRequest {
             token: token_response.access_token.clone(),
-            identity_provider: IdentityProvider::AzureAD,
+            identity_provider: IdentityProvider::EntraID,
         },
         IntrospectResponse::new_invalid("invalid token: InvalidAudience"),
         StatusCode::OK,
@@ -216,7 +216,7 @@ async fn test_introspect_token_is_not_a_jwt(address: &str) {
         app::introspect_url(address).as_str(),
         IntrospectRequest {
             token: "not a jwt".to_string(),
-            identity_provider: IdentityProvider::AzureAD,
+            identity_provider: IdentityProvider::EntraID,
         },
         IntrospectResponse::new_invalid("invalid token header: InvalidToken"),
         StatusCode::OK,
@@ -240,7 +240,7 @@ async fn test_introspect_token_issuer_mismatch(address: &str, identity_provider_
         app::introspect_url(address).as_str(),
         IntrospectRequest {
             token,
-            identity_provider: IdentityProvider::AzureAD,
+            identity_provider: IdentityProvider::EntraID,
         },
         IntrospectResponse::new_invalid("token can not be validated with this identity provider"),
         StatusCode::OK,
@@ -301,7 +301,7 @@ async fn test_introspect_token_missing_kid(address: &str, identity_provider_addr
         app::introspect_url(address).as_str(),
         IntrospectRequest {
             token,
-            identity_provider: IdentityProvider::AzureAD,
+            identity_provider: IdentityProvider::EntraID,
         },
         IntrospectResponse::new_invalid("missing key id from token header"),
         StatusCode::OK,

@@ -44,7 +44,7 @@ async fn all_providers() {
             &azure_issuer,
             &azure_client_id,
             &address,
-            IdentityProvider::AzureAD,
+            IdentityProvider::EntraID,
             format.clone(),
         )
         .await;
@@ -199,7 +199,7 @@ async fn test_token_invalid_identity_provider(address: &str) {
     assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
     assert_eq!(
         error_response.description,
-        "Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten` at line 1 column 30"
+        "Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `entra_id`, `tokenx`, `maskinporten`, `idporten` at line 1 column 30"
     );
 
     let http_response = http::post_request(
@@ -214,7 +214,7 @@ async fn test_token_invalid_identity_provider(address: &str) {
     assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
     assert_eq!(
         error_response.description,
-        "Failed to deserialize form body: identity_provider: unknown variant `invalid`, expected one of `azuread`, `tokenx`, `maskinporten`, `idporten`"
+        "Failed to deserialize form body: identity_provider: unknown variant `invalid`, expected one of `azuread`, `entra_id`, `tokenx`, `maskinporten`, `idporten`"
     );
 }
 
