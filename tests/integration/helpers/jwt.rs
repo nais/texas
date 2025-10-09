@@ -2,7 +2,7 @@ use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use serde_json::Value;
 use std::collections::HashMap;
-use texas::oauth::identity_provider::IntrospectResponse;
+use texas::oauth::identity_provider::{AuthorizationDetails, IntrospectResponse};
 
 pub type TokenClaims = HashMap<String, Value>;
 
@@ -44,34 +44,42 @@ impl Token {
 
 pub trait IntrospectClaims {
     fn has_claims(&self) -> bool;
-    fn subject(&self) -> Option<String>;
-    fn issuer(&self) -> Option<String>;
-    fn jwt_id(&self) -> Option<String>;
-    fn get_string_claim(&self, claim: &str) -> Option<String>;
+    fn get_claim(&self, claim: &str) -> Option<&Value>;
+
+    fn get_string_claim(&self, claim: &str) -> String {
+        self.get_claim(claim)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .unwrap_or("".to_string())
+    }
+    fn get_authorization_details(&self) -> AuthorizationDetails {
+        self.get_claim("authorization_details")
+            .and_then(|v| {
+                serde_json::from_value(v.clone())
+                    .inspect_err(|e| {
+                        tracing::error!("Failed to parse authorization_details: {}", e)
+                    })
+                    .ok()
+            })
+            .unwrap_or(AuthorizationDetails::from(vec![]))
+    }
+    fn subject(&self) -> String {
+        self.get_string_claim("sub")
+    }
+    fn issuer(&self) -> String {
+        self.get_string_claim("iss")
+    }
+    fn jwt_id(&self) -> String {
+        self.get_string_claim("jti")
+    }
 }
 
 impl IntrospectClaims for IntrospectResponse {
     fn has_claims(&self) -> bool {
         !self.extra.is_empty()
     }
-
-    fn subject(&self) -> Option<String> {
-        self.get_string_claim("sub")
-    }
-
-    fn issuer(&self) -> Option<String> {
-        self.get_string_claim("iss")
-    }
-
-    fn jwt_id(&self) -> Option<String> {
-        self.get_string_claim("jti")
-    }
-
-    fn get_string_claim(&self, claim: &str) -> Option<String> {
-        self.extra
-            .get(claim)
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
+    fn get_claim(&self, claim: &str) -> Option<&Value> {
+        self.extra.get(claim)
     }
 }

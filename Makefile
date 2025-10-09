@@ -19,6 +19,7 @@ test_roundtrip:
 	./hack/roundtrip-azure-obo.sh
 	./hack/roundtrip-idporten.sh
 	./hack/roundtrip-maskinporten.sh
+	./hack/roundtrip-maskinporten-rar.sh
 	./hack/roundtrip-tokenx.sh
 
 openapi:

@@ -1,13 +1,15 @@
-use crate::helpers::http::RequestFormat;
+use crate::helpers::app::token_url;
+use crate::helpers::http::{RequestFormat, json_response};
 use crate::helpers::jwt::IntrospectClaims;
 use crate::helpers::{app, http};
 use pretty_assertions::{assert_eq, assert_ne};
 use reqwest::StatusCode;
-use serde_json::json;
+use serde_json::{from_str, json};
 use std::collections::HashMap;
 use test_log::test;
 use texas::oauth::identity_provider::{
-    ErrorResponse, IdentityProvider, IntrospectRequest, OAuthErrorCode, TokenRequest,
+    AuthorizationDetails, ErrorResponse, IdentityProvider, IntrospectRequest, OAuthErrorCode,
+    TokenRequest, TokenResponse,
 };
 
 /// Test a full round-trip of the `/token` endpoint.
@@ -48,7 +50,11 @@ async fn all_providers() {
             format.clone(),
         )
         .await;
+
+        test_token_with_resource(&maskinporten_issuer, &address, format.clone()).await;
     }
+    test_token_with_authorization_details_form(&maskinporten_issuer, &address).await;
+    test_token_with_authorization_details_json(&maskinporten_issuer, &address).await;
 
     test_token_invalid_identity_provider(&address).await;
     test_token_invalid_content_type(&address).await;
@@ -68,6 +74,7 @@ async fn machine_to_machine_token(
         target: target.to_string(),
         identity_provider,
         resource: None,
+        authorization_details: None,
         skip_cache: None,
     };
     let first_token_response =
@@ -90,6 +97,7 @@ async fn machine_to_machine_token(
             target: "different_target".to_string(),
             identity_provider,
             resource: None,
+            authorization_details: None,
             skip_cache: None,
         },
         request_format.clone(),
@@ -138,6 +146,7 @@ async fn machine_to_machine_token(
             target: target.to_string(),
             identity_provider,
             resource: None,
+            authorization_details: None,
             skip_cache: Some(true),
         },
         request_format.clone(),
@@ -243,6 +252,7 @@ async fn test_token_unsupported_identity_provider(address: &str) {
             target: "some_target".to_string(),
             identity_provider: IdentityProvider::IDPorten,
             resource: None,
+            authorization_details: None,
             skip_cache: None,
         },
         ErrorResponse {
@@ -252,4 +262,139 @@ async fn test_token_unsupported_identity_provider(address: &str) {
         StatusCode::BAD_REQUEST,
     )
     .await;
+}
+
+async fn test_token_with_resource(
+    expected_issuer: &str,
+    address: &str,
+    request_format: RequestFormat,
+) {
+    let target = "scope";
+    let resource = "some_resource";
+    let identity_provider = IdentityProvider::Maskinporten;
+
+    let token_response = app::test_happy_path_token(
+        address,
+        TokenRequest {
+            target: target.to_string(),
+            identity_provider,
+            resource: Some(resource.to_string()),
+            authorization_details: None,
+            skip_cache: None,
+        },
+        request_format.clone(),
+    )
+    .await;
+
+    let introspect_response = app::test_happy_path_introspect(
+        address,
+        expected_issuer,
+        IntrospectRequest {
+            token: token_response.access_token.clone(),
+            identity_provider,
+        },
+        request_format.clone(),
+    )
+    .await;
+
+    assert_eq!(introspect_response.get_string_claim("resource"), resource);
+}
+
+async fn test_token_with_authorization_details_form(expected_issuer: &str, address: &str) {
+    let authorization_details = r#"[{
+        "type": "customer_information",
+        "locations": [
+            "https://example.com/customers"
+        ],
+        "actions": [
+            "read",
+            "write"
+        ],
+        "datatypes": [
+            "contacts",
+            "photos"
+        ]
+    }]"#;
+
+    let http_response = http::post_request(
+        token_url(address),
+        HashMap::from([
+            ("target", "some_target"),
+            (
+                "identity_provider",
+                IdentityProvider::Maskinporten.to_string().as_str(),
+            ),
+            ("authorization_details", authorization_details),
+        ]),
+        RequestFormat::Form,
+    )
+    .await
+    .unwrap();
+
+    let token_response = json_response::<TokenResponse>(http_response, StatusCode::OK).await;
+    assert!(token_response.expires_in_seconds > 0);
+    assert!(!token_response.access_token.is_empty());
+
+    let introspect_response = app::test_happy_path_introspect(
+        address,
+        expected_issuer,
+        IntrospectRequest {
+            token: token_response.access_token,
+            identity_provider: IdentityProvider::Maskinporten,
+        },
+        RequestFormat::Form,
+    )
+    .await;
+
+    let actual = introspect_response.get_authorization_details();
+    let expected: AuthorizationDetails = from_str(authorization_details).unwrap();
+    assert_eq!(actual, expected);
+}
+
+async fn test_token_with_authorization_details_json(expected_issuer: &str, address: &str) {
+    let authorization_details = r#"[{
+        "type": "customer_information",
+        "locations": [
+            "https://example.com/customers"
+        ],
+        "actions": [
+            "read",
+            "write"
+        ],
+        "datatypes": [
+            "contacts",
+            "photos"
+        ]
+    }]"#;
+
+    let http_response = http::post_request(
+        token_url(address),
+        json!({
+            "target": "some_target",
+            "identity_provider": IdentityProvider::Maskinporten,
+            "authorization_details": authorization_details
+        }),
+        RequestFormat::Json,
+    )
+    .await
+    .unwrap();
+
+    let token_response = json_response::<TokenResponse>(http_response, StatusCode::OK).await;
+    assert!(token_response.expires_in_seconds > 0);
+    assert!(!token_response.access_token.is_empty());
+
+    let introspect_response = app::test_happy_path_introspect(
+        address,
+        expected_issuer,
+        IntrospectRequest {
+            token: token_response.access_token,
+            identity_provider: IdentityProvider::Maskinporten,
+        },
+        RequestFormat::Json,
+    )
+    .await;
+
+    let actual = introspect_response.get_authorization_details();
+    let expected: AuthorizationDetails = from_str(authorization_details).unwrap();
+    assert_eq!(actual, expected);
 }

@@ -106,7 +106,26 @@
                     "target": "api://cluster.namespace.application/.default"
                   }
                 },
-                "Generate a token for Maskinporten": {
+                "Generate a token for Maskinporten with authorization details": {
+                  "value": {
+                    "authorization_details": [
+                      {
+                        "system_id": "974761076_skatt_demo_system",
+                        "systemuser_id": [
+                          "33a0911a-5459-456f-bc57-3d37ef9a016c"
+                        ],
+                        "systemuser_org": {
+                          "ID": "0192:313367002",
+                          "authority": "iso6523-actorid-upis"
+                        },
+                        "type": "urn:altinn:systemuser"
+                      }
+                    ],
+                    "identity_provider": "maskinporten",
+                    "target": "skatteetaten:skattekorttilarbeidsgiver"
+                  }
+                },
+                "Generate a token for Maskinporten with resource indicator": {
                   "value": {
                     "identity_provider": "maskinporten",
                     "resource": "http://resource.example/api",
@@ -258,6 +277,17 @@
   },
   "components": {
     "schemas": {
+      "AuthorizationDetails": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string"
+          }
+        },
+        "description": "Authorization details for rich authorization requests [(RFC 9396)](https://www.rfc-editor.org/rfc/rfc9396.html).\nMust be a JSON array of objects, the exact contents of which depend on the identity provider.\nTexas does not validate this property and only forwards its value to the identity provider.\nIf using the `application/x-www-form-urlencoded` content type, the value must be minified JSON in URL-encoded form."
+      },
       "ErrorResponse": {
         "type": "object",
         "description": "RFC 6749 error response from section 5.2.",
@@ -373,6 +403,16 @@
           "identity_provider"
         ],
         "properties": {
+          "authorization_details": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuthorizationDetails"
+              }
+            ]
+          },
           "identity_provider": {
             "$ref": "#/components/schemas/IdentityProvider"
           },
@@ -381,7 +421,7 @@
               "string",
               "null"
             ],
-            "description": "Resource indicator for audience-restricted tokens (RFC 8707)."
+            "description": "Resource indicator for audience-restricted tokens [(RFC 8707)](https://www.rfc-editor.org/rfc/rfc8707.html)."
           },
           "skip_cache": {
             "type": [

@@ -28,6 +28,7 @@ async fn all_providers() {
                 target: "some_target".to_string(),
                 identity_provider: provider,
                 resource: None,
+                authorization_details: None,
                 skip_cache: None,
             },
             ErrorResponse {

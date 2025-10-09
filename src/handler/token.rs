@@ -2,7 +2,7 @@ use crate::cache::CachedTokenResponse;
 use crate::handler;
 use crate::handler::{ApiError, JsonOrForm, State};
 use crate::oauth::identity_provider::{
-    ErrorResponse, IdentityProvider, TokenRequest, TokenResponse, TokenType,
+    AuthorizationDetails, ErrorResponse, IdentityProvider, TokenRequest, TokenResponse, TokenType,
 };
 use crate::tracing::{inc_handler_errors, inc_token_cache_hits, inc_token_requests};
 use axum::Json;
@@ -22,22 +22,42 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
         ),
         description = "Request a machine-to-machine token from the specified identity provider and for a given target.",
         examples(
-            ("Generate a token for Maskinporten" = (value = json!(TokenRequest{
+            ("Generate a token for Maskinporten with resource indicator" = (value = json!(TokenRequest{
                 identity_provider: IdentityProvider::Maskinporten,
                 target: "altinn:serviceowner/rolesandrights".to_string(),
                 resource: Some("http://resource.example/api".to_string()),
+                authorization_details: None,
+                skip_cache: None,
+            }))),
+            ("Generate a token for Maskinporten with authorization details" = (value = json!(TokenRequest{
+                identity_provider: IdentityProvider::Maskinporten,
+                target: "skatteetaten:skattekorttilarbeidsgiver".to_string(),
+                resource: None,
+                authorization_details: Some(AuthorizationDetails(serde_json::from_str(r#"[{
+                    "type": "urn:altinn:systemuser",
+                    "systemuser_org": {
+                        "authority": "iso6523-actorid-upis",
+                        "ID": "0192:313367002"
+                    },
+                    "systemuser_id": [
+                        "33a0911a-5459-456f-bc57-3d37ef9a016c"
+                    ],
+                    "system_id": "974761076_skatt_demo_system"
+                }]"#).unwrap())),
                 skip_cache: None,
             }))),
             ("Generate a token for Entra ID" = (value = json!(TokenRequest{
                 identity_provider: IdentityProvider::EntraID,
                 target: "api://cluster.namespace.application/.default".to_string(),
                 resource: None,
+                authorization_details: None,
                 skip_cache: None,
             }))),
             ("Force renewal of token for Entra ID" = (value = json!(TokenRequest{
                 identity_provider: IdentityProvider::EntraID,
                 target: "api://cluster.namespace.application/.default".to_string(),
                 resource: None,
+                authorization_details: None,
                 skip_cache: Some(true),
             }))),
         ),
@@ -74,6 +94,12 @@ pub async fn token(
 
     if let Some(ref resource) = request.resource {
         span.set_attribute("texas.resource", resource.clone());
+    }
+    if let Some(ref authorization_details) = request.authorization_details {
+        span.set_attribute(
+            "texas.authorization_details",
+            serde_json::to_string_pretty(authorization_details).unwrap_or_default(),
+        );
     }
 
     if request.skip_cache.unwrap_or(false) {

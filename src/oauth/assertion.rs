@@ -1,10 +1,17 @@
+use crate::oauth::identity_provider::AuthorizationDetails;
 use jsonwebtoken as jwt;
 use serde::Serialize;
 
 const EXPIRY_LEEWAY_SECONDS: u64 = 30;
 
 pub trait Assertion: Send + Sync + Serialize {
-    fn new(issuer: String, client_id: String, target: String, resource: Option<String>) -> Self;
+    fn new(
+        issuer: String,
+        client_id: String,
+        target: String,
+        resource: Option<String>,
+        authorization_details: Option<AuthorizationDetails>,
+    ) -> Self;
 }
 
 #[derive(Serialize)]
@@ -29,10 +36,18 @@ pub struct JWTBearerAssertion {
     aud: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     resource: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    authorization_details: Option<AuthorizationDetails>,
 }
 
 impl Assertion for JWTBearerAssertion {
-    fn new(issuer: String, client_id: String, target: String, resource: Option<String>) -> Self {
+    fn new(
+        issuer: String,
+        client_id: String,
+        target: String,
+        resource: Option<String>,
+        authorization_details: Option<AuthorizationDetails>,
+    ) -> Self {
         let now = epoch_now_secs();
         let jti = uuid::Uuid::new_v4();
 
@@ -44,13 +59,20 @@ impl Assertion for JWTBearerAssertion {
             iss: client_id, // issuer of the token is the client itself
             aud: issuer,    // audience of the token is the issuer
             scope: target,
-            resource, // resource indicator for audience-restricted tokens
+            resource,              // resource indicator for audience-restricted tokens
+            authorization_details, // authorization_details for rich authorization requests
         }
     }
 }
 
 impl Assertion for ClientAssertion {
-    fn new(issuer: String, client_id: String, _target: String, _resource: Option<String>) -> Self {
+    fn new(
+        issuer: String,
+        client_id: String,
+        _target: String,
+        _resource: Option<String>,
+        _authorization_details: Option<AuthorizationDetails>,
+    ) -> Self {
         let now = epoch_now_secs();
         let jti = uuid::Uuid::new_v4();
 
@@ -72,6 +94,7 @@ impl Assertion for () {
         _client_id: String,
         _target: String,
         _resource: Option<String>,
+        _authorization_details: Option<AuthorizationDetails>,
     ) -> Self {
     }
 }

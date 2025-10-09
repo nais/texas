@@ -93,7 +93,7 @@ async fn token_exchange_token(
     )
     .await;
 
-    assert!(first_token_introspect.subject().is_some());
+    assert!(!first_token_introspect.subject().is_empty());
 
     // different target should return a different token
     let different_target_token_response = app::test_happy_path_token_exchange(
@@ -149,7 +149,7 @@ async fn token_exchange_token(
     )
     .await;
 
-    assert!(second_token_introspect.subject().is_some());
+    assert!(!second_token_introspect.subject().is_empty());
 
     assert_eq!(
         second_token_response.access_token,
@@ -199,7 +199,7 @@ async fn token_exchange_token(
     )
     .await;
 
-    assert!(third_token_introspect.subject().is_some());
+    assert!(!third_token_introspect.subject().is_empty());
 
     assert_ne!(
         third_token_response.access_token,

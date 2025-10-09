@@ -161,9 +161,9 @@ pub async fn test_happy_path_introspect(
             assert!(resp.active);
             assert!(resp.error.is_none());
             assert!(resp.has_claims());
-            assert!(resp.issuer().is_some());
-            assert!(resp.jwt_id().is_some());
-            assert_eq!(resp.issuer().unwrap(), expected_issuer);
+            assert!(!resp.issuer().is_empty());
+            assert!(!resp.jwt_id().is_empty());
+            assert_eq!(resp.issuer(), expected_issuer);
         },
     )
     .await

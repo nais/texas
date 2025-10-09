@@ -99,7 +99,7 @@ async fn introspect_token(
     )
     .await;
 
-    assert!(introspect_response.subject().is_some());
+    assert!(!introspect_response.subject().is_empty());
 }
 
 async fn test_introspect_token_has_not_before_in_the_future(
@@ -138,6 +138,7 @@ async fn test_introspect_token_invalid_audience(address: &str) {
             target: "invalid".to_string(),
             identity_provider: IdentityProvider::EntraID,
             resource: None,
+            authorization_details: None,
             skip_cache: None,
         },
         RequestFormat::Json,
