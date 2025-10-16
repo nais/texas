@@ -125,7 +125,7 @@ async fn shutdown_signal() {
 pub mod router {
     use crate::app::App;
     use crate::handler;
-    use crate::tracing::record_http_response_secs;
+    use crate::tracing::record_http_response_latency;
     use axum::Router;
     use axum::extract::MatchedPath;
     use axum::http::{Request, StatusCode};
@@ -176,7 +176,7 @@ pub mod router {
                     .map(ToString::to_string)
                     .unwrap_or_default();
                 span.record("http.response.status_code", response.status().as_u16());
-                record_http_response_secs(&path, latency, response.status());
+                record_http_response_latency(&path, latency, response.status());
             });
 
         let api = OpenApiRouter::default()

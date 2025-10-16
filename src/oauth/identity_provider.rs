@@ -23,6 +23,7 @@ use tracing::error;
 use tracing::instrument;
 use utoipa::openapi::{ObjectBuilder, RefOr, Schema};
 use utoipa::{PartialSchema, ToSchema};
+use crate::tracing::record_identity_provider_latency;
 
 /// RFC 6749 token response from section 5.1.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Hash, Debug, PartialEq)]
@@ -460,6 +461,7 @@ where
     ) -> Result<TokenResponse, ApiError> {
         let params = R::token_request(config).ok_or(ApiError::Sign)?;
 
+        let start = std::time::Instant::now();
         let response = self
             .http_client
             .post(
@@ -470,7 +472,12 @@ where
             .header("accept", "application/json")
             .form(&params)
             .send()
-            .await
+            .await;
+
+        let duration = start.elapsed();
+        record_identity_provider_latency(self.identity_provider_kind, duration);
+
+        let response = response
             .inspect_err(|err| error!("Failed to get token from identity provider: {:?}", err))
             .map_err(ApiError::UpstreamRequest)?;
 
