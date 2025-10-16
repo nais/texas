@@ -1,5 +1,5 @@
 use crate::oauth::identity_provider::{ErrorResponse, IdentityProvider, OAuthErrorCode};
-use crate::tracing::inc_handler_errors;
+use crate::telemetry::inc_handler_errors;
 use axum::Form;
 use axum::Json;
 use axum::extract::FromRequest;

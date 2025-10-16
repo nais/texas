@@ -9,4 +9,4 @@ pub mod oauth {
     pub mod identity_provider;
     pub(super) mod token;
 }
-pub mod tracing;
+pub mod telemetry;

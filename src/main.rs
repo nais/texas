@@ -1,7 +1,7 @@
 use log::{error, info};
 use std::process::ExitCode;
 use texas::app::App;
-use texas::tracing::init_tracing_subscriber;
+use texas::telemetry::init_tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> ExitCode {

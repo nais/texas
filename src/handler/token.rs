@@ -4,7 +4,7 @@ use crate::handler::{ApiError, JsonOrForm, State};
 use crate::oauth::identity_provider::{
     AuthorizationDetails, ErrorResponse, IdentityProvider, TokenRequest, TokenResponse, TokenType,
 };
-use crate::tracing::{inc_handler_errors, inc_token_cache_hits, inc_token_requests};
+use crate::telemetry::{inc_handler_errors, inc_token_cache_hits, inc_token_requests};
 use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::IntoResponse;

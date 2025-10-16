@@ -125,7 +125,7 @@ async fn shutdown_signal() {
 pub mod router {
     use crate::app::App;
     use crate::handler;
-    use crate::tracing::record_http_response_latency;
+    use crate::telemetry::record_http_response_latency;
     use axum::Router;
     use axum::extract::MatchedPath;
     use axum::http::{Request, StatusCode};

@@ -23,7 +23,7 @@ use tracing::error;
 use tracing::instrument;
 use utoipa::openapi::{ObjectBuilder, RefOr, Schema};
 use utoipa::{PartialSchema, ToSchema};
-use crate::tracing::record_identity_provider_latency;
+use crate::telemetry::record_identity_provider_latency;
 
 /// RFC 6749 token response from section 5.1.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Hash, Debug, PartialEq)]
