@@ -18,7 +18,7 @@ axum = { version = "0.8", features = ["http2", "macros"] }
 derivative = "2"
 dotenv = { version = "0.15", features = ["clap"] }
 jsonwebkey = { version = "0.3", features = ["jwt-convert"] }
-jsonwebtoken = "8"
+jsonwebtoken = "10"
 log = { version = "0.4", features = ["std"] }
 moka = { version = "0.12", features = ["future"] }
 opentelemetry = { version = "0.31", features = ["metrics", "trace"] }
