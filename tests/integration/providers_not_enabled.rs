@@ -1,4 +1,7 @@
-use crate::helpers::{app, http};
+use crate::helpers::http::{
+    introspect_url, test_well_formed_json_request, token_exchange_url, token_url,
+};
+use crate::helpers::server::TestServer;
 use axum::http::StatusCode;
 use test_log::test;
 use texas::oauth::identity_provider::{
@@ -9,10 +12,10 @@ use texas::oauth::identity_provider::{
 /// Test that Texas returns an appropriate error when the identity provider is not supported.
 #[test(tokio::test)]
 async fn all_providers() {
-    let testapp = app::TestApp::new_no_providers().await;
-    let address = testapp.address();
+    let server = TestServer::new_no_providers().await;
+    let address = server.address();
     let join_handler = tokio::spawn(async move {
-        testapp.run().await;
+        server.run().await;
     });
 
     let providers = [
@@ -22,8 +25,8 @@ async fn all_providers() {
         IdentityProvider::TokenX,
     ];
     for provider in providers {
-        http::test_well_formed_json_request(
-            app::token_url(&address).as_str(),
+        test_well_formed_json_request(
+            token_url(&address).as_str(),
             TokenRequest {
                 target: "some_target".to_string(),
                 identity_provider: provider,
@@ -39,8 +42,8 @@ async fn all_providers() {
         )
         .await;
 
-        http::test_well_formed_json_request(
-            app::token_exchange_url(&address).as_str(),
+        test_well_formed_json_request(
+            token_exchange_url(&address).as_str(),
             TokenExchangeRequest {
                 target: "some_target".to_string(),
                 identity_provider: provider,
@@ -55,8 +58,8 @@ async fn all_providers() {
         )
         .await;
 
-        http::test_well_formed_json_request(
-            app::introspect_url(&address).as_str(),
+        test_well_formed_json_request(
+            introspect_url(&address).as_str(),
             IntrospectRequest {
                 token: "some_token".to_string(),
                 identity_provider: provider,

@@ -1,8 +1,11 @@
-pub mod app;
 mod cache;
 pub mod config;
 pub mod handler;
-mod http;
+pub mod http {
+    pub mod client;
+    pub mod router;
+    pub mod server;
+}
 pub mod oauth {
     pub mod assertion;
     pub(super) mod grant;

@@ -1,10 +1,14 @@
+use crate::helpers::jwt::IntrospectClaims;
 use axum::http::StatusCode;
 use pretty_assertions::assert_eq;
 use reqwest::{Error, Response};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
-use texas::oauth::identity_provider::{IdentityProvider, TokenResponse};
+use texas::oauth::identity_provider::{
+    IdentityProvider, IntrospectRequest, IntrospectResponse, TokenExchangeRequest, TokenRequest,
+    TokenResponse,
+};
 
 #[derive(Clone)]
 pub enum RequestFormat {
@@ -108,4 +112,75 @@ pub async fn get_user_token(
 
     assert_eq!(user_token_response.status(), 200);
     user_token_response.json::<TokenResponse>().await.unwrap()
+}
+
+pub fn token_url(address: &str) -> String {
+    format!("http://{}/api/v1/token", address)
+}
+
+pub fn token_exchange_url(address: &str) -> String {
+    format!("http://{}/api/v1/token/exchange", address)
+}
+
+pub fn introspect_url(address: &str) -> String {
+    format!("http://{}/api/v1/introspect", address)
+}
+
+pub async fn test_happy_path_token(
+    address: &str,
+    request: TokenRequest,
+    request_format: RequestFormat,
+) -> TokenResponse {
+    test_well_formed_request(
+        token_url(address).as_str(),
+        request,
+        request_format,
+        StatusCode::OK,
+        |resp: TokenResponse| {
+            assert!(resp.expires_in_seconds > 0);
+            assert!(!resp.access_token.is_empty());
+        },
+    )
+    .await
+}
+
+pub async fn test_happy_path_token_exchange(
+    address: &str,
+    request: TokenExchangeRequest,
+    request_format: RequestFormat,
+) -> TokenResponse {
+    test_well_formed_request(
+        token_exchange_url(address).as_str(),
+        request,
+        request_format,
+        StatusCode::OK,
+        |resp: TokenResponse| {
+            assert!(resp.expires_in_seconds > 0);
+            assert!(!resp.access_token.is_empty());
+        },
+    )
+    .await
+}
+
+pub async fn test_happy_path_introspect(
+    address: &str,
+    expected_issuer: &str,
+    request: IntrospectRequest,
+    request_format: RequestFormat,
+) -> IntrospectResponse {
+    test_well_formed_request(
+        introspect_url(address).as_str(),
+        request,
+        request_format,
+        StatusCode::OK,
+        |resp: IntrospectResponse| {
+            assert!(resp.active);
+            assert!(resp.error.is_none());
+            assert!(resp.has_claims());
+            assert!(!resp.issuer().is_empty());
+            assert!(!resp.jwt_id().is_empty());
+            assert_eq!(resp.issuer(), expected_issuer);
+        },
+    )
+    .await
 }

@@ -1,6 +1,10 @@
-use crate::helpers::http::RequestFormat;
+use crate::helpers::http::{
+    RequestFormat, get_user_token, introspect_url, test_happy_path_introspect,
+    test_happy_path_token, test_well_formed_json_request,
+};
+use crate::helpers::jwt;
 use crate::helpers::jwt::{IntrospectClaims, Token, TokenClaims};
-use crate::helpers::{app, http, jwt};
+use crate::helpers::server::TestServer;
 use reqwest::StatusCode;
 use serde_json::Value;
 use test_log::test;
@@ -14,16 +18,16 @@ use texas::oauth::identity_provider::{
 /// Content-type encodings tested are both `application/json` and `application/x-www-form-urlencoded`.
 #[test(tokio::test)]
 async fn all_providers() {
-    let testapp = app::TestApp::new().await;
-    let address = testapp.address();
-    let identity_provider_address = testapp.identity_provider_address();
-    let azure_issuer = testapp.azure_issuer();
-    let idporten_issuer = testapp.idporten_issuer();
-    let maskinporten_issuer = testapp.maskinporten_issuer();
-    let token_x_issuer = testapp.token_x_issuer();
+    let server = TestServer::new().await;
+    let address = server.address();
+    let identity_provider_address = server.identity_provider_address();
+    let azure_issuer = server.azure_issuer();
+    let idporten_issuer = server.idporten_issuer();
+    let maskinporten_issuer = server.maskinporten_issuer();
+    let token_x_issuer = server.token_x_issuer();
 
     let join_handler = tokio::spawn(async move {
-        testapp.run().await;
+        server.run().await;
     });
 
     // All happy cases
@@ -87,8 +91,8 @@ async fn introspect_token(
     request_format: RequestFormat,
 ) {
     let user_token: TokenResponse =
-        http::get_user_token(identity_provider_address, identity_provider).await;
-    let introspect_response = app::test_happy_path_introspect(
+        get_user_token(identity_provider_address, identity_provider).await;
+    let introspect_response = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -119,8 +123,8 @@ async fn test_introspect_token_has_not_before_in_the_future(
         "maskinporten",
     );
 
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token,
             identity_provider: IdentityProvider::Maskinporten,
@@ -132,7 +136,7 @@ async fn test_introspect_token_has_not_before_in_the_future(
 }
 
 async fn test_introspect_token_invalid_audience(address: &str) {
-    let token_response = app::test_happy_path_token(
+    let token_response = test_happy_path_token(
         address,
         TokenRequest {
             target: "invalid".to_string(),
@@ -145,8 +149,8 @@ async fn test_introspect_token_invalid_audience(address: &str) {
     )
     .await;
 
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token: token_response.access_token.clone(),
             identity_provider: IdentityProvider::EntraID,
@@ -171,8 +175,8 @@ async fn test_introspect_token_is_expired(address: &str, identity_provider_addre
         "maskinporten",
     );
 
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token,
             identity_provider: IdentityProvider::Maskinporten,
@@ -200,8 +204,8 @@ async fn test_introspect_token_is_issued_in_the_future(
         "maskinporten",
     );
 
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token,
             identity_provider: IdentityProvider::Maskinporten,
@@ -213,8 +217,8 @@ async fn test_introspect_token_is_issued_in_the_future(
 }
 
 async fn test_introspect_token_is_not_a_jwt(address: &str) {
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token: "not a jwt".to_string(),
             identity_provider: IdentityProvider::EntraID,
@@ -237,8 +241,8 @@ async fn test_introspect_token_issuer_mismatch(address: &str, identity_provider_
         &IdentityProvider::Maskinporten.to_string(),
     );
 
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token,
             identity_provider: IdentityProvider::EntraID,
@@ -259,8 +263,8 @@ async fn test_introspect_token_missing_issuer(address: &str) {
         &IdentityProvider::Maskinporten.to_string(),
     );
 
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token,
             identity_provider: IdentityProvider::Maskinporten,
@@ -280,8 +284,8 @@ async fn test_introspect_token_missing_key_in_jwks(address: &str, identity_provi
         "missing-key",
     );
 
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token,
             identity_provider: IdentityProvider::Maskinporten,
@@ -298,8 +302,8 @@ async fn test_introspect_token_missing_kid(address: &str, identity_provider_addr
         format!("http://{}/maskinporten", identity_provider_address).into(),
     )]));
 
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token,
             identity_provider: IdentityProvider::EntraID,
@@ -320,8 +324,8 @@ async fn test_introspect_token_unrecognized_issuer(address: &str) {
         ]),
         &IdentityProvider::Maskinporten.to_string(),
     );
-    http::test_well_formed_json_request(
-        app::introspect_url(address).as_str(),
+    test_well_formed_json_request(
+        introspect_url(address).as_str(),
         IntrospectRequest {
             token,
             identity_provider: IdentityProvider::Maskinporten,

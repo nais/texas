@@ -1,7 +1,9 @@
-use crate::helpers::app::token_url;
-use crate::helpers::http::{RequestFormat, json_response};
+use crate::helpers::http::{
+    RequestFormat, json_response, post_request, test_happy_path_introspect, test_happy_path_token,
+    test_well_formed_json_request, token_url,
+};
 use crate::helpers::jwt::IntrospectClaims;
-use crate::helpers::{app, http};
+use crate::helpers::server::TestServer;
 use pretty_assertions::{assert_eq, assert_ne};
 use reqwest::StatusCode;
 use serde_json::{from_str, json};
@@ -21,14 +23,14 @@ use texas::oauth::identity_provider::{
 ///   2. Introspect the resulting token and check parameters
 #[test(tokio::test)]
 async fn all_providers() {
-    let testapp = app::TestApp::new().await;
-    let address = testapp.address();
-    let azure_issuer = testapp.azure_issuer();
-    let azure_client_id = testapp.azure_client_id();
-    let maskinporten_issuer = testapp.maskinporten_issuer();
+    let server = TestServer::new().await;
+    let address = server.address();
+    let azure_issuer = server.azure_issuer();
+    let azure_client_id = server.azure_client_id();
+    let maskinporten_issuer = server.maskinporten_issuer();
 
     let join_handler = tokio::spawn(async move {
-        testapp.run().await;
+        server.run().await;
     });
 
     // All happy cases
@@ -78,8 +80,8 @@ async fn machine_to_machine_token(
         skip_cache: None,
     };
     let first_token_response =
-        app::test_happy_path_token(address, request.clone(), request_format.clone()).await;
-    let first_token_introspect = app::test_happy_path_introspect(
+        test_happy_path_token(address, request.clone(), request_format.clone()).await;
+    let first_token_introspect = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -91,7 +93,7 @@ async fn machine_to_machine_token(
     .await;
 
     // different target should return a different token
-    let different_token_response = app::test_happy_path_token(
+    let different_token_response = test_happy_path_token(
         address,
         TokenRequest {
             target: "different_target".to_string(),
@@ -110,8 +112,8 @@ async fn machine_to_machine_token(
 
     // second token request with same inputs should return cached token
     let second_token_response =
-        app::test_happy_path_token(address, request, request_format.clone()).await;
-    let second_token_introspect = app::test_happy_path_introspect(
+        test_happy_path_token(address, request, request_format.clone()).await;
+    let second_token_introspect = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -140,7 +142,7 @@ async fn machine_to_machine_token(
     );
 
     // third token request with skip_cache=true should return a new token
-    let third_token_response = app::test_happy_path_token(
+    let third_token_response = test_happy_path_token(
         address,
         TokenRequest {
             target: target.to_string(),
@@ -152,7 +154,7 @@ async fn machine_to_machine_token(
         request_format.clone(),
     )
     .await;
-    let third_token_introspect = app::test_happy_path_introspect(
+    let third_token_introspect = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -196,7 +198,7 @@ async fn machine_to_machine_token(
 }
 
 async fn test_token_invalid_identity_provider(address: &str) {
-    let http_response = http::post_request(
+    let http_response = post_request(
         format!("http://{}/api/v1/token", address),
         json!({"target":"dontcare","identity_provider":"invalid"}),
         RequestFormat::Json,
@@ -204,14 +206,14 @@ async fn test_token_invalid_identity_provider(address: &str) {
     .await
     .unwrap();
     let error_response =
-        http::json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
     assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
     assert_eq!(
         error_response.description,
         "Failed to deserialize the JSON body into the target type: identity_provider: unknown variant `invalid`, expected one of `azuread`, `entra_id`, `tokenx`, `maskinporten`, `idporten` at line 1 column 30"
     );
 
-    let http_response = http::post_request(
+    let http_response = post_request(
         format!("http://{}/api/v1/token", address),
         HashMap::from([("target", "dontcare"), ("identity_provider", "invalid")]),
         RequestFormat::Form,
@@ -219,7 +221,7 @@ async fn test_token_invalid_identity_provider(address: &str) {
     .await
     .unwrap();
     let error_response =
-        http::json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
     assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
     assert_eq!(
         error_response.description,
@@ -237,7 +239,7 @@ async fn test_token_invalid_content_type(address: &str) {
     let http_response = request.send().await.unwrap();
 
     let error_response =
-        http::json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
+        json_response::<ErrorResponse>(http_response, StatusCode::BAD_REQUEST).await;
     assert_eq!(error_response.error, OAuthErrorCode::InvalidRequest);
     assert_eq!(
         error_response.description,
@@ -246,8 +248,8 @@ async fn test_token_invalid_content_type(address: &str) {
 }
 
 async fn test_token_unsupported_identity_provider(address: &str) {
-    http::test_well_formed_json_request(
-        app::token_url(address).as_str(),
+    test_well_formed_json_request(
+        token_url(address).as_str(),
         TokenRequest {
             target: "some_target".to_string(),
             identity_provider: IdentityProvider::IDPorten,
@@ -273,7 +275,7 @@ async fn test_token_with_resource(
     let resource = "some_resource";
     let identity_provider = IdentityProvider::Maskinporten;
 
-    let token_response = app::test_happy_path_token(
+    let token_response = test_happy_path_token(
         address,
         TokenRequest {
             target: target.to_string(),
@@ -286,7 +288,7 @@ async fn test_token_with_resource(
     )
     .await;
 
-    let introspect_response = app::test_happy_path_introspect(
+    let introspect_response = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -316,7 +318,7 @@ async fn test_token_with_authorization_details_form(expected_issuer: &str, addre
         ]
     }]"#;
 
-    let http_response = http::post_request(
+    let http_response = post_request(
         token_url(address),
         HashMap::from([
             ("target", "some_target"),
@@ -335,7 +337,7 @@ async fn test_token_with_authorization_details_form(expected_issuer: &str, addre
     assert!(token_response.expires_in_seconds > 0);
     assert!(!token_response.access_token.is_empty());
 
-    let introspect_response = app::test_happy_path_introspect(
+    let introspect_response = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -367,7 +369,7 @@ async fn test_token_with_authorization_details_json(expected_issuer: &str, addre
         ]
     }]"#;
 
-    let http_response = http::post_request(
+    let http_response = post_request(
         token_url(address),
         json!({
             "target": "some_target",
@@ -383,7 +385,7 @@ async fn test_token_with_authorization_details_json(expected_issuer: &str, addre
     assert!(token_response.expires_in_seconds > 0);
     assert!(!token_response.access_token.is_empty());
 
-    let introspect_response = app::test_happy_path_introspect(
+    let introspect_response = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {

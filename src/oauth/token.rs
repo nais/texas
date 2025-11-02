@@ -1,4 +1,5 @@
 use crate::http;
+use crate::http::client::Retry;
 use crate::oauth::assertion::epoch_now_secs;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
@@ -51,8 +52,8 @@ impl Jwks {
             keys: Vec<jwk::JsonWebKey>,
         }
 
-        let client = http::new_client(
-            http::Retry::default()
+        let client = http::client::new(
+            Retry::default()
                 .max_retries(10)
                 .min_interval(Duration::from_millis(100))
                 .max_interval(Duration::from_secs(1)),

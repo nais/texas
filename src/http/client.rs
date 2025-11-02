@@ -4,7 +4,7 @@ use reqwest_retry::{Jitter, RetryTransientMiddleware, policies};
 use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use std::time::Duration;
 
-pub fn new_client(retry: Retry) -> Result<ClientWithMiddleware, reqwest::Error> {
+pub fn new(retry: Retry) -> Result<ClientWithMiddleware, reqwest::Error> {
     let retry_policy = policies::ExponentialBackoff::builder()
         .retry_bounds(retry.min_interval, retry.max_interval)
         .jitter(Jitter::None)
@@ -31,8 +31,8 @@ pub fn new_client(retry: Retry) -> Result<ClientWithMiddleware, reqwest::Error> 
     Ok(client_with_middleware)
 }
 
-pub fn new_default_client() -> Result<ClientWithMiddleware, reqwest::Error> {
-    new_client(Retry::default())
+pub fn new_default() -> Result<ClientWithMiddleware, reqwest::Error> {
+    new(Retry::default())
 }
 
 pub struct Retry {

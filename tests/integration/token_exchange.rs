@@ -1,6 +1,9 @@
-use crate::helpers::http::RequestFormat;
+use crate::helpers::http::{
+    RequestFormat, get_user_token, test_happy_path_introspect, test_happy_path_token_exchange,
+    test_well_formed_json_request, token_exchange_url,
+};
 use crate::helpers::jwt::IntrospectClaims;
-use crate::helpers::{app, http};
+use crate::helpers::server::TestServer;
 use pretty_assertions::{assert_eq, assert_ne};
 use reqwest::StatusCode;
 use test_log::test;
@@ -19,16 +22,16 @@ use texas::oauth::identity_provider::{
 ///   3. Introspect the resulting token and check parameters
 #[test(tokio::test)]
 async fn all_providers() {
-    let testapp = app::TestApp::new().await;
-    let address = testapp.address();
-    let identity_provider_address = testapp.identity_provider_address();
-    let azure_issuer = testapp.azure_issuer();
-    let azure_client_id = testapp.azure_client_id();
-    let token_x_issuer = testapp.token_x_issuer();
-    let token_x_client_id = testapp.token_x_client_id();
+    let server = TestServer::new().await;
+    let address = server.address();
+    let identity_provider_address = server.identity_provider_address();
+    let azure_issuer = server.azure_issuer();
+    let azure_client_id = server.azure_client_id();
+    let token_x_issuer = server.token_x_issuer();
+    let token_x_client_id = server.token_x_client_id();
 
     let join_handler = tokio::spawn(async move {
-        testapp.run().await;
+        server.run().await;
     });
 
     // All happy cases
@@ -73,7 +76,7 @@ async fn token_exchange_token(
     request_format: RequestFormat,
 ) {
     let user_token: TokenResponse =
-        http::get_user_token(identity_provider_address, identity_provider).await;
+        get_user_token(identity_provider_address, identity_provider).await;
     let request = TokenExchangeRequest {
         target: target.to_string(),
         identity_provider,
@@ -81,8 +84,8 @@ async fn token_exchange_token(
         skip_cache: None,
     };
     let first_token_response =
-        app::test_happy_path_token_exchange(address, request.clone(), request_format.clone()).await;
-    let first_token_introspect = app::test_happy_path_introspect(
+        test_happy_path_token_exchange(address, request.clone(), request_format.clone()).await;
+    let first_token_introspect = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -96,7 +99,7 @@ async fn token_exchange_token(
     assert!(!first_token_introspect.subject().is_empty());
 
     // different target should return a different token
-    let different_target_token_response = app::test_happy_path_token_exchange(
+    let different_target_token_response = test_happy_path_token_exchange(
         address,
         TokenExchangeRequest {
             target: "different_target".to_string(),
@@ -114,8 +117,8 @@ async fn token_exchange_token(
 
     // different user token should return a different token
     let user_token_2: TokenResponse =
-        http::get_user_token(identity_provider_address, identity_provider).await;
-    let different_user_token_response = app::test_happy_path_token_exchange(
+        get_user_token(identity_provider_address, identity_provider).await;
+    let different_user_token_response = test_happy_path_token_exchange(
         address,
         TokenExchangeRequest {
             target: target.to_string(),
@@ -137,8 +140,8 @@ async fn token_exchange_token(
 
     // second token request with same inputs should return cached token
     let second_token_response =
-        app::test_happy_path_token_exchange(address, request, request_format.clone()).await;
-    let second_token_introspect = app::test_happy_path_introspect(
+        test_happy_path_token_exchange(address, request, request_format.clone()).await;
+    let second_token_introspect = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -177,7 +180,7 @@ async fn token_exchange_token(
     );
 
     // third token request with skip_cache=true should return a new token
-    let third_token_response = app::test_happy_path_token_exchange(
+    let third_token_response = test_happy_path_token_exchange(
         address,
         TokenExchangeRequest {
             target: target.to_string(),
@@ -188,7 +191,7 @@ async fn token_exchange_token(
         request_format.clone(),
     )
     .await;
-    let third_token_introspect = app::test_happy_path_introspect(
+    let third_token_introspect = test_happy_path_introspect(
         address,
         expected_issuer,
         IntrospectRequest {
@@ -247,8 +250,8 @@ async fn token_exchange_token(
 }
 
 async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
-    http::test_well_formed_json_request(
-        app::token_exchange_url(address).as_str(),
+    test_well_formed_json_request(
+        token_exchange_url(address).as_str(),
         TokenExchangeRequest {
             target: "target".to_string(),
             identity_provider: IdentityProvider::EntraID,
@@ -265,8 +268,8 @@ async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
 }
 
 async fn test_token_exchange_unsupported_identity_provider(address: &str) {
-    http::test_well_formed_json_request(
-        app::token_exchange_url(address).as_str(),
+    test_well_formed_json_request(
+        token_exchange_url(address).as_str(),
         TokenExchangeRequest {
             target: "some_target".to_string(),
             identity_provider: IdentityProvider::IDPorten,

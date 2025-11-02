@@ -1,14 +1,14 @@
-use crate::helpers::app;
+use crate::helpers::server::TestServer;
 use axum::http::StatusCode;
 use pretty_assertions::assert_eq;
 use test_log::test;
 
 #[test(tokio::test)]
 async fn probe() {
-    let testapp = app::TestApp::new().await;
-    let probe_address = testapp.probe_address().expect("Probe address is not set");
+    let server = TestServer::new().await;
+    let probe_address = server.probe_address().expect("Probe address is not set");
     let join_handler = tokio::spawn(async move {
-        testapp.run().await;
+        server.run().await;
     });
 
     let client = reqwest::Client::new();

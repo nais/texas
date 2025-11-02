@@ -1,8 +1,8 @@
 use moka::future::Cache;
 use std::io::Write;
-use texas::app::router;
 use texas::config::Config;
 use texas::handler::State;
+use texas::http;
 
 /// Write the OpenAPI specification to standard output.
 #[tokio::main]
@@ -11,7 +11,7 @@ async fn main() {
     let cfg = Config::default();
     let token_cache = Cache::new(0);
     let token_exchange_cache = Cache::new(0);
-    let (_, openapi) = router::api(State {
+    let (_, openapi) = http::router::api(State {
         cfg,
         token_cache,
         token_exchange_cache,

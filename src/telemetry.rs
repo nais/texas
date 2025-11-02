@@ -271,15 +271,13 @@ static HISTOGRAM_IDENTITY_PROVIDER_LATENCY_SECS: LazyLock<Histogram<f64>> = Lazy
         .build()
 });
 
-pub fn record_identity_provider_latency(
-    identity_provider: IdentityProvider,
-    latency: Duration,
-) {
+pub fn record_identity_provider_latency(identity_provider: IdentityProvider, latency: Duration) {
     HISTOGRAM_IDENTITY_PROVIDER_LATENCY_SECS.record(
         latency.as_secs_f64(),
-        with_resource_attributes(vec![
-            KeyValue::new("identity_provider", identity_provider.to_string()),
-        ])
+        with_resource_attributes(vec![KeyValue::new(
+            "identity_provider",
+            identity_provider.to_string(),
+        )])
         .as_slice(),
     );
 }

@@ -1,6 +1,6 @@
 use log::{error, info};
 use std::process::ExitCode;
-use texas::app::App;
+use texas::http::server::Server;
 use texas::telemetry::init_tracing_subscriber;
 
 #[tokio::main]
@@ -25,7 +25,7 @@ async fn main() -> ExitCode {
         env!("BUILD_TIME")
     );
 
-    match App::new_from_env().await {
+    match Server::new_from_env().await {
         Ok(app) => {
             app.run().await;
             ExitCode::SUCCESS

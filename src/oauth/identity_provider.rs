@@ -6,6 +6,7 @@ use crate::oauth::grant::{
     TokenRequestBuilderParams,
 };
 use crate::oauth::token;
+use crate::telemetry::record_identity_provider_latency;
 use async_trait::async_trait;
 use derivative::Derivative;
 use jsonwebkey as jwk;
@@ -23,7 +24,6 @@ use tracing::error;
 use tracing::instrument;
 use utoipa::openapi::{ObjectBuilder, RefOr, Schema};
 use utoipa::{PartialSchema, ToSchema};
-use crate::telemetry::record_identity_provider_latency;
 
 /// RFC 6749 token response from section 5.1.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Hash, Debug, PartialEq)]
@@ -364,7 +364,7 @@ where
         };
 
         let http_client =
-            http::new_default_client().map_err(ProviderError::InitializeHttpClient)?;
+            http::client::new_default().map_err(ProviderError::InitializeHttpClient)?;
 
         Ok(Self {
             client_id,
