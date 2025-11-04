@@ -241,7 +241,6 @@ pub struct TokenRequest {
 /// Authorization details for rich authorization requests [(RFC 9396)](https://www.rfc-editor.org/rfc/rfc9396.html).
 /// Must be a JSON array of objects, the exact contents of which depend on the identity provider.
 /// Texas does not validate this property and only forwards its value to the identity provider.
-/// If using the `application/x-www-form-urlencoded` content type, the value must be minified JSON in URL-encoded form.
 #[derive(Serialize, ToSchema, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AuthorizationDetails(pub Vec<Map<String, Value>>);
 
