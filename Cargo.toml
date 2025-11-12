@@ -66,3 +66,7 @@ path = "src/bin/openapi.rs"
 codegen-units = 1
 strip = true
 opt-level = "z"
+
+# https://nickb.dev/blog/default-musl-allocator-considered-harmful-to-performance/
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1"
