@@ -10,10 +10,10 @@ pub fn new(retry: Retry) -> Result<ClientWithMiddleware, reqwest::Error> {
         .jitter(Jitter::None)
         .build_with_max_retries(retry.max_retries);
 
-    let connect_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_CONNECT_TIMEOUT_MILLIS", 1_000);
-    let read_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_READ_TIMEOUT_MILLIS", 1_000);
-    let overall_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_OVERALL_TIMEOUT_MILLIS", 2_000);
-    let pool_max_idle = env_or_default::<usize>("TEXAS_HTTP_POOL_MAX_IDLE", 10_000);
+    let connect_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_CONNECT_TIMEOUT_MILLIS", 2_000);
+    let read_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_READ_TIMEOUT_MILLIS", 3_000);
+    let overall_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_OVERALL_TIMEOUT_MILLIS", 5_000);
+    let pool_max_idle = env_or_default::<usize>("TEXAS_HTTP_POOL_MAX_IDLE", 100);
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_millis(connect_timeout_millis))
