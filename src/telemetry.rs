@@ -14,11 +14,13 @@ use opentelemetry_sdk::trace::SdkTracerProvider;
 use opentelemetry_semantic_conventions::attribute::SERVICE_VERSION;
 use std::env;
 use std::fmt::Debug;
+use std::str::FromStr;
 use std::sync::LazyLock;
 use std::time::Duration;
 use tracing;
 use tracing::metadata::LevelFilter;
 use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
+use tracing_subscriber::filter::Directive;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -27,6 +29,8 @@ use tracing_subscriber::{EnvFilter, Layer};
 pub enum Error {
     #[error("init opentelemetry exporter: {0}")]
     Exporter(#[from] opentelemetry_otlp::ExporterBuildError),
+    #[error("init env filter: {0}")]
+    EnvFilter(#[from] tracing_subscriber::filter::ParseError),
 }
 
 /// Initialize tracing-subscriber and return `OtelGuard` for opentelemetry-related termination processing
@@ -56,7 +60,7 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
         // we don't care about internal opentelemetry logs
         // (there's an internal-logs feature for these crates that can be excluded, though doesn't quite work)
         // see https://github.com/open-telemetry/opentelemetry-rust/issues/2972
-        .add_directive("opentelemetry=off".parse().unwrap());
+        .add_directive(Directive::from_str("opentelemetry=off")?);
 
     tracing_subscriber::registry()
         .with(env_filter)

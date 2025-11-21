@@ -98,8 +98,20 @@ impl Server {
 }
 
 async fn serve(listener: TcpListener, router: Router) {
-    // axum::serve doesn't actually return an error according to the documentation, so we unwrap here
-    axum::serve(listener, router).with_graceful_shutdown(shutdown_signal()).await.unwrap();
+    // from axum::serve:
+    // > Although this future resolves to io::Result<()>,
+    // > it will never actually complete or return an error.
+    // > Errors on the TCP socket will be handled by sleeping for a short while (currently, one second).
+    //
+    // from axum::serve::with_graceful_shutdown:
+    // > Similarly to serve, although this future resolves to io::Result<()>, it will never error.
+    // > It returns Ok(()) only after the signal future completes.
+    //
+    // Therefore, we can safely unwrap the result of the await.
+    axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("axum::serve::with_graceful_shutdown() should not error");
 }
 
 async fn shutdown_signal() {

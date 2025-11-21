@@ -100,7 +100,10 @@ impl Assertion for () {
 }
 
 pub fn epoch_now_secs() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("SystemTime::now() should be after UNIX_EPOCH")
+        .as_secs()
 }
 
 pub fn serialize<T: Serialize>(
