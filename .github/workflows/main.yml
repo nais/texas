@@ -7,6 +7,8 @@ env:
   CARGO_TERM_COLOR: always
   GOOGLE_REGISTRY: europe-north1-docker.pkg.dev
   GITHUB_REGISTRY: ghcr.io
+permissions:
+  contents: read
 jobs:
   openapi:
     name: Verify openapi schema
