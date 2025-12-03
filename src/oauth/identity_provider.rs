@@ -362,8 +362,7 @@ where
             (None, None)
         };
 
-        let http_client =
-            http::client::new_default().map_err(ProviderError::InitializeHttpClient)?;
+        let http_client = http::client::token().map_err(ProviderError::InitializeHttpClient)?;
 
         Ok(Self {
             client_id,

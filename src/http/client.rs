@@ -1,70 +1,93 @@
 use log::debug;
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_middleware::ClientWithMiddleware;
 use reqwest_retry::{Jitter, RetryTransientMiddleware, policies};
 use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use std::time::Duration;
 
-pub fn new(retry: Retry) -> Result<ClientWithMiddleware, reqwest::Error> {
+pub fn new(config: Config) -> Result<ClientWithMiddleware, reqwest::Error> {
     let retry_policy = policies::ExponentialBackoff::builder()
-        .retry_bounds(retry.min_interval, retry.max_interval)
+        .retry_bounds(config.retry_min_interval, config.retry_max_interval)
         .jitter(Jitter::None)
-        .build_with_max_retries(retry.max_retries);
-
-    let connect_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_CONNECT_TIMEOUT_MILLIS", 2_000);
-    let read_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_READ_TIMEOUT_MILLIS", 3_000);
-    let overall_timeout_millis = env_or_default::<u64>("TEXAS_HTTP_OVERALL_TIMEOUT_MILLIS", 5_000);
-    let pool_max_idle = env_or_default::<usize>("TEXAS_HTTP_POOL_MAX_IDLE", 100);
+        .build_with_max_retries(config.retry_max_attempts);
 
     let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_millis(connect_timeout_millis))
-        .read_timeout(Duration::from_millis(read_timeout_millis))
-        .timeout(Duration::from_millis(overall_timeout_millis))
-        .pool_max_idle_per_host(pool_max_idle)
-        .pool_idle_timeout(Duration::from_secs(30))
+        .connect_timeout(config.timeout_connect)
+        .read_timeout(config.timeout_read)
+        .timeout(config.timeout_overall)
+        .pool_max_idle_per_host(config.pool_max_idle_per_host)
+        .pool_idle_timeout(config.pool_idle_timeout)
         .build()?;
 
-    let client_with_middleware = ClientBuilder::new(client)
+    let client = reqwest_middleware::ClientBuilder::new(client)
         .with(TracingMiddleware::<SpanBackendWithUrl>::new())
         .with(RetryTransientMiddleware::new_with_policy(retry_policy))
         .build();
 
-    Ok(client_with_middleware)
+    Ok(client)
 }
 
-pub fn new_default() -> Result<ClientWithMiddleware, reqwest::Error> {
-    new(Retry::default())
+pub fn jwks() -> Result<ClientWithMiddleware, reqwest::Error> {
+    new(Config::jwks())
 }
 
-pub struct Retry {
-    max_retries: u32,
-    min_interval: Duration,
-    max_interval: Duration,
+pub fn token() -> Result<ClientWithMiddleware, reqwest::Error> {
+    new(Config::token())
 }
 
-impl Default for Retry {
-    fn default() -> Self {
-        let max_retries = env_or_default::<u32>("TEXAS_HTTP_MAX_RETRIES", 5);
+pub struct Config {
+    pool_max_idle_per_host: usize,
+    pool_idle_timeout: Duration,
+    retry_max_attempts: u32,
+    retry_min_interval: Duration,
+    retry_max_interval: Duration,
+    timeout_connect: Duration,
+    timeout_read: Duration,
+    timeout_overall: Duration,
+}
 
+impl Config {
+    pub fn jwks() -> Self {
         Self {
-            max_retries,
-            min_interval: Duration::from_millis(10),
-            max_interval: Duration::from_millis(100),
+            pool_max_idle_per_host: env_or_default::<usize>("TEXAS_HTTP_POOL_MAX_IDLE", 100),
+            pool_idle_timeout: Duration::from_secs(10),
+            retry_max_attempts: env_or_default::<u32>("TEXAS_HTTP_MAX_RETRIES", 10),
+            retry_min_interval: Duration::from_millis(100),
+            retry_max_interval: Duration::from_secs(2),
+            timeout_connect: Duration::from_millis(env_or_default::<u64>(
+                "TEXAS_HTTP_CONNECT_TIMEOUT_MILLIS",
+                5_000,
+            )),
+            timeout_read: Duration::from_millis(env_or_default::<u64>(
+                "TEXAS_HTTP_READ_TIMEOUT_MILLIS",
+                5_000,
+            )),
+            timeout_overall: Duration::from_millis(env_or_default::<u64>(
+                "TEXAS_HTTP_OVERALL_TIMEOUT_MILLIS",
+                10_000,
+            )),
         }
     }
-}
 
-impl Retry {
-    pub fn max_retries(mut self, max_retries: u32) -> Self {
-        self.max_retries = max_retries;
-        self
-    }
-    pub fn min_interval(mut self, min_interval: Duration) -> Self {
-        self.min_interval = min_interval;
-        self
-    }
-    pub fn max_interval(mut self, max_interval: Duration) -> Self {
-        self.max_interval = max_interval;
-        self
+    pub fn token() -> Self {
+        Self {
+            pool_max_idle_per_host: env_or_default::<usize>("TEXAS_HTTP_POOL_MAX_IDLE", 100),
+            pool_idle_timeout: Duration::from_secs(10),
+            retry_max_attempts: env_or_default::<u32>("TEXAS_HTTP_MAX_RETRIES", 3),
+            retry_min_interval: Duration::ZERO,
+            retry_max_interval: Duration::ZERO,
+            timeout_connect: Duration::from_millis(env_or_default::<u64>(
+                "TEXAS_HTTP_CONNECT_TIMEOUT_MILLIS",
+                1_000,
+            )),
+            timeout_read: Duration::from_millis(env_or_default::<u64>(
+                "TEXAS_HTTP_READ_TIMEOUT_MILLIS",
+                1_000,
+            )),
+            timeout_overall: Duration::from_millis(env_or_default::<u64>(
+                "TEXAS_HTTP_OVERALL_TIMEOUT_MILLIS",
+                2_000,
+            )),
+        }
     }
 }
 
