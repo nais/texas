@@ -15,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v5
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # ratchet:Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
       - name: make openapi
         run: |
           make openapi
@@ -30,9 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v5
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # ratchet:Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
       - name: cargo fmt
         run: cargo fmt --check --verbose
       - name: cargo check
@@ -52,8 +52,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # ratchet:actions/checkout@v5
-      - uses: nais/platform-build-push-sign@main # ratchet:exclude
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
+      - uses: nais/platform-build-push-sign@8be8359cd90915318ee8ab5fbc8337d04937ae70 # ratchet:nais/platform-build-push-sign@main
         id: build_push_sign
         with:
           name: texas
@@ -106,7 +106,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: nais/fasit-deploy@v2 # ratchet:exclude
+      - uses: nais/fasit-deploy@8727ed1c7a5a465e837873e6016a9a692a6b874a # ratchet:nais/fasit-deploy@v2
         with:
           chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/${{ needs.publish.outputs.chart_name }}
           version: ${{ needs.publish.outputs.chart_version }}
