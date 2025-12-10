@@ -3,12 +3,6 @@ use std::process::ExitCode;
 use texas::http::server::Server;
 use texas::telemetry::init_tracing_subscriber;
 
-// Avoid musl's default allocator due to lackluster performance
-// https://nickb.dev/blog/default-musl-allocator-considered-harmful-to-performance
-#[cfg(target_env = "musl")]
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[tokio::main]
 async fn main() -> ExitCode {
     #[cfg(feature = "local")]
