@@ -1,7 +1,7 @@
 use crate::oauth::identity_provider::IdentityProvider;
 use axum::http::StatusCode;
 use log::debug;
-use opentelemetry::metrics::{Counter, Histogram, Meter};
+use opentelemetry::metrics::{Counter, Histogram, Meter, UpDownCounter};
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{InstrumentationScope, KeyValue, global};
 use opentelemetry_otlp::{MetricExporter, SpanExporter};
@@ -19,11 +19,68 @@ use std::sync::LazyLock;
 use std::time::Duration;
 use tracing;
 use tracing::metadata::LevelFilter;
-use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
+use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
 use tracing_subscriber::filter::Directive;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
+
+static METER: LazyLock<Meter> = LazyLock::new(|| {
+    global::meter_with_scope(
+        InstrumentationScope::builder(env!("CARGO_PKG_NAME"))
+            .with_version(env!("CARGO_PKG_VERSION"))
+            .build(),
+    )
+});
+
+static COUNTER_TOKEN_CACHE_HITS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METER
+        .u64_counter("texas_token_cache_hits")
+        .with_description("Number of token cache hits")
+        .build()
+});
+
+static COUNTER_HANDLER_REQUESTS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METER
+        .u64_counter("texas_handler_requests")
+        .with_description("Number of processed requests")
+        .build()
+});
+
+static COUNTER_HANDLER_ERRORS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METER.u64_counter("texas_handler_errors").with_description("Number of handler errors").build()
+});
+
+static HISTOGRAM_HTTP_RESPONSE_SECS: LazyLock<Histogram<f64>> = LazyLock::new(|| {
+    METER
+        .f64_histogram("http_response_secs")
+        .with_description("Response time in seconds")
+        .with_boundaries(vec![
+            0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.02, 0.03, 0.04,
+            0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0,
+            5.0, 10.0,
+        ])
+        .build()
+});
+
+static HISTOGRAM_IDENTITY_PROVIDER_LATENCY_SECS: LazyLock<Histogram<f64>> = LazyLock::new(|| {
+    METER
+        .f64_histogram("texas_identity_provider_latency_secs")
+        .with_description("Latency to identity provider in seconds")
+        .with_boundaries(vec![
+            0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.02, 0.03, 0.04,
+            0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0,
+            5.0, 10.0,
+        ])
+        .build()
+});
+
+static UP_DOWN_COUNTER_TOKEN_CACHE_SIZE: LazyLock<UpDownCounter<f64>> = LazyLock::new(|| {
+    METER
+        .f64_up_down_counter("texas_token_cache_size")
+        .with_description("Number of items in token cache")
+        .build()
+});
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -154,23 +211,7 @@ fn with_resource_attributes(additional_attributes: Vec<KeyValue>) -> Vec<KeyValu
     [RESOURCE_ATTRIBUTES.clone(), additional_attributes].concat()
 }
 
-static METER: LazyLock<Meter> = LazyLock::new(|| {
-    global::meter_with_scope(
-        InstrumentationScope::builder(env!("CARGO_PKG_NAME"))
-            .with_version(env!("CARGO_PKG_VERSION"))
-            .build(),
-    )
-});
-
-static COUNTER_TOKEN_CACHE_HITS: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    METER
-        .u64_counter("texas_token_cache_hits")
-        .with_description("Number of token cache hits")
-        .build()
-});
-
 pub fn inc_token_cache_hits(path: &str, identity_provider: IdentityProvider) {
-    tracing::Span::current().set_attribute("texas.cache_hit", true);
     COUNTER_TOKEN_CACHE_HITS.add(
         1,
         with_resource_attributes(vec![
@@ -180,13 +221,6 @@ pub fn inc_token_cache_hits(path: &str, identity_provider: IdentityProvider) {
         .as_slice(),
     );
 }
-
-static COUNTER_HANDLER_REQUESTS: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    METER
-        .u64_counter("texas_handler_requests")
-        .with_description("Number of processed requests")
-        .build()
-});
 
 pub fn inc_token_requests(path: &str, identity_provider: IdentityProvider) {
     COUNTER_HANDLER_REQUESTS.add(
@@ -224,10 +258,6 @@ pub fn inc_token_introspections(path: &str, identity_provider: IdentityProvider)
     );
 }
 
-static COUNTER_HANDLER_ERRORS: LazyLock<Counter<u64>> = LazyLock::new(|| {
-    METER.u64_counter("texas_handler_errors").with_description("Number of handler errors").build()
-});
-
 pub fn inc_handler_errors(path: &str, identity_provider: IdentityProvider, error_kind: &str) {
     COUNTER_HANDLER_ERRORS.add(
         1,
@@ -240,18 +270,6 @@ pub fn inc_handler_errors(path: &str, identity_provider: IdentityProvider, error
     );
 }
 
-static HISTOGRAM_HTTP_RESPONSE_SECS: LazyLock<Histogram<f64>> = LazyLock::new(|| {
-    METER
-        .f64_histogram("http_response_secs")
-        .with_description("Response time in seconds")
-        .with_boundaries(vec![
-            0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.02, 0.03, 0.04,
-            0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0,
-            5.0, 10.0,
-        ])
-        .build()
-});
-
 pub fn record_http_response_latency(path: &str, latency: Duration, status_code: StatusCode) {
     HISTOGRAM_HTTP_RESPONSE_SECS.record(
         latency.as_secs_f64(),
@@ -263,18 +281,6 @@ pub fn record_http_response_latency(path: &str, latency: Duration, status_code: 
     );
 }
 
-static HISTOGRAM_IDENTITY_PROVIDER_LATENCY_SECS: LazyLock<Histogram<f64>> = LazyLock::new(|| {
-    METER
-        .f64_histogram("texas_identity_provider_latency_secs")
-        .with_description("Latency to identity provider in seconds")
-        .with_boundaries(vec![
-            0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.02, 0.03, 0.04,
-            0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0,
-            5.0, 10.0,
-        ])
-        .build()
-});
-
 pub fn record_identity_provider_latency(identity_provider: IdentityProvider, latency: Duration) {
     HISTOGRAM_IDENTITY_PROVIDER_LATENCY_SECS.record(
         latency.as_secs_f64(),
@@ -283,5 +289,21 @@ pub fn record_identity_provider_latency(identity_provider: IdentityProvider, lat
             identity_provider.to_string(),
         )])
         .as_slice(),
+    );
+}
+
+pub fn inc_token_cache(cache_type: &str) {
+    UP_DOWN_COUNTER_TOKEN_CACHE_SIZE.add(
+        1.0,
+        with_resource_attributes(vec![KeyValue::new("cache_type", cache_type.to_string())])
+            .as_slice(),
+    );
+}
+
+pub fn dec_token_cache(cache_type: &str) {
+    UP_DOWN_COUNTER_TOKEN_CACHE_SIZE.add(
+        -1.0,
+        with_resource_attributes(vec![KeyValue::new("cache_type", cache_type.to_string())])
+            .as_slice(),
     );
 }

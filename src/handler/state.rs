@@ -1,4 +1,4 @@
-use crate::cache::{CachedTokenResponse, TokenResponseExpiry};
+use crate::cache::TokenCache;
 use crate::config;
 use crate::config::Config;
 use crate::oauth::assertion::{Assertion, ClientAssertion, JWTBearerAssertion};
@@ -28,13 +28,12 @@ pub enum InitError {
 pub struct State {
     pub cfg: Config,
     pub providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>>,
-    pub token_cache: moka::future::Cache<TokenRequest, CachedTokenResponse>,
-    pub token_exchange_cache: moka::future::Cache<TokenExchangeRequest, CachedTokenResponse>,
+    pub token_cache: TokenCache<TokenRequest>,
+    pub token_exchange_cache: TokenCache<TokenExchangeRequest>,
 }
 
 impl State {
     pub async fn from_config(cfg: Config) -> Result<Self, InitError> {
-        const CACHE_MAX_CAPACITY: u64 = 262144;
         let mut providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>> = vec![];
 
         if let Some(provider_cfg) = &cfg.maskinporten {
@@ -102,21 +101,11 @@ impl State {
             providers.push(provider);
         }
 
-        let token_cache = moka::future::CacheBuilder::default()
-            .max_capacity(CACHE_MAX_CAPACITY)
-            .expire_after(TokenResponseExpiry)
-            .build();
-
-        let token_exchange_cache = moka::future::CacheBuilder::default()
-            .max_capacity(CACHE_MAX_CAPACITY)
-            .expire_after(TokenResponseExpiry)
-            .build();
-
         Ok(Self {
             cfg,
             providers,
-            token_cache,
-            token_exchange_cache,
+            token_cache: TokenCache::<TokenRequest>::new("token"),
+            token_exchange_cache: TokenCache::<TokenExchangeRequest>::new("token/exchange"),
         })
     }
 }

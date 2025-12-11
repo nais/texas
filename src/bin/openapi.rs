@@ -1,5 +1,5 @@
-use moka::future::Cache;
 use std::io::Write;
+use texas::cache::TokenCache;
 use texas::config::Config;
 use texas::handler::State;
 use texas::http;
@@ -9,8 +9,8 @@ use texas::http;
 async fn main() {
     let mut stdout = std::io::stdout();
     let cfg = Config::default();
-    let token_cache = Cache::new(0);
-    let token_exchange_cache = Cache::new(0);
+    let token_cache = TokenCache::new("token");
+    let token_exchange_cache = TokenCache::new("token/exchange");
     let (_, openapi) = http::router::api(State {
         cfg,
         token_cache,

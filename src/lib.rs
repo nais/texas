@@ -1,4 +1,4 @@
-mod cache;
+pub mod cache;
 pub mod config;
 pub mod handler;
 pub mod http {

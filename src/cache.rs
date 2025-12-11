@@ -1,11 +1,90 @@
 use crate::oauth::identity_provider::TokenResponse;
 use moka::Expiry;
+use moka::notification::RemovalCause;
+use std::hash::Hash;
 use std::time::Duration;
 
+use crate::telemetry;
 #[cfg(test)]
 use mock_instant::thread_local::Instant;
 #[cfg(not(test))]
 use std::time::Instant;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+const MAX_CAPACITY: u64 = 262144;
+
+#[derive(Clone)]
+pub struct TokenCache<K> {
+    inner: moka::future::Cache<K, CachedTokenResponse>,
+    kind: &'static str,
+}
+
+impl<K> TokenCache<K>
+where
+    K: Eq + Hash + Send + Sync + 'static,
+{
+    pub fn new(kind: &'static str) -> Self {
+        let listener = |_k, _v, cause| match cause {
+            RemovalCause::Expired | RemovalCause::Size | RemovalCause::Explicit => {
+                telemetry::dec_token_cache(kind);
+            }
+            RemovalCause::Replaced => {
+                // The entry itself was not actually removed, but its value was replaced.
+            }
+        };
+
+        Self {
+            inner: moka::future::Cache::builder()
+                .max_capacity(MAX_CAPACITY)
+                .expire_after(TokenResponseExpiry)
+                .eviction_listener(listener)
+                .build(),
+            kind,
+        }
+    }
+
+    pub async fn get(&self, key: &K) -> Option<TokenResponse> {
+        let span = tracing::Span::current();
+        let response = self.inner.get(key).await;
+
+        match &response {
+            Some(cached_response) => {
+                span.set_attribute("texas.cache_hit", true);
+                span.set_attribute(
+                    "texas.cache_ttl_seconds",
+                    cached_response.ttl().as_secs().cast_signed(),
+                );
+                span.set_attribute(
+                    "texas.token_expires_in_seconds",
+                    cached_response.expires_in().as_secs().cast_signed(),
+                );
+            }
+            None => {
+                span.set_attribute("texas.cache_hit", false);
+            }
+        }
+
+        response.map(TokenResponse::from)
+    }
+
+    pub async fn insert(&self, key: K, response: TokenResponse) {
+        let span = tracing::Span::current();
+        span.set_attribute(
+            "texas.token_expires_in_seconds",
+            response.expires_in_seconds.cast_signed(),
+        );
+
+        self.inner.insert(key, CachedTokenResponse::from(response)).await;
+        telemetry::inc_token_cache(self.kind)
+    }
+
+    pub async fn invalidate(&self, key: &K) {
+        let span = tracing::Span::current();
+        span.set_attribute("texas.cache_force_skipped", true);
+
+        self.inner.invalidate(key).await
+    }
+}
 
 #[derive(Clone)]
 pub struct CachedTokenResponse {

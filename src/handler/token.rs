@@ -1,10 +1,8 @@
-use crate::cache::CachedTokenResponse;
-use crate::handler;
 use crate::handler::{ApiError, JsonOrForm, State};
 use crate::oauth::identity_provider::{
     AuthorizationDetails, ErrorResponse, IdentityProvider, TokenRequest, TokenResponse, TokenType,
 };
-use crate::telemetry::{inc_handler_errors, inc_token_cache_hits, inc_token_requests};
+use crate::{handler, telemetry};
 use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::IntoResponse;
@@ -90,7 +88,7 @@ pub async fn token(
 ) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token";
     let span = tracing::Span::current();
-    inc_token_requests(PATH, request.identity_provider);
+    telemetry::inc_token_requests(PATH, request.identity_provider);
 
     if let Some(ref resource) = request.resource {
         span.set_attribute("texas.resource", resource.clone());
@@ -103,22 +101,10 @@ pub async fn token(
     }
 
     if request.skip_cache.unwrap_or(false) {
-        span.set_attribute("texas.cache_force_skipped", true);
         state.token_cache.invalidate(&request).await;
     } else if let Some(cached_response) = state.token_cache.get(&request).await {
-        inc_token_cache_hits(PATH, request.identity_provider);
-        span.set_attribute(
-            "texas.cache_ttl_seconds",
-            cached_response.ttl().as_secs_f64(),
-        );
-        span.set_attribute(
-            "texas.token_expires_in_seconds",
-            cached_response.expires_in().as_secs_f64(),
-        );
-
-        return Ok(Json(TokenResponse::from(cached_response)));
-    } else {
-        span.set_attribute("texas.cache_hit", false);
+        telemetry::inc_token_cache_hits(PATH, request.identity_provider);
+        return Ok(Json(cached_response));
     }
 
     let mut provider_enabled = false;
@@ -129,18 +115,12 @@ pub async fn token(
         if !provider.read().await.should_handle_token_request(&request) {
             continue;
         }
-        let response: TokenResponse = provider
-            .read()
-            .await
-            .get_token(request.clone())
-            .await
-            .inspect_err(|e| inc_handler_errors(PATH, request.identity_provider, e.as_ref()))?;
+        let response: TokenResponse =
+            provider.read().await.get_token(request.clone()).await.inspect_err(|e| {
+                telemetry::inc_handler_errors(PATH, request.identity_provider, e.as_ref())
+            })?;
 
-        span.set_attribute(
-            "texas.token_expires_in_seconds",
-            response.expires_in_seconds.cast_signed(),
-        );
-        state.token_cache.insert(request, CachedTokenResponse::from(response.clone())).await;
+        state.token_cache.insert(request, response.clone()).await;
         return Ok(Json(response));
     }
 
@@ -152,6 +132,6 @@ pub async fn token(
     }
 
     let err = ApiError::TokenRequestUnsupported(request.identity_provider);
-    inc_handler_errors(PATH, request.identity_provider, err.as_ref());
+    telemetry::inc_handler_errors(PATH, request.identity_provider, err.as_ref());
     Err(err)
 }

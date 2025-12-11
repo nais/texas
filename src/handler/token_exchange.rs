@@ -1,15 +1,12 @@
-use crate::cache::CachedTokenResponse;
-use crate::handler;
 use crate::handler::{ApiError, JsonOrForm, State};
 use crate::oauth::identity_provider::{
     ErrorResponse, IdentityProvider, TokenExchangeRequest, TokenResponse, TokenType,
 };
-use crate::telemetry::{inc_handler_errors, inc_token_cache_hits, inc_token_exchanges};
+use crate::{handler, telemetry};
 use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::IntoResponse;
 use tracing::instrument;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[utoipa::path(
     post,
@@ -68,26 +65,13 @@ pub async fn token_exchange(
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token/exchange";
-    let span = tracing::Span::current();
-    inc_token_exchanges(PATH, request.identity_provider);
+    telemetry::inc_token_exchanges(PATH, request.identity_provider);
 
     if request.skip_cache.unwrap_or(false) {
-        span.set_attribute("texas.cache_force_skipped", true);
         state.token_exchange_cache.invalidate(&request).await;
     } else if let Some(cached_response) = state.token_exchange_cache.get(&request).await {
-        inc_token_cache_hits(PATH, request.identity_provider);
-        span.set_attribute(
-            "texas.cache_ttl_seconds",
-            cached_response.ttl().as_secs_f64(),
-        );
-        span.set_attribute(
-            "texas.token_expires_in_seconds",
-            cached_response.expires_in().as_secs_f64(),
-        );
-
-        return Ok(Json(TokenResponse::from(cached_response)));
-    } else {
-        span.set_attribute("texas.cache_hit", false);
+        telemetry::inc_token_cache_hits(PATH, request.identity_provider);
+        return Ok(Json(cached_response));
     }
 
     let mut provider_enabled = false;
@@ -99,21 +83,11 @@ pub async fn token_exchange(
             continue;
         }
         let response: TokenResponse =
-            provider
-                .read()
-                .await
-                .exchange_token(request.clone())
-                .await
-                .inspect_err(|e| inc_handler_errors(PATH, request.identity_provider, e.as_ref()))?;
+            provider.read().await.exchange_token(request.clone()).await.inspect_err(|e| {
+                telemetry::inc_handler_errors(PATH, request.identity_provider, e.as_ref())
+            })?;
 
-        span.set_attribute(
-            "texas.token_expires_in_seconds",
-            response.expires_in_seconds.cast_signed(),
-        );
-        state
-            .token_exchange_cache
-            .insert(request, CachedTokenResponse::from(response.clone()))
-            .await;
+        state.token_exchange_cache.insert(request, response.clone()).await;
         return Ok(Json(response));
     }
 
@@ -125,6 +99,6 @@ pub async fn token_exchange(
     }
 
     let err = ApiError::TokenExchangeUnsupported(request.identity_provider);
-    inc_handler_errors(PATH, request.identity_provider, err.as_ref());
+    telemetry::inc_handler_errors(PATH, request.identity_provider, err.as_ref());
     Err(err)
 }
