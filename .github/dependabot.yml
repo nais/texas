@@ -13,6 +13,7 @@ updates:
           - opentelemetry*
           - tracing-opentelemetry
           - json-subscriber
+          - reqwest-tracing
     cooldown:
       default-days: 7
   - package-ecosystem: "github-actions"
