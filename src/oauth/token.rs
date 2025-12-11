@@ -1,9 +1,7 @@
 use crate::http;
 use crate::oauth::assertion::epoch_now_secs;
-use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use jsonwebtoken::Validation;
-use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -14,7 +12,7 @@ pub struct Jwks {
     endpoint: String,
     issuer: String,
     required_audience: Option<String>,
-    keys: HashMap<String, jwk::JsonWebKey>,
+    keys: HashMap<String, jwt::DecodingKey>,
     validation: Validation,
 }
 
@@ -37,6 +35,8 @@ pub enum Error {
     InvalidTokenHeader(jwt::errors::Error),
     #[error("invalid token: {0}")]
     InvalidToken(jwt::errors::Error),
+    #[error("invalid public jwk: {0}")]
+    InvalidJwk(jwt::errors::Error),
 }
 
 impl Jwks {
@@ -45,20 +45,17 @@ impl Jwks {
         endpoint: &str,
         required_audience: Option<String>,
     ) -> Result<Jwks, Error> {
-        #[derive(Deserialize)]
-        struct Response {
-            keys: Vec<jwk::JsonWebKey>,
-        }
-
         let client = http::client::jwks().map_err(Error::Init)?;
 
         let request = client.get(endpoint).header("accept", "application/json");
-        let response: Response =
+        let response: jwt::jwk::JwkSet =
             request.send().await.map_err(Error::Fetch)?.json().await.map_err(Error::JsonDecode)?;
 
-        let mut keys: HashMap<String, jwk::JsonWebKey> = HashMap::new();
-        for key in response.keys {
-            keys.insert(key.key_id.clone().ok_or(Error::MissingKeyID)?, key);
+        let mut keys: HashMap<String, jwt::DecodingKey> = HashMap::new();
+        for key in &response.keys {
+            let key_id = key.common.key_id.clone().ok_or(Error::MissingKeyID)?;
+            let decoding_key = jwt::DecodingKey::from_jwk(key).map_err(Error::InvalidJwk)?;
+            keys.insert(key_id, decoding_key);
         }
 
         Ok(Self {
@@ -70,10 +67,12 @@ impl Jwks {
         })
     }
 
+    // TODO: should allow validation with a selection of asymmetric signing algorithms
     fn validator(issuer: String, audience: Option<String>) -> Validation {
         let alg = jwt::Algorithm::RS256;
         let mut validation = Validation::new(alg);
 
+        validation.validate_aud = true;
         validation.validate_exp = true;
         validation.validate_nbf = true;
         validation.set_required_spec_claims(&["iss", "exp", "iat"]);
@@ -83,6 +82,8 @@ impl Jwks {
         if let Some(audience) = audience {
             validation.set_required_spec_claims(&["iss", "exp", "iat", "aud"]);
             validation.set_audience(&[audience]);
+        } else {
+            validation.validate_aud = false;
         }
 
         validation
@@ -116,13 +117,9 @@ impl Jwks {
             Some(key) => key,
         };
 
-        let claims = jwt::decode::<HashMap<String, Value>>(
-            token,
-            &signing_key.key.to_decoding_key(),
-            &self.validation,
-        )
-        .map_err(Error::InvalidToken)?
-        .claims;
+        let claims = jwt::decode::<HashMap<String, Value>>(token, signing_key, &self.validation)
+            .map_err(Error::InvalidToken)?
+            .claims;
 
         // validate the `iat` claim manually as the jsonwebtoken crate does not do this
         let iat = claims.get("iat").and_then(Value::as_u64).ok_or_else(|| {
