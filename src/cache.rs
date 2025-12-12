@@ -1,15 +1,15 @@
 use crate::oauth::identity_provider::TokenResponse;
+use crate::telemetry;
 use moka::Expiry;
 use moka::notification::RemovalCause;
 use std::hash::Hash;
 use std::time::Duration;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::telemetry;
 #[cfg(test)]
 use mock_instant::thread_local::Instant;
 #[cfg(not(test))]
 use std::time::Instant;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 const MAX_CAPACITY: u64 = 262144;
 
