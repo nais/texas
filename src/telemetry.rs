@@ -104,7 +104,7 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
         .flatten_event(true)
         .with_thread_ids(true)
         .with_thread_names(true)
-        .with_current_span(false)
+        .with_current_span(true)
         .with_span_list(false)
         .with_opentelemetry_ids(true)
         .boxed();
