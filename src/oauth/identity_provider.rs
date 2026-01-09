@@ -622,7 +622,6 @@ mod tests {
             ])
         };
     }
-    use auth_details;
 
     // This wrapper is necessary because serde_urlencoded cannot deserialize directly into AuthorizationDetails.
     // It needs to be part of a struct with a field name matching the form parameter.
