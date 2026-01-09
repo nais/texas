@@ -21,9 +21,9 @@ jsonwebkey = { version = "0.4", features = ["jwt-convert"] }
 jsonwebtoken = { version = "10", features = ["rust_crypto"] } # jsonwebkey requires rust_crypto
 log = { version = "0.4", features = ["std"] }
 moka = { version = "0.12", features = ["future"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "http2", "charset"] }
-reqwest-middleware = "0.4"
-reqwest-retry = "0.8"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "http2", "charset", "form", "query"] }
+reqwest-middleware = { version = "0.5", features = ["rustls", "json", "http2", "charset", "form", "query"] }
+reqwest-retry = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -45,7 +45,7 @@ opentelemetry_sdk = { version = "0.30", features = ["trace"] }
 tracing = { version = "0.1", features = [] }
 tracing-opentelemetry = "0.31"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-reqwest-tracing = { version = "0.5", features = ["opentelemetry_0_30"] }
+reqwest-tracing = { version = "0.6", features = ["opentelemetry_0_30"] }
 
 [dev-dependencies]
 jsonwebkey = { version = "0.4", features = ["jwt-convert", "generate"] }
