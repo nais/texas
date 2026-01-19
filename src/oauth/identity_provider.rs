@@ -740,7 +740,7 @@ mod tests {
         #[case] form: &str,
         #[case] expected: AuthorizationDetails,
     ) {
-        let res = serde_urlencoded::from_str::<AuthorizationDetailsWrapper>(&form).unwrap();
+        let res = serde_urlencoded::from_str::<AuthorizationDetailsWrapper>(form).unwrap();
         assert_eq!(res.authorization_details, expected);
     }
 
