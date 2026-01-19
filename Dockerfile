@@ -10,7 +10,7 @@ RUN cargo build --release --target aarch64-unknown-linux-musl
 
 FROM builder-${TARGETARCH} AS builder
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM cgr.dev/chainguard/static:latest
 WORKDIR /app
 COPY --from=builder /build/target/*-unknown-linux-musl/release/texas /app/texas
 CMD ["/app/texas"]
