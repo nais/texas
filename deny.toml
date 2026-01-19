@@ -1,0 +1,41 @@
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+all-features = true
+
+[advisories]
+unmaintained = "none" # cargo-audit will output informational warnings for unmaintained crates
+yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "CVSS 5.9 (medium severity). No fix available. Has no practical impact for our usage" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "CDLA-Permissive-2.0",
+    "MIT",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+exceptions = [
+    # reqwest uses aws-lc-sys for rustls
+    { name = "aws-lc-sys", allow = ["OpenSSL"] },
+]
+
+[bans]
+wildcards = "deny"

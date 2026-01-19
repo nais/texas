@@ -226,3 +226,9 @@ make openapi
 ```
 
 Commit and push the changes.
+
+### Run security checks
+
+```shell
+make security
+```

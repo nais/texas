@@ -10,9 +10,15 @@ local:
 	RUST_LOG=info,texas=debug cargo run --features local
 
 check:
-	cargo clippy
+	cargo clippy --all-targets --all-features -- -D warnings
 	cargo fmt --check
 	cargo test --features docker
+
+# cargo install cargo-audit cargo-deny cargo-outdated --locked
+security:
+	cargo audit
+	cargo deny check -s --hide-inclusion-graph
+	cargo outdated --root-deps-only
 
 test_roundtrip:
 	./hack/roundtrip-azure-cc.sh

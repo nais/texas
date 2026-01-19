@@ -1,0 +1,9 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2023-0071", # CVSS 5.9 (medium severity). No fix available. Has no practical impact for our usage.
+]
+informational_warnings = ["unmaintained"]
+severity_threshold = "low" # CVSS severity ("none", "low", "medium", "high", "critical")
+
+[output]
+quiet = false
