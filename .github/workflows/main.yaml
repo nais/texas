@@ -5,13 +5,12 @@ concurrency:
   cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
-  GOOGLE_REGISTRY: europe-north1-docker.pkg.dev
-  GITHUB_REGISTRY: ghcr.io
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 permissions:
   contents: read
 jobs:
   openapi:
-    name: Verify openapi schema
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,28 +24,51 @@ jobs:
             echo "::error::openapi spec is not up-to-date; run \`make openapi\` and commit the changes"
             exit 1
           fi
-  test:
-    name: Build and test
+  audit:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
+      - uses: taiki-e/install-action@542cebaaed782771e619bd5609d97659d109c492 # ratchet:taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+          fallback: none
+      - run: cargo audit
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
-      - name: cargo fmt
-        run: cargo fmt --check --verbose
-      - name: cargo check
-        run: cargo check --verbose
-      - name: cargo test
-        run: cargo test --verbose --features docker
-      - name: cargo build
-        run: cargo build --verbose
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+  deny:
+    name: Run Deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@3fd3802e88374d3fe9159b834c7714ec57d6c979 # ratchet:EmbarkStudios/cargo-deny-action@v2
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
+      - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # ratchet:actions/checkout@v6
+      - run: rustup toolchain install stable --profile minimal
+      - uses: taiki-e/install-action@542cebaaed782771e619bd5609d97659d109c492 # ratchet:taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+          fallback: none
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
+      - run: cargo check --locked
+      - run: cargo nextest run --locked --features docker
   publish:
-    name: Publish to Google and GitHub registries
-    needs: [test, openapi]
+    needs: [audit, clippy, deny, fmt, test, openapi]
     if: github.ref == 'refs/heads/master'
     permissions:
-      contents: "read"
       id-token: "write"
       packages: "write"
     runs-on: ubuntu-latest
@@ -93,13 +115,12 @@ jobs:
         run: |-
           chart="${{ steps.package_chart.outputs.archive }}"
           echo "Pushing: $chart"
-          helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature
+          helm push "$chart" oci://europe-north1-docker.pkg.dev/nais-io/nais/feature
     outputs:
       chart_name: ${{ steps.package_chart.outputs.name }}
       chart_version: ${{ steps.package_chart.outputs.version }}
       chart_archive: ${{ steps.package_chart.outputs.archive }}
   rollout:
-    name: Rollout
     if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
     needs: publish
     runs-on: fasit-deploy
@@ -108,5 +129,5 @@ jobs:
     steps:
       - uses: nais/fasit-deploy@8727ed1c7a5a465e837873e6016a9a692a6b874a # ratchet:nais/fasit-deploy@v2
         with:
-          chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/${{ needs.publish.outputs.chart_name }}
+          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/${{ needs.publish.outputs.chart_name }}
           version: ${{ needs.publish.outputs.chart_version }}
