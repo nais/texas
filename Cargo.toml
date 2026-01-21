@@ -37,13 +37,13 @@ strum_macros = "0.27"
 
 # otel/tracing related dependencies
 json-subscriber = { version = "0.2.6", features = ["tracing-opentelemetry-0-31"] }
-opentelemetry = { version = "0.30", features = ["metrics", "trace"] } # version must match reqwest-tracing feature
-opentelemetry-http = "0.30"
-opentelemetry-otlp = { version = "0.30", features = ["metrics", "trace", "grpc-tonic"] }
-opentelemetry-semantic-conventions = { version = "0.30", features = ["semconv_experimental"] }
-opentelemetry_sdk = { version = "0.30", features = ["trace"] }
+opentelemetry = { version = "0.31", features = ["metrics", "trace"] } # version must match reqwest-tracing feature
+opentelemetry-http = "0.31"
+opentelemetry-otlp = { version = "0.31", features = ["metrics", "trace", "grpc-tonic"] }
+opentelemetry-semantic-conventions = { version = "0.31", features = ["semconv_experimental"] }
+opentelemetry_sdk = { version = "0.31", features = ["trace"] }
 tracing = { version = "0.1", features = [] }
-tracing-opentelemetry = "0.31" # version must match json-subscriber feature
+tracing-opentelemetry = "0.32" # version must match json-subscriber feature
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 reqwest-tracing = { version = "0.6", features = ["opentelemetry_0_30"] }
 
