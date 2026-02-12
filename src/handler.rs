@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::oauth::identity_provider::{ErrorResponse, IdentityProvider, OAuthErrorCode};
 use crate::telemetry::inc_handler_errors;
 use axum::Form;
@@ -23,10 +25,10 @@ pub(crate) use token::{__path_token, token};
 pub(crate) use token_exchange::{__path_token_exchange, token_exchange};
 pub(crate) use token_introspect::{__path_token_introspect, token_introspect};
 
-#[derive(Debug, AsRefStr, Error)]
+#[derive(Debug, AsRefStr, Error, Clone)]
 pub enum ApiError {
     #[error("identity provider error: {0:?}")]
-    UpstreamRequest(reqwest_middleware::Error),
+    UpstreamRequest(Arc<reqwest_middleware::Error>),
 
     #[error("upstream: status code={status_code}: {error}")]
     Upstream {
@@ -35,7 +37,7 @@ pub enum ApiError {
     },
 
     #[error("invalid JSON in token response: {0}")]
-    Json(reqwest::Error),
+    Json(Arc<reqwest::Error>),
 
     #[error("cannot sign JWT claims")]
     Sign,

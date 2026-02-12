@@ -284,3 +284,52 @@ async fn test_token_exchange_unsupported_identity_provider(address: &str) {
     )
     .await;
 }
+
+/// Test that concurrent token exchange requests for the same key are coalesced
+/// into a single upstream call (via moka's try_get_with behavior).
+#[test(tokio::test)]
+async fn token_exchange_concurrent_requests_are_coalesced() {
+    let server = TestServer::new().await;
+    let address = server.address();
+    let identity_provider_address = server.identity_provider_address();
+    let target = server.azure_client_id().clone().to_string();
+
+    let join_handler = tokio::spawn(async move {
+        server.run().await;
+    });
+
+    let user_token: TokenResponse =
+        get_user_token(&identity_provider_address, IdentityProvider::EntraID).await;
+
+    let request = TokenExchangeRequest {
+        target,
+        identity_provider: IdentityProvider::EntraID,
+        user_token: user_token.access_token.clone(),
+        skip_cache: None,
+    };
+
+    let mut set = tokio::task::JoinSet::new();
+    for _ in 0..10 {
+        let address = address.clone();
+        let request = request.clone();
+        set.spawn(async move {
+            test_happy_path_token_exchange(&address, request, RequestFormat::Json).await
+        });
+    }
+
+    let mut results = Vec::new();
+    while let Some(result) = set.join_next().await {
+        results.push(result.unwrap());
+    }
+
+    // All responses should be identical (same cached token)
+    let first_token = &results[0].access_token;
+    for result in &results[1..] {
+        assert_eq!(
+            &result.access_token, first_token,
+            "concurrent requests should return the same cached token"
+        );
+    }
+
+    join_handler.abort();
+}

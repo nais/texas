@@ -3,6 +3,7 @@ use crate::telemetry;
 use moka::Expiry;
 use moka::notification::RemovalCause;
 use std::hash::Hash;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -43,39 +44,31 @@ where
         }
     }
 
-    pub async fn get(&self, key: &K) -> Option<TokenResponse> {
+    pub async fn try_get_with<F, E>(&self, key: K, init: F) -> Result<TokenResponse, Arc<E>>
+    where
+        F: Future<Output = Result<TokenResponse, E>>,
+        E: Send + Sync + 'static,
+    {
         let span = tracing::Span::current();
-        let response = self.inner.get(key).await;
+        let cached_response = self
+            .inner
+            .try_get_with(key, async {
+                let r = init.await?;
+                telemetry::inc_token_cache(self.kind);
+                Ok(CachedTokenResponse::from(r))
+            })
+            .await?;
 
-        match &response {
-            Some(cached_response) => {
-                span.set_attribute("texas.cache_hit", true);
-                span.set_attribute(
-                    "texas.cache_ttl_seconds",
-                    cached_response.ttl().as_secs().cast_signed(),
-                );
-                span.set_attribute(
-                    "texas.token_expires_in_seconds",
-                    cached_response.expires_in().as_secs().cast_signed(),
-                );
-            }
-            None => {
-                span.set_attribute("texas.cache_hit", false);
-            }
-        }
-
-        response.map(TokenResponse::from)
-    }
-
-    pub async fn insert(&self, key: K, response: TokenResponse) {
-        let span = tracing::Span::current();
+        span.set_attribute(
+            "texas.cache_ttl_seconds",
+            cached_response.ttl().as_secs().cast_signed(),
+        );
         span.set_attribute(
             "texas.token_expires_in_seconds",
-            response.expires_in_seconds.cast_signed(),
+            cached_response.expires_in().as_secs().cast_signed(),
         );
 
-        self.inner.insert(key, CachedTokenResponse::from(response)).await;
-        telemetry::inc_token_cache(self.kind)
+        Ok(TokenResponse::from(cached_response))
     }
 
     pub async fn invalidate(&self, key: &K) {

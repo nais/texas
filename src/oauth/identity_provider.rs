@@ -19,6 +19,7 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::error;
 use tracing::instrument;
@@ -477,7 +478,7 @@ where
 
         let response = response
             .inspect_err(|err| error!("Failed to get token from identity provider: {:?}", err))
-            .map_err(ApiError::UpstreamRequest)?;
+            .map_err(|err| ApiError::UpstreamRequest(Arc::new(err)))?;
 
         let status = response.status();
         if status >= StatusCode::BAD_REQUEST {
@@ -487,7 +488,7 @@ where
                     .json()
                     .await
                     .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-                    .map_err(ApiError::Json)?,
+                    .map_err(|err| ApiError::Json(Arc::new(err)))?,
             });
         }
 
@@ -495,7 +496,7 @@ where
             .json()
             .await
             .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-            .map_err(ApiError::Json)?)
+            .map_err(|err| ApiError::Json(Arc::new(err)))?)
     }
 }
 
