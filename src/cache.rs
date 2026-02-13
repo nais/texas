@@ -44,21 +44,25 @@ where
         }
     }
 
-    pub async fn try_get_with<F, E>(&self, key: K, init: F) -> Result<TokenResponse, Arc<E>>
+    pub async fn get_or_insert_with<F, E>(&self, key: K, init: F) -> Result<TokenResponse, Arc<E>>
     where
         F: Future<Output = Result<TokenResponse, E>>,
         E: Send + Sync + 'static,
     {
         let span = tracing::Span::current();
-        let cached_response = self
+        let entry = self
             .inner
-            .try_get_with(key, async {
+            .entry(key)
+            .or_try_insert_with(async {
                 let r = init.await?;
                 telemetry::inc_token_cache(self.kind);
                 Ok(CachedTokenResponse::from(r))
             })
             .await?;
 
+        span.set_attribute("texas.cache_hit", !entry.is_fresh());
+
+        let cached_response = entry.into_value();
         span.set_attribute(
             "texas.cache_ttl_seconds",
             cached_response.ttl().as_secs().cast_signed(),
