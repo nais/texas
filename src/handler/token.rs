@@ -114,7 +114,7 @@ pub async fn token(
         }
         let response: TokenResponse = state
             .token_cache
-            .get_or_insert_with(request.clone(), async {
+            .get_or_insert_with(request.clone(), request.identity_provider, PATH, async {
                 provider.read().await.get_token(request.clone()).await.inspect_err(|e| {
                     telemetry::inc_handler_errors(PATH, request.identity_provider, e.as_ref())
                 })

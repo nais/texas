@@ -1,4 +1,4 @@
-use crate::oauth::identity_provider::TokenResponse;
+use crate::oauth::identity_provider::{IdentityProvider, TokenResponse};
 use crate::telemetry;
 use moka::Expiry;
 use moka::notification::RemovalCause;
@@ -44,7 +44,13 @@ where
         }
     }
 
-    pub async fn get_or_insert_with<F, E>(&self, key: K, init: F) -> Result<TokenResponse, Arc<E>>
+    pub async fn get_or_insert_with<F, E>(
+        &self,
+        key: K,
+        identity_provider: IdentityProvider,
+        path: &str,
+        init: F,
+    ) -> Result<TokenResponse, Arc<E>>
     where
         F: Future<Output = Result<TokenResponse, E>>,
         E: Send + Sync + 'static,
@@ -60,7 +66,12 @@ where
             })
             .await?;
 
-        span.set_attribute("texas.cache_hit", !entry.is_fresh());
+        if entry.is_fresh() {
+            span.set_attribute("texas.cache_hit", false);
+        } else {
+            span.set_attribute("texas.cache_hit", true);
+            telemetry::inc_token_cache_hits(path, identity_provider);
+        }
 
         let cached_response = entry.into_value();
         span.set_attribute(
