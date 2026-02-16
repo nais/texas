@@ -1,8 +1,9 @@
-use crate::oauth::identity_provider::TokenResponse;
+use crate::oauth::identity_provider::{IdentityProvider, TokenResponse};
 use crate::telemetry;
 use moka::Expiry;
 use moka::notification::RemovalCause;
 use std::hash::Hash;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -43,39 +44,46 @@ where
         }
     }
 
-    pub async fn get(&self, key: &K) -> Option<TokenResponse> {
+    pub async fn get_or_insert_with<F, E>(
+        &self,
+        key: K,
+        identity_provider: IdentityProvider,
+        path: &str,
+        init: F,
+    ) -> Result<TokenResponse, Arc<E>>
+    where
+        F: Future<Output = Result<TokenResponse, E>>,
+        E: Send + Sync + 'static,
+    {
         let span = tracing::Span::current();
-        let response = self.inner.get(key).await;
+        let entry = self
+            .inner
+            .entry(key)
+            .or_try_insert_with(async {
+                let r = init.await?;
+                telemetry::inc_token_cache(self.kind);
+                Ok(CachedTokenResponse::from(r))
+            })
+            .await?;
 
-        match &response {
-            Some(cached_response) => {
-                span.set_attribute("texas.cache_hit", true);
-                span.set_attribute(
-                    "texas.cache_ttl_seconds",
-                    cached_response.ttl().as_secs().cast_signed(),
-                );
-                span.set_attribute(
-                    "texas.token_expires_in_seconds",
-                    cached_response.expires_in().as_secs().cast_signed(),
-                );
-            }
-            None => {
-                span.set_attribute("texas.cache_hit", false);
-            }
+        if entry.is_fresh() {
+            span.set_attribute("texas.cache_hit", false);
+        } else {
+            span.set_attribute("texas.cache_hit", true);
+            telemetry::inc_token_cache_hits(path, identity_provider);
         }
 
-        response.map(TokenResponse::from)
-    }
-
-    pub async fn insert(&self, key: K, response: TokenResponse) {
-        let span = tracing::Span::current();
+        let cached_response = entry.into_value();
+        span.set_attribute(
+            "texas.cache_ttl_seconds",
+            cached_response.ttl().as_secs().cast_signed(),
+        );
         span.set_attribute(
             "texas.token_expires_in_seconds",
-            response.expires_in_seconds.cast_signed(),
+            cached_response.expires_in().as_secs().cast_signed(),
         );
 
-        self.inner.insert(key, CachedTokenResponse::from(response)).await;
-        telemetry::inc_token_cache(self.kind)
+        Ok(TokenResponse::from(cached_response))
     }
 
     pub async fn invalidate(&self, key: &K) {

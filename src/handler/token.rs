@@ -102,9 +102,6 @@ pub async fn token(
 
     if request.skip_cache.unwrap_or(false) {
         state.token_cache.invalidate(&request).await;
-    } else if let Some(cached_response) = state.token_cache.get(&request).await {
-        telemetry::inc_token_cache_hits(PATH, request.identity_provider);
-        return Ok(Json(cached_response));
     }
 
     let mut provider_enabled = false;
@@ -115,12 +112,16 @@ pub async fn token(
         if !provider.read().await.should_handle_token_request(&request) {
             continue;
         }
-        let response: TokenResponse =
-            provider.read().await.get_token(request.clone()).await.inspect_err(|e| {
-                telemetry::inc_handler_errors(PATH, request.identity_provider, e.as_ref())
-            })?;
+        let response: TokenResponse = state
+            .token_cache
+            .get_or_insert_with(request.clone(), request.identity_provider, PATH, async {
+                provider.read().await.get_token(request.clone()).await.inspect_err(|e| {
+                    telemetry::inc_handler_errors(PATH, request.identity_provider, e.as_ref())
+                })
+            })
+            .await
+            .map_err(|e| (*e).clone())?;
 
-        state.token_cache.insert(request, response.clone()).await;
         return Ok(Json(response));
     }
 
