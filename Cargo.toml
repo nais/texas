@@ -54,7 +54,7 @@ pretty_assertions = "1"
 rstest = "0.26"
 serde_urlencoded = "0.7.1"
 test-log = { version = "0.2", features = ["trace"] }
-testcontainers = { version = "0.26", features = ["http_wait", "properties-config"] }
+testcontainers = { version = "0.27", features = ["http_wait", "properties-config"] }
 
 [build-dependencies]
 chrono = { version = "0.4", default-features = false, features = ["now"] }
