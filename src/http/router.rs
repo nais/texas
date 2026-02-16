@@ -40,7 +40,7 @@ pub fn api(state: handler::State) -> (Router, openapi::OpenApi) {
                 "path".to_string(),
                 path.unwrap_or_default().to_string(),
             )]);
-            root_span.set_parent(context.clone());
+            let _ = root_span.set_parent(context.clone());
             root_span
         })
         .on_response(move |response: &Response, latency: Duration, span: &Span| {
