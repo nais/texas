@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # ratchet:Swatinem/rust-cache@v2
       - name: make openapi
         run: |
           make openapi
@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # ratchet:Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --all-features -- -D warnings
   deny:
     runs-on: ubuntu-latest
@@ -50,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # ratchet:Swatinem/rust-cache@v2
       - run: cargo fmt --check
   test:
     runs-on: ubuntu-latest
@@ -61,7 +61,7 @@ jobs:
         with:
           tool: cargo-nextest
           fallback: none
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # ratchet:Swatinem/rust-cache@v2
       - run: cargo check --locked
       - run: cargo nextest run --locked --features docker
   publish:
