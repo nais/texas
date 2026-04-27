@@ -36,11 +36,17 @@ It is designed to run as a [sidecar container](https://kubernetes.io/docs/concep
 
 ## Quick start
 
+### Requirements
+
+- [mise](https://mise.jdx.dev/) - tool version manager and task runner
+
+### Setup
+
 See [the `.env.example` file](.env.example) for available configuration options.
 To set up a local environment based on this, run:
 
 ```shell
-make setup
+mise run setup
 ```
 
 Start a mock OAuth 2 server with:
@@ -49,17 +55,17 @@ Start a mock OAuth 2 server with:
 docker-compose up -d
 ```
 
-Run Texas:
+### Run
 
 ```shell
-make local
+mise run local
 ```
 
 [The `hack/` directory](./hack) contains example snippets with requests that you can run with `curl`.
 Run all of them with:
 
 ```shell
-make test_roundtrip
+mise run test:roundtrip
 ```
 
 > [!TIP]
@@ -211,10 +217,10 @@ Using client secrets is not supported.
 
 ## Development
 
-### Run tests
+### Run tests and checks
 
 ```shell
-make check
+mise run check
 ```
 
 ### Generate OpenAPI spec
@@ -222,7 +228,7 @@ make check
 If you've modified the API specifications, you should regenerate the OpenAPI spec:
 
 ```shell
-make openapi
+mise run openapi
 ```
 
 Commit and push the changes.
@@ -230,5 +236,5 @@ Commit and push the changes.
 ### Run security checks
 
 ```shell
-make security
+mise run security
 ```

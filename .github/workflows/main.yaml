@@ -10,62 +10,28 @@ env:
 permissions:
   contents: read
 jobs:
-  openapi:
+  check:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
-      - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
-      - name: make openapi
-        run: |
-          make openapi
-          if ! git diff --exit-code --name-only; then
-            echo "::error::openapi spec is not up-to-date; run \`make openapi\` and commit the changes"
-            exit 1
-          fi
-  audit:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        task:
+          - check:actions
+          - check:clippy
+          - check:fmt
+          - check:openapi
+          - security:audit
+          - security:deny
+          - test
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
-      - uses: taiki-e/install-action@542cebaaed782771e619bd5609d97659d109c492 # ratchet:taiki-e/install-action@v2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # ratchet:jdx/mise-action@v4
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # ratchet:Swatinem/rust-cache@v2
         with:
-          tool: cargo-audit
-          fallback: none
-      - run: cargo audit
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
-      - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-  deny:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
-      - uses: EmbarkStudios/cargo-deny-action@3fd3802e88374d3fe9159b834c7714ec57d6c979 # ratchet:EmbarkStudios/cargo-deny-action@v2
-  fmt:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
-      - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
-      - run: rustup toolchain install stable --profile minimal
-      - uses: taiki-e/install-action@542cebaaed782771e619bd5609d97659d109c492 # ratchet:taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-          fallback: none
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # ratchet:Swatinem/rust-cache@v2
-      - run: cargo check --locked
-      - run: cargo nextest run --locked --features docker
+          shared-key: check
+      - run: mise run ${{ matrix.task }}
   publish:
-    needs: [audit, clippy, deny, fmt, test, openapi]
+    needs: [check]
     if: github.ref == 'refs/heads/master'
     permissions:
       id-token: "write"
@@ -74,7 +40,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
-      - uses: nais/platform-build-push-sign@8be8359cd90915318ee8ab5fbc8337d04937ae70 # ratchet:nais/platform-build-push-sign@main
+      - uses: nais/platform-build-push-sign@df590279b21bc5978519685752f9eaddd546043c # ratchet:nais/platform-build-push-sign@main
         id: build_push_sign
         with:
           name: texas
@@ -84,7 +50,7 @@ jobs:
           push_ghcr: true
           multi-platform: 'true'
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
-      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v4
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # ratchet:azure/setup-helm@v5
         name: 'Setup Helm'
         with:
           version: '3.16.3'

@@ -1,0 +1,97 @@
+[settings]
+pin = true
+
+[tools]
+rust = { version = "1.95.0", components = "rustfmt,clippy" }
+cargo-binstall = "1.18.1"
+"aqua:sethvargo/ratchet" = "0.11.4"
+"cargo:cargo-audit" = "0.22.1"
+"cargo:cargo-deny" = "0.19.4"
+"cargo:cargo-outdated" = "0.19.0"
+"cargo:cargo-nextest" = "0.9.133"
+
+[tasks."build"]
+description = "Build the release binary"
+run = "cargo build --release"
+
+[tasks."local"]
+description = "Run texas locally with debug logging"
+env = { RUST_LOG = "info,texas=debug" }
+run = "cargo run --features local"
+
+[tasks."setup"]
+description = "Create .env from .env.example if missing"
+run = "[ ! -f .env ] && cp -v .env.example .env || true"
+
+[tasks."check"]
+description = "Run all static analysis tools and tests"
+depends = ['check:*', 'test']
+
+[tasks."check:clippy"]
+description = "Run clippy"
+run = "cargo clippy --all-targets --all-features -- -D warnings"
+
+[tasks."check:fmt"]
+description = "Check formatting"
+run = "cargo fmt --check"
+
+[tasks."check:actions"]
+description = "Check for unpinned GitHub Actions"
+run = "ratchet lint .github/workflows/*.yaml"
+
+[tasks."check:openapi"]
+description = "Verify the OpenAPI spec is up-to-date"
+depends = ['openapi']
+run = '''
+if ! git diff --exit-code --name-only -- doc/openapi-spec.json; then
+  echo "::error::openapi spec is not up-to-date; run \`mise run openapi\` and commit the changes"
+  exit 1
+fi
+'''
+
+[tasks."fmt"]
+description = "Format code"
+run = "cargo fmt"
+
+[tasks."security"]
+description = "Run security audits"
+depends = ['security:*']
+
+[tasks."security:audit"]
+description = "Run cargo audit"
+run = "cargo audit"
+
+[tasks."security:deny"]
+description = "Run cargo deny"
+run = "cargo deny check -s --hide-inclusion-graph"
+
+[tasks."security:outdated"]
+description = "Check for outdated dependencies"
+run = "cargo outdated --root-deps-only"
+
+[tasks."test"]
+description = "Run tests"
+run = "cargo nextest run --locked --features docker"
+
+[tasks."test:roundtrip"]
+description = "Run all roundtrip integration scripts"
+run = [
+    "./hack/roundtrip-azure-cc.sh",
+    "./hack/roundtrip-azure-obo.sh",
+    "./hack/roundtrip-idporten.sh",
+    "./hack/roundtrip-maskinporten.sh",
+    "./hack/roundtrip-maskinporten-rar.sh",
+    "./hack/roundtrip-tokenx.sh",
+]
+
+[tasks."openapi"]
+description = "Generate the OpenAPI spec"
+run = "cargo run --bin gen-openapi > doc/openapi-spec.json"
+
+[tasks."actions:update"]
+description = "Upgrade all GitHub actions to the latest version satisfying their version tag"
+run = "ratchet update .github/workflows/*.yaml"
+
+[tasks."actions:upgrade"]
+description = "Upgrade all GitHub actions to the latest version"
+run = "ratchet upgrade .github/workflows/*.yaml"
