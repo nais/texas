@@ -36,7 +36,7 @@ uuid = { version = "1", features = ["v4"] }
 strum_macros = "0.28"
 
 # otel/tracing related dependencies
-json-subscriber = { version = "0.2.7", features = ["tracing-opentelemetry-0-32"] }
+json-subscriber = { version = "0.2", features = ["tracing-opentelemetry-0-32"] }
 opentelemetry = { version = "0.31", features = ["metrics", "trace"] } # version must match reqwest-tracing feature
 opentelemetry-http = "0.31"
 opentelemetry-otlp = { version = "0.31", features = ["metrics", "trace", "grpc-tonic"] }
