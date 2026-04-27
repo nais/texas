@@ -6,7 +6,7 @@ use texas::telemetry::init_tracing_subscriber;
 #[tokio::main]
 async fn main() -> ExitCode {
     #[cfg(feature = "local")]
-    let _ = dotenv::dotenv();
+    let _ = dotenvy::dotenv();
 
     // Keep guard in scope for tracing shutdown on program exit.
     let guard = init_tracing_subscriber();

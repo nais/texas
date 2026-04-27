@@ -10,13 +10,13 @@ version = "1.0.0"
 [features]
 docker = []
 openapi = []
-local = []
+local = ["dep:dotenvy"]
 
 [dependencies]
 async-trait = "0.1"
 axum = { version = "0.8", features = ["http2", "macros"] }
 derivative = "2"
-dotenv = { version = "0.15" }
+dotenvy = { version = "0.15", optional = true }
 jsonwebkey = { version = "0.4", features = ["jwt-convert"] }
 jsonwebtoken = { version = "10", features = ["rust_crypto"] } # jsonwebkey requires rust_crypto
 log = { version = "0.4", features = ["std"] }
