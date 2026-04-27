@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
-      - uses: taiki-e/install-action@542cebaaed782771e619bd5609d97659d109c492 # ratchet:taiki-e/install-action@v2
+      - uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # ratchet:taiki-e/install-action@v2
         with:
           tool: cargo-audit
           fallback: none
@@ -57,7 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - run: rustup toolchain install stable --profile minimal
-      - uses: taiki-e/install-action@542cebaaed782771e619bd5609d97659d109c492 # ratchet:taiki-e/install-action@v2
+      - uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # ratchet:taiki-e/install-action@v2
         with:
           tool: cargo-nextest
           fallback: none
