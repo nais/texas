@@ -63,8 +63,8 @@ chrono = { version = "0.4", default-features = false, features = ["now"] }
 name = "gen-openapi"
 path = "src/bin/openapi.rs"
 
-# https://github.com/johnthagen/min-sized-rust
 [profile.release]
 codegen-units = 1
+lto = "thin"
 strip = true
-opt-level = "z"
+opt-level = 3

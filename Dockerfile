@@ -1,18 +1,28 @@
-FROM --platform=$BUILDPLATFORM messense/rust-musl-cross:x86_64-musl AS builder-amd64
+FROM --platform=$BUILDPLATFORM rust:1.95.0-trixie AS builder
 WORKDIR /build
+
+# zig is not packaged in trixie; install via pip's ziglang wheel.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3-pip python3-venv && \
+    rm -rf /var/lib/apt/lists/* && \
+    python3 -m venv /opt/zig && \
+    /opt/zig/bin/pip install --no-cache-dir ziglang
+ENV PATH="/opt/zig/bin:$PATH"
+
+RUN cargo install --locked cargo-zigbuild cargo-auditable
+RUN rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+
+ARG TARGETARCH
 COPY . .
-RUN cargo install cargo-auditable --locked
-RUN cargo auditable build --locked --release --target x86_64-unknown-linux-musl
+RUN case "$TARGETARCH" in \
+      amd64) target=x86_64-unknown-linux-gnu  ;; \
+      arm64) target=aarch64-unknown-linux-gnu ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac && \
+    cargo auditable zigbuild --locked --release --target "$target" && \
+    cp "target/$target/release/texas" /build/texas
 
-FROM --platform=$BUILDPLATFORM messense/rust-musl-cross:aarch64-musl AS builder-arm64
-WORKDIR /build
-COPY . .
-RUN cargo install cargo-auditable --locked
-RUN cargo auditable build --locked --release --target aarch64-unknown-linux-musl
-
-FROM builder-${TARGETARCH} AS builder
-
-FROM cgr.dev/chainguard/static:latest
+FROM cgr.dev/chainguard/glibc-dynamic:latest
 WORKDIR /app
-COPY --from=builder /build/target/*-unknown-linux-musl/release/texas /app/texas
-CMD ["/app/texas"]
+COPY --from=builder /build/texas /app/texas
+ENTRYPOINT ["/app/texas"]

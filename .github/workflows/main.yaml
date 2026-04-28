@@ -50,6 +50,10 @@ jobs:
           push_ghcr: true
           multi-platform: 'true'
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
+      - name: Smoke test image (amd64)
+        run: hack/smoke.sh "ghcr.io/nais/texas:${{ steps.build_push_sign.outputs.version }}" linux/amd64
+      - name: Smoke test image (arm64, via QEMU)
+        run: hack/smoke.sh "ghcr.io/nais/texas:${{ steps.build_push_sign.outputs.version }}" linux/arm64
       - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # ratchet:azure/setup-helm@v5
         name: 'Setup Helm'
         with:
