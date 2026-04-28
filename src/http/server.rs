@@ -32,7 +32,7 @@ pub enum Error {
 
 impl Server {
     pub async fn new_from_env() -> Result<Self, Error> {
-        let cfg = Config::new_from_env().map_err(Error::Configuration)?;
+        let cfg = Config::new_from_env().await.map_err(Error::Configuration)?;
         Self::new_from_config(cfg).await
     }
 

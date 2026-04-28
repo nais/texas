@@ -127,13 +127,9 @@ where
             provider_cfg.issuer.clone(),
             provider_cfg.token_endpoint.clone(),
             provider_cfg.client_jwk.clone(),
-            token::Jwks::new(
-                &provider_cfg.issuer.clone(),
-                &provider_cfg.jwks_uri.clone(),
-                audience,
-            )
-            .await
-            .map_err(InitError::Jwks)?,
+            token::Jwks::new(&provider_cfg.issuer, &provider_cfg.jwks_uri, audience)
+                .await
+                .map_err(InitError::Jwks)?,
         )
         .map_err(InitError::Jwk)?,
     ))))
