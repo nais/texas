@@ -25,4 +25,8 @@ RUN case "$TARGETARCH" in \
 FROM cgr.dev/chainguard/glibc-dynamic:latest
 WORKDIR /app
 COPY --from=builder /build/texas /app/texas
+# Cap glibc per-thread arenas to reduce RSS fragmentation under bursty traffic.
+ENV MALLOC_ARENA_MAX=2
+# Pin the trim threshold to disable glibc's dynamic heap-shrink adjustment.
+ENV MALLOC_TRIM_THRESHOLD_=131072
 ENTRYPOINT ["/app/texas"]
