@@ -8,7 +8,6 @@ use crate::oauth::grant::{
 use crate::oauth::token;
 use crate::telemetry::record_identity_provider_latency;
 use async_trait::async_trait;
-use derivative::Derivative;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
 use reqwest::StatusCode;
@@ -18,6 +17,7 @@ use std::borrow::Cow;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use thiserror::Error;
@@ -220,8 +220,6 @@ impl Display for IdentityProvider {
 }
 
 /// Use this data type to request a machine token.
-#[derive(Derivative)]
-#[derivative(PartialEq, Hash)]
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Eq)]
 pub struct TokenRequest {
     /// Scope or identifier for the target application.
@@ -233,10 +231,27 @@ pub struct TokenRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authorization_details: Option<AuthorizationDetails>,
     /// Force renewal of token. Defaults to false if omitted.
-    #[derivative(PartialEq = "ignore")]
-    #[derivative(Hash = "ignore")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_cache: Option<bool>,
+}
+
+// Manual PartialEq/Hash so that `skip_cache` does not influence cache lookup keys.
+impl PartialEq for TokenRequest {
+    fn eq(&self, other: &Self) -> bool {
+        self.target == other.target
+            && self.identity_provider == other.identity_provider
+            && self.resource == other.resource
+            && self.authorization_details == other.authorization_details
+    }
+}
+
+impl Hash for TokenRequest {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.target.hash(state);
+        self.identity_provider.hash(state);
+        self.resource.hash(state);
+        self.authorization_details.hash(state);
+    }
 }
 
 /// Authorization details for rich authorization requests [(RFC 9396)](https://www.rfc-editor.org/rfc/rfc9396.html).
@@ -279,8 +294,6 @@ impl From<Vec<Map<String, Value>>> for AuthorizationDetails {
 }
 
 /// Use this data type to exchange a user token for a machine token.
-#[derive(Derivative)]
-#[derivative(PartialEq, Hash)]
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug, Eq)]
 pub struct TokenExchangeRequest {
     /// Scope or identifier for the target application.
@@ -290,10 +303,25 @@ pub struct TokenExchangeRequest {
     /// The user's access token, usually found in the _Authorization_ header in requests to your application.
     pub user_token: String,
     /// Force renewal of token. Defaults to false if omitted.
-    #[derivative(PartialEq = "ignore")]
-    #[derivative(Hash = "ignore")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_cache: Option<bool>,
+}
+
+// Manual PartialEq/Hash so that `skip_cache` does not influence cache lookup keys.
+impl PartialEq for TokenExchangeRequest {
+    fn eq(&self, other: &Self) -> bool {
+        self.target == other.target
+            && self.identity_provider == other.identity_provider
+            && self.user_token == other.user_token
+    }
+}
+
+impl Hash for TokenExchangeRequest {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.target.hash(state);
+        self.identity_provider.hash(state);
+        self.user_token.hash(state);
+    }
 }
 
 /// This data type holds the OAuth token that will be validated in the introspect endpoint.
