@@ -38,16 +38,13 @@ impl Server {
 
     pub async fn new_from_config(cfg: Config) -> Result<Self, Error> {
         let bind_address = cfg.bind_address.clone();
+        let probe_bind_address = cfg.probe_bind_address.clone();
+        let state = handler::State::from_config(cfg).await.map_err(Error::InitHandler)?;
+
         let listener = TcpListener::bind(bind_address).await.map_err(Error::BindAddress)?;
         let api_address = listener.local_addr().map_err(Error::LocalAddress)?;
-        log::info!("Serving API on http://{api_address:?}");
-        #[cfg(feature = "openapi")]
-        log::info!(
-            "Swagger API documentation: http://{:?}/swagger-ui",
-            api_address
-        );
 
-        let probe_listener = if let Some(addr) = cfg.probe_bind_address.as_ref() {
+        let probe_listener = if let Some(addr) = probe_bind_address.as_ref() {
             let listener = TcpListener::bind(addr).await.map_err(Error::BindAddress)?;
             let probe_address = listener.local_addr().map_err(Error::LocalAddress)?;
             log::debug!("Serving probes on http://{probe_address:?}");
@@ -56,7 +53,12 @@ impl Server {
             None
         };
 
-        let state = handler::State::from_config(cfg).await.map_err(Error::InitHandler)?;
+        log::info!("Serving API on http://{api_address:?}");
+        #[cfg(feature = "openapi")]
+        log::info!(
+            "Swagger API documentation: http://{:?}/swagger-ui",
+            api_address
+        );
 
         #[cfg(not(feature = "openapi"))]
         let router = || -> Router {
