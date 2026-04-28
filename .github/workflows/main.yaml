@@ -26,6 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # ratchet:jdx/mise-action@v4
+      - name: Ensure rust components are installed
+        # mise's cached rust install can be missing rustfmt/clippy on cache hit (components aren't re-added on restore).
+        run: rustup component add rustfmt clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # ratchet:Swatinem/rust-cache@v2
         with:
           shared-key: check
