@@ -113,7 +113,7 @@ impl CachedTokenResponse {
     // ttl calculates the remaining time to live (TTL) for preemptive cache expiration,
     // i.e. cache entries should be removed before the token expires.
     pub fn ttl(&self) -> Duration {
-        const EXPIRY_LEEWAY: Duration = Duration::from_secs(60);
+        const EXPIRY_LEEWAY: Duration = Duration::from_secs(120);
 
         let expires_in = self.expires_in();
         if expires_in > EXPIRY_LEEWAY {
@@ -231,27 +231,27 @@ mod tests {
     }
 
     #[rstest]
-    // expected = expires_in - 60 seconds leeway
+    // expected = expires_in - 120 seconds leeway
     #[case(
         Duration::from_secs(3_600),
-        Duration::from_secs(3_540),
-        Duration::from_secs(3_535)
+        Duration::from_secs(3_480),
+        Duration::from_secs(3_475)
     )]
     #[case(
-        Duration::from_secs(180),
-        Duration::from_secs(120),
-        Duration::from_secs(115)
+        Duration::from_secs(600),
+        Duration::from_secs(480),
+        Duration::from_secs(475)
     )]
     #[case(
-        Duration::from_secs(61),
+        Duration::from_secs(121),
         Duration::from_secs(1),
-        Duration::from_secs(28)
+        Duration::from_secs(58)
     )]
-    // expires_in < leeway -> expected = expires_in / 2
+    // expires_in <= leeway -> expected = expires_in / 2
     #[case(
+        Duration::from_secs(120),
         Duration::from_secs(60),
-        Duration::from_secs(30),
-        Duration::from_millis(27_500)
+        Duration::from_millis(57_500)
     )]
     #[case(
         Duration::from_secs(30),
