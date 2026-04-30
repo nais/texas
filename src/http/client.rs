@@ -20,7 +20,10 @@ pub fn new(config: Config) -> Result<ClientWithMiddleware, reqwest::Error> {
 
     let client = reqwest_middleware::ClientBuilder::new(client)
         .with(TracingMiddleware::<SpanBackendWithUrl>::new())
-        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+        .with(
+            RetryTransientMiddleware::new_with_policy(retry_policy)
+                .with_retry_log_level(tracing::Level::INFO),
+        )
         .build();
 
     Ok(client)
