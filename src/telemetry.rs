@@ -19,7 +19,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 use tracing;
 use tracing::metadata::LevelFilter;
-use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer};
+use tracing_opentelemetry::{MetricsLayer, OpenTelemetryLayer, OpenTelemetrySpanExt};
 use tracing_subscriber::filter::Directive;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -100,14 +100,7 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     let tracer = tracer_provider.tracer("tracing-otel-subscriber");
 
     #[cfg(not(feature = "local"))]
-    let fmt_layer = json_subscriber::layer()
-        .flatten_event(true)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_current_span(true)
-        .with_span_list(false)
-        .with_opentelemetry_ids(true)
-        .boxed();
+    let fmt_layer = json_fmt_layer().boxed();
     #[cfg(feature = "local")]
     let fmt_layer = tracing_subscriber::fmt::layer().with_thread_names(true).boxed();
 
@@ -126,10 +119,84 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
         .with(OpenTelemetryLayer::new(tracer))
         .init();
 
+    // Ensure the OTel layer is reachable (set_parent is used per-request).
+    let probe = tracing::info_span!("otel_probe");
+    if let Err(err) = probe.set_parent(opentelemetry::Context::new()) {
+        log::warn!("OpenTelemetry layer not reachable from spans: {err}");
+    }
+    drop(probe);
+
     Ok(OtelGuard {
         meter_provider,
         tracer_provider,
     })
+}
+
+/// Build the JSON fmt layer for structured log output (production).
+///
+/// Produces flat JSON lines with event fields, current span fields, OTel trace/span IDs,
+/// and a synthesized `message` field for events that lack one (e.g. `#[instrument(err)]`).
+#[cfg(not(feature = "local"))]
+fn json_fmt_layer<S>() -> json_subscriber::fmt::Layer<S>
+where
+    S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
+    let mut layer = json_subscriber::layer()
+        .flatten_event(true)
+        .flatten_current_span_on_top_level(true)
+        .with_current_span(false)
+        .with_span_list(false);
+    let inner = layer.inner_layer_mut();
+    inner.with_thread_ids("thread_id");
+    inner.with_thread_names("thread_name");
+    inner.add_from_extension::<tracing_opentelemetry::OtelData, _, _>("trace_id", |otel_data| {
+        otel_data.trace_id().map(|id| id.to_string())
+    });
+    inner.add_from_extension::<tracing_opentelemetry::OtelData, _, _>("span_id", |otel_data| {
+        otel_data.span_id().map(|id| id.to_string())
+    });
+    inner.add_dynamic_field("message", |event, _ctx| extract_message(event));
+    layer
+}
+
+/// Synthesizes a `message` field from `error` for events that lack one
+/// (e.g. those emitted by `#[instrument(err)]`). Returns `None` when
+/// the event already has a `message` to avoid duplicate keys in the JSON output.
+#[cfg(not(feature = "local"))]
+fn extract_message(event: &tracing::Event<'_>) -> Option<String> {
+    use tracing::field::{Field, Visit};
+
+    #[derive(Default)]
+    struct MessageVisitor {
+        has_message: bool,
+        error: Option<String>,
+    }
+
+    impl Visit for MessageVisitor {
+        fn record_str(&mut self, field: &Field, value: &str) {
+            match field.name() {
+                "message" => self.has_message = true,
+                "error" if self.error.is_none() => self.error = Some(value.to_owned()),
+                _ => {}
+            }
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            match field.name() {
+                "message" => self.has_message = true,
+                "error" if self.error.is_none() => self.error = Some(format!("{value:?}")),
+                _ => {}
+            }
+        }
+    }
+
+    let mut visitor = MessageVisitor::default();
+    event.record(&mut visitor);
+    if visitor.has_message {
+        None
+    } else {
+        visitor.error
+    }
 }
 
 pub struct OtelGuard {

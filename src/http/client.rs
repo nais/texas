@@ -1,8 +1,15 @@
+use http::Extensions;
 use log::debug;
+use opentelemetry::trace::Status;
+use reqwest::{Request, Response};
 use reqwest_middleware::ClientWithMiddleware;
 use reqwest_retry::{Jitter, RetryTransientMiddleware, policies};
-use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
+use reqwest_tracing::{
+    ReqwestOtelSpanBackend, SpanBackendWithUrl, TracingMiddleware, default_on_request_end,
+};
 use std::time::Duration;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub fn new(config: Config) -> Result<ClientWithMiddleware, reqwest::Error> {
     let retry_policy = policies::ExponentialBackoff::builder()
@@ -19,7 +26,7 @@ pub fn new(config: Config) -> Result<ClientWithMiddleware, reqwest::Error> {
         .build()?;
 
     let client = reqwest_middleware::ClientBuilder::new(client)
-        .with(TracingMiddleware::<SpanBackendWithUrl>::new())
+        .with(TracingMiddleware::<StatusAwareSpanBackend>::new())
         .with(
             RetryTransientMiddleware::new_with_policy(retry_policy)
                 .with_retry_log_level(tracing::Level::INFO),
@@ -27,6 +34,33 @@ pub fn new(config: Config) -> Result<ClientWithMiddleware, reqwest::Error> {
         .build();
 
     Ok(client)
+}
+
+/// Extends [`SpanBackendWithUrl`] to mark the client span as errored on HTTP 4xx/5xx
+/// responses. `default_on_request_end` only does this for transport failures, but
+/// OTel HTTP client semconv expects error status for unsuccessful response codes too.
+pub struct StatusAwareSpanBackend;
+
+impl ReqwestOtelSpanBackend for StatusAwareSpanBackend {
+    fn on_request_start(req: &Request, ext: &mut Extensions) -> Span {
+        SpanBackendWithUrl::on_request_start(req, ext)
+    }
+
+    fn on_request_end(
+        span: &Span,
+        outcome: &Result<Response, reqwest_middleware::Error>,
+        _ext: &mut Extensions,
+    ) {
+        default_on_request_end(span, outcome);
+        if let Ok(response) = outcome
+            && (response.status().is_client_error() || response.status().is_server_error())
+        {
+            span.set_status(Status::error(format!(
+                "HTTP {}",
+                response.status().as_u16()
+            )));
+        }
+    }
 }
 
 pub fn jwks() -> Result<ClientWithMiddleware, reqwest::Error> {

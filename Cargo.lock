@@ -3335,6 +3335,7 @@ dependencies = [
  "axum",
  "chrono",
  "dotenvy",
+ "http",
  "json-subscriber",
  "jsonwebkey",
  "jsonwebtoken",
@@ -3360,7 +3361,6 @@ dependencies = [
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
- "tower-http",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -3628,7 +3628,6 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]

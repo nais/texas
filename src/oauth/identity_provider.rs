@@ -21,7 +21,6 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::error;
 use tracing::instrument;
 use utoipa::openapi::{ObjectBuilder, RefOr, Schema};
 use utoipa::{PartialSchema, ToSchema};
@@ -504,27 +503,17 @@ where
         let duration = start.elapsed();
         record_identity_provider_latency(self.identity_provider_kind, duration);
 
-        let response = response
-            .inspect_err(|err| error!("Failed to get token from identity provider: {:?}", err))
-            .map_err(|err| ApiError::UpstreamRequest(Arc::new(err)))?;
+        let response = response.map_err(|err| ApiError::UpstreamRequest(Arc::new(err)))?;
 
         let status = response.status();
         if status >= StatusCode::BAD_REQUEST {
             return Err(ApiError::Upstream {
                 status_code: status,
-                error: response
-                    .json()
-                    .await
-                    .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-                    .map_err(|err| ApiError::Json(Arc::new(err)))?,
+                error: response.json().await.map_err(|err| ApiError::Json(Arc::new(err)))?,
             });
         }
 
-        Ok(response
-            .json()
-            .await
-            .inspect_err(|err| error!("Identity provider returned invalid JSON: {:?}", err))
-            .map_err(|err| ApiError::Json(Arc::new(err)))?)
+        Ok(response.json().await.map_err(|err| ApiError::Json(Arc::new(err)))?)
     }
 }
 

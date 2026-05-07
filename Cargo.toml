@@ -16,6 +16,7 @@ local = ["dep:dotenvy"]
 async-trait = "0.1"
 axum = { version = "0.8", features = ["http2", "macros"] }
 dotenvy = { version = "0.15", optional = true }
+http = "1"
 jsonwebkey = { version = "0.4", features = ["jwt-convert"] }
 jsonwebtoken = { version = "10", features = ["rust_crypto"] } # jsonwebkey requires rust_crypto
 log = { version = "0.4", features = ["std"] }
@@ -27,7 +28,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "signal"] }
-tower-http = { version = "0.6", features = ["trace"] }
 utoipa = { version = "5", features = ["axum_extras", "openapi_extensions"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
