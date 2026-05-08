@@ -312,7 +312,8 @@
           "entra_id",
           "tokenx",
           "maskinporten",
-          "idporten"
+          "idporten",
+          "ansattporten"
         ]
       },
       "IntrospectRequest": {
@@ -333,7 +334,7 @@
       },
       "IntrospectResponse": {
         "type": "object",
-        "description": "Based on RFC 7662 introspection response from section 2.2.\n\nClaims from the original token are copied verbatim to the introspection response as additional properties.\nThe claims present depend on the identity provider.\nPlease refer to the Nais documentation for details:\n\n- [Entra ID](https://doc.nais.io/auth/entra-id/reference/#claims)\n- [ID-porten](https://doc.nais.io/auth/idporten/reference/#claims)\n- [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)\n- [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)",
+        "description": "Based on RFC 7662 introspection response from section 2.2.\n\nClaims from the original token are copied verbatim to the introspection response as additional properties.\nThe claims present depend on the identity provider.\nPlease refer to the Nais documentation for details:\n\n- [Entra ID](https://doc.nais.io/auth/entra-id/reference/#claims)\n- [ID-porten](https://doc.nais.io/auth/idporten/reference/#claims)\n- [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)\n- [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)\n\nFor Ansattporten specifically, please refer to the Digdir documentation for details:\n- [Ansattporten](https://docs.digdir.no/docs/ansattporten/ansattporten_om.html)",
         "required": [
           "active"
         ],

@@ -12,6 +12,7 @@ pub struct Config {
     pub entra_id: Option<Provider>,
     pub token_x: Option<Provider>,
     pub idporten: Option<Provider>,
+    pub ansattporten: Option<Provider>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -29,6 +30,7 @@ impl Config {
         let maskinporten = RawProvider::new_from_maskinporten_env()?;
         let token_x = RawProvider::new_from_tokenx_env()?;
         let idporten = RawProvider::new_from_idporten_env()?;
+        let ansattporten = RawProvider::new_from_ansattporten_env()?;
 
         Ok(Self {
             bind_address: std::env::var("BIND_ADDRESS").unwrap_or("127.0.0.1:3000".to_string()),
@@ -47,6 +49,10 @@ impl Config {
             },
             idporten: match idporten {
                 Some(provider) => Some(provider.resolve(ProviderKind::IDPorten).await?),
+                None => None,
+            },
+            ansattporten: match ansattporten {
+                Some(provider) => Some(provider.resolve(ProviderKind::Ansattporten).await?),
                 None => None,
             },
         })
@@ -85,6 +91,7 @@ pub enum Error {
 enum ProviderKind {
     EntraID,
     IDPorten,
+    Ansattporten,
     Maskinporten,
     TokenX,
 }
@@ -112,6 +119,13 @@ impl ProviderKind {
                 well_known_env: "IDPORTEN_WELL_KNOWN_URL",
                 issuer_env: "IDPORTEN_ISSUER",
                 jwks_uri_env: "IDPORTEN_JWKS_URI",
+                token_endpoint_env: "",
+            },
+            ProviderKind::Ansattporten => ProviderEnv {
+                provider_name: "ansattporten",
+                well_known_env: "ANSATTPORTEN_WELL_KNOWN_URL",
+                issuer_env: "ANSATTPORTEN_ISSUER",
+                jwks_uri_env: "ANSATTPORTEN_JWKS_URI",
                 token_endpoint_env: "",
             },
             ProviderKind::Maskinporten => ProviderEnv {
@@ -203,6 +217,21 @@ impl RawProvider {
         }))
     }
 
+    fn new_from_ansattporten_env() -> Result<Option<Self>, Error> {
+        if !Self::enabled_from_env("ANSATTPORTEN_ENABLED")? {
+            return Ok(None);
+        }
+
+        Ok(Some(Self {
+            client_id: must_read_env("ANSATTPORTEN_AUDIENCE")?,
+            client_jwk: None,
+            well_known_url: read_env("ANSATTPORTEN_WELL_KNOWN_URL"),
+            jwks_uri: read_env("ANSATTPORTEN_JWKS_URI"),
+            issuer: read_env("ANSATTPORTEN_ISSUER"),
+            token_endpoint: None,
+        }))
+    }
+
     fn new_from_tokenx_env() -> Result<Option<Self>, Error> {
         if !Self::enabled_from_env("TOKEN_X_ENABLED")? {
             return Ok(None);
@@ -223,7 +252,7 @@ impl RawProvider {
         let should_fetch_metadata = self.well_known_url.is_some()
             && (self.issuer.is_none()
                 || self.jwks_uri.is_none()
-                || (kind != ProviderKind::IDPorten && self.token_endpoint.is_none()));
+                || (kind != ProviderKind::IDPorten && kind != ProviderKind::Ansattporten && self.token_endpoint.is_none()));
 
         let metadata = if should_fetch_metadata {
             let url = self.well_known_url.as_deref().unwrap_or_default();
@@ -246,7 +275,7 @@ impl RawProvider {
             })?;
         let token_endpoint = self.token_endpoint.or(metadata.token_endpoint);
 
-        if kind != ProviderKind::IDPorten && token_endpoint.is_none() {
+        if kind != ProviderKind::IDPorten && kind != ProviderKind::Ansattporten && token_endpoint.is_none() {
             return Err(Error::MissingProviderConfigField {
                 provider: env.provider_name,
                 field_env: env.token_endpoint_env,
@@ -393,6 +422,36 @@ mod tests {
         assert_eq!(resolved.issuer, "https://idporten.example");
         assert_eq!(resolved.token_endpoint, None);
         assert_eq!(resolved.jwks_uri, "https://idporten.example/jwks");
+    }
+
+    #[tokio::test]
+    async fn ansattporten_does_not_require_token_endpoint_in_metadata() {
+        let (base_url, _server) = metadata_server(vec![(
+            "/ansattporten/.well-known/openid-configuration",
+            json!({
+                "issuer": "https://ansattporten.example",
+                "jwks_uri": "https://ansattporten.example/jwks"
+            }),
+        )])
+        .await;
+
+        let resolved = RawProvider {
+            client_id: "client-id".to_string(),
+            client_jwk: None,
+            well_known_url: Some(format!(
+                "{base_url}/ansattporten/.well-known/openid-configuration"
+            )),
+            issuer: None,
+            token_endpoint: None,
+            jwks_uri: None,
+        }
+        .resolve(ProviderKind::Ansattporten)
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.issuer, "https://ansattporten.example");
+        assert_eq!(resolved.token_endpoint, None);
+        assert_eq!(resolved.jwks_uri, "https://ansattporten.example/jwks");
     }
 
     #[tokio::test]

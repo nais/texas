@@ -23,6 +23,7 @@ async fn all_providers() {
     let identity_provider_address = server.identity_provider_address();
     let azure_issuer = server.azure_issuer();
     let idporten_issuer = server.idporten_issuer();
+    let ansattporten_issuer = server.ansattporten_issuer();
     let maskinporten_issuer = server.maskinporten_issuer();
     let token_x_issuer = server.token_x_issuer();
 
@@ -46,6 +47,15 @@ async fn all_providers() {
             &address,
             &identity_provider_address,
             IdentityProvider::IDPorten,
+            format.clone(),
+        )
+        .await;
+
+        introspect_token(
+            &ansattporten_issuer,
+            &address,
+            &identity_provider_address,
+            IdentityProvider::Ansattporten,
             format.clone(),
         )
         .await;

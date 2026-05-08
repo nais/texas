@@ -74,6 +74,10 @@ impl TestServer {
         self.cfg.idporten.clone().unwrap().issuer
     }
 
+    pub fn ansattporten_issuer(&self) -> String {
+        self.cfg.ansattporten.clone().unwrap().issuer
+    }
+
     pub fn maskinporten_issuer(&self) -> String {
         self.cfg.maskinporten.clone().unwrap().issuer
     }

@@ -51,6 +51,9 @@ pub enum TokenType {
 /// - [ID-porten](https://doc.nais.io/auth/idporten/reference/#claims)
 /// - [Maskinporten](https://doc.nais.io/auth/maskinporten/reference/#claims)
 /// - [TokenX](https://doc.nais.io/auth/tokenx/reference/#claims)
+///
+/// For Ansattporten specifically, please refer to the Digdir documentation for details:
+/// - [Ansattporten](https://docs.digdir.no/docs/ansattporten/ansattporten_om.html)
 #[derive(Serialize, Deserialize, ToSchema, Debug, PartialEq, Clone)]
 pub struct IntrospectResponse {
     /// Indicates whether the token is valid. If this field is _false_,
@@ -206,6 +209,8 @@ pub enum IdentityProvider {
     Maskinporten,
     #[serde(rename = "idporten")]
     IDPorten,
+    #[serde(rename = "ansattporten")]
+    Ansattporten,
 }
 
 impl Display for IdentityProvider {
@@ -654,6 +659,7 @@ mod tests {
     #[case("tokenx", IdentityProvider::TokenX)]
     #[case("maskinporten", IdentityProvider::Maskinporten)]
     #[case("idporten", IdentityProvider::IDPorten)]
+    #[case("ansattporten", IdentityProvider::Ansattporten)]
     fn valid_identity_provider_should_deserialize(
         #[case] input: String,
         #[case] expected: IdentityProvider,
