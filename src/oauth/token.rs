@@ -69,8 +69,8 @@ impl Jwks {
 
     // TODO: should allow validation with a selection of asymmetric signing algorithms
     fn validator(issuer: String, audience: Option<String>) -> Validation {
-        let alg = jwt::Algorithm::RS256;
-        let mut validation = Validation::new(alg);
+        let alg = jwt::AlgorithmFamily::Rsa;
+        let mut validation = Validation::new_for_family(alg);
 
         validation.validate_aud = true;
         validation.validate_exp = true;
