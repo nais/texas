@@ -87,7 +87,7 @@ pub enum Error {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum ProviderKind {
     EntraID,
     IDPorten,
@@ -96,12 +96,17 @@ enum ProviderKind {
     TokenX,
 }
 
+enum TokenCapability {
+    Exchange(&'static str),
+    IntrospectOnly,
+}
+
 struct ProviderEnv {
     provider_name: &'static str,
     well_known_env: &'static str,
     issuer_env: &'static str,
     jwks_uri_env: &'static str,
-    token_endpoint_env: &'static str,
+    token_capability: TokenCapability,
 }
 
 impl ProviderKind {
@@ -112,35 +117,35 @@ impl ProviderKind {
                 well_known_env: "AZURE_APP_WELL_KNOWN_URL",
                 issuer_env: "AZURE_OPENID_CONFIG_ISSUER",
                 jwks_uri_env: "AZURE_OPENID_CONFIG_JWKS_URI",
-                token_endpoint_env: "AZURE_OPENID_CONFIG_TOKEN_ENDPOINT",
+                token_capability: TokenCapability::Exchange("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT"),
             },
             ProviderKind::IDPorten => ProviderEnv {
                 provider_name: "idporten",
                 well_known_env: "IDPORTEN_WELL_KNOWN_URL",
                 issuer_env: "IDPORTEN_ISSUER",
                 jwks_uri_env: "IDPORTEN_JWKS_URI",
-                token_endpoint_env: "",
+                token_capability: TokenCapability::IntrospectOnly,
             },
             ProviderKind::Ansattporten => ProviderEnv {
                 provider_name: "ansattporten",
                 well_known_env: "ANSATTPORTEN_WELL_KNOWN_URL",
                 issuer_env: "ANSATTPORTEN_ISSUER",
                 jwks_uri_env: "ANSATTPORTEN_JWKS_URI",
-                token_endpoint_env: "",
+                token_capability: TokenCapability::IntrospectOnly,
             },
             ProviderKind::Maskinporten => ProviderEnv {
                 provider_name: "maskinporten",
                 well_known_env: "MASKINPORTEN_WELL_KNOWN_URL",
                 issuer_env: "MASKINPORTEN_ISSUER",
                 jwks_uri_env: "MASKINPORTEN_JWKS_URI",
-                token_endpoint_env: "MASKINPORTEN_TOKEN_ENDPOINT",
+                token_capability: TokenCapability::Exchange("MASKINPORTEN_TOKEN_ENDPOINT"),
             },
             ProviderKind::TokenX => ProviderEnv {
                 provider_name: "tokenx",
                 well_known_env: "TOKEN_X_WELL_KNOWN_URL",
                 issuer_env: "TOKEN_X_ISSUER",
                 jwks_uri_env: "TOKEN_X_JWKS_URI",
-                token_endpoint_env: "TOKEN_X_TOKEN_ENDPOINT",
+                token_capability: TokenCapability::Exchange("TOKEN_X_TOKEN_ENDPOINT"),
             },
         }
     }
@@ -252,7 +257,7 @@ impl RawProvider {
         let should_fetch_metadata = self.well_known_url.is_some()
             && (self.issuer.is_none()
                 || self.jwks_uri.is_none()
-                || (kind != ProviderKind::IDPorten && kind != ProviderKind::Ansattporten && self.token_endpoint.is_none()));
+                || (matches!(env.token_capability, TokenCapability::Exchange(_)) && self.token_endpoint.is_none()));
 
         let metadata = if should_fetch_metadata {
             let url = self.well_known_url.as_deref().unwrap_or_default();
@@ -275,12 +280,14 @@ impl RawProvider {
             })?;
         let token_endpoint = self.token_endpoint.or(metadata.token_endpoint);
 
-        if kind != ProviderKind::IDPorten && kind != ProviderKind::Ansattporten && token_endpoint.is_none() {
-            return Err(Error::MissingProviderConfigField {
-                provider: env.provider_name,
-                field_env: env.token_endpoint_env,
-                well_known_env: env.well_known_env,
-            });
+        if let TokenCapability::Exchange(field_env) = env.token_capability {
+            if token_endpoint.is_none() {
+                return Err(Error::MissingProviderConfigField {
+                    provider: env.provider_name,
+                    field_env,
+                    well_known_env: env.well_known_env,
+                });
+            }
         }
 
         Ok(Provider {
