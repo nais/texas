@@ -77,6 +77,7 @@ Texas is currently tailored for use with a subset of authorization servers and p
 
 - [Entra ID (formerly known as Azure AD)](https://learn.microsoft.com/en-us/entra/identity-platform/v2-overview)
 - [ID-porten](https://docs.digdir.no/docs/idporten/idporten/idporten_overordnet.html)
+- [Ansattporten](https://docs.digdir.no/docs/ansattporten/ansattporten_om.html)
 - [Maskinporten](https://docs.digdir.no/docs/Maskinporten/maskinporten_overordnet)
 - [TokenX / Tokendings](https://github.com/nais/tokendings)
 

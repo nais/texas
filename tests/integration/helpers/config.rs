@@ -33,6 +33,13 @@ pub fn mock(host: String, port: u16) -> Config {
             issuer: format!("{url_base}/idporten"),
             token_endpoint: None,
         }),
+        ansattporten: Some(Provider {
+            client_id: "default".to_string(), // expected audience for tokens returned by mock-oauth2-server
+            client_jwk: None,
+            jwks_uri: format!("{url_base}/ansattporten/jwks"),
+            issuer: format!("{url_base}/ansattporten"),
+            token_endpoint: None,
+        }),
     }
 }
 
@@ -44,5 +51,6 @@ pub fn mock_no_providers() -> Config {
         entra_id: None,
         token_x: None,
         idporten: None,
+        ansattporten: None,
     }
 }

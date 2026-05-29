@@ -21,6 +21,7 @@ async fn all_providers() {
     let providers = [
         IdentityProvider::EntraID,
         IdentityProvider::IDPorten,
+        IdentityProvider::Ansattporten,
         IdentityProvider::Maskinporten,
         IdentityProvider::TokenX,
     ];

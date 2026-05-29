@@ -29,6 +29,7 @@ impl RuntimeParams {
             .with_exposed_port(8080.tcp())
             .with_wait_for(wait_for_provider("entra_id"))
             .with_wait_for(wait_for_provider("idporten"))
+            .with_wait_for(wait_for_provider("ansattporten"))
             .with_wait_for(wait_for_provider("maskinporten"))
             .with_wait_for(wait_for_provider("tokenx"))
             .with_env_var("JSON_CONFIG", MockOAuthServerConfig::new().to_json())

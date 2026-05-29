@@ -101,6 +101,20 @@ impl State {
             providers.push(provider);
         }
 
+        if let Some(provider_cfg) = &cfg.ansattporten {
+            debug!(
+                "Fetch JWKS for Ansattporten from '{}'...",
+                provider_cfg.jwks_uri
+            );
+            let provider = new::<(), ()>(
+                IdentityProvider::Ansattporten,
+                provider_cfg,
+                Some(provider_cfg.client_id.clone()),
+            )
+            .await?;
+            providers.push(provider);
+        }
+
         Ok(Self {
             cfg,
             providers,
