@@ -15,6 +15,20 @@ pub struct Config {
     pub ansattporten: Option<Provider>,
 }
 
+impl Config {
+    pub async fn new_from_env() -> Result<Self, Error> {
+        Ok(Self {
+            bind_address: std::env::var("BIND_ADDRESS").unwrap_or("127.0.0.1:3000".to_string()),
+            probe_bind_address: std::env::var("PROBE_BIND_ADDRESS").ok(),
+            entra_id: ENTRA_ID.resolve().await?,
+            maskinporten: MASKINPORTEN.resolve().await?,
+            token_x: TOKEN_X.resolve().await?,
+            idporten: IDPORTEN.resolve().await?,
+            ansattporten: ANSATTPORTEN.resolve().await?,
+        })
+    }
+}
+
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Provider {
     pub client_id: String,
@@ -22,41 +36,6 @@ pub struct Provider {
     pub jwks_uri: String,
     pub issuer: String,
     pub token_endpoint: Option<String>,
-}
-
-impl Config {
-    pub async fn new_from_env() -> Result<Self, Error> {
-        let entra_id = RawProvider::new_from_azure_env()?;
-        let maskinporten = RawProvider::new_from_maskinporten_env()?;
-        let token_x = RawProvider::new_from_tokenx_env()?;
-        let idporten = RawProvider::new_from_idporten_env()?;
-        let ansattporten = RawProvider::new_from_ansattporten_env()?;
-
-        Ok(Self {
-            bind_address: std::env::var("BIND_ADDRESS").unwrap_or("127.0.0.1:3000".to_string()),
-            probe_bind_address: std::env::var("PROBE_BIND_ADDRESS").ok(),
-            entra_id: match entra_id {
-                Some(provider) => Some(provider.resolve(ProviderKind::EntraID).await?),
-                None => None,
-            },
-            maskinporten: match maskinporten {
-                Some(provider) => Some(provider.resolve(ProviderKind::Maskinporten).await?),
-                None => None,
-            },
-            token_x: match token_x {
-                Some(provider) => Some(provider.resolve(ProviderKind::TokenX).await?),
-                None => None,
-            },
-            idporten: match idporten {
-                Some(provider) => Some(provider.resolve(ProviderKind::IDPorten).await?),
-                None => None,
-            },
-            ansattporten: match ansattporten {
-                Some(provider) => Some(provider.resolve(ProviderKind::Ansattporten).await?),
-                None => None,
-            },
-        })
-    }
 }
 
 #[derive(Error, Debug)]
@@ -87,217 +66,208 @@ pub enum Error {
     },
 }
 
-#[derive(Clone, Copy)]
-enum ProviderKind {
-    EntraID,
-    IDPorten,
-    Ansattporten,
-    Maskinporten,
-    TokenX,
-}
-
-enum TokenCapability {
-    Exchange(&'static str),
+enum ProviderMode {
+    Exchange {
+        client_jwk_env: &'static str,
+        token_endpoint_env: &'static str,
+    },
     IntrospectOnly,
 }
 
-struct ProviderEnv {
-    provider_name: &'static str,
+struct ProviderConfig {
+    name: &'static str,
+    enabled_env: &'static str,
+    client_id_env: &'static str,
     well_known_env: &'static str,
     issuer_env: &'static str,
     jwks_uri_env: &'static str,
-    token_capability: TokenCapability,
+    mode: ProviderMode,
 }
 
-impl ProviderKind {
-    fn env(self) -> ProviderEnv {
-        match self {
-            ProviderKind::EntraID => ProviderEnv {
-                provider_name: "entra_id",
-                well_known_env: "AZURE_APP_WELL_KNOWN_URL",
-                issuer_env: "AZURE_OPENID_CONFIG_ISSUER",
-                jwks_uri_env: "AZURE_OPENID_CONFIG_JWKS_URI",
-                token_capability: TokenCapability::Exchange("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT"),
-            },
-            ProviderKind::IDPorten => ProviderEnv {
-                provider_name: "idporten",
-                well_known_env: "IDPORTEN_WELL_KNOWN_URL",
-                issuer_env: "IDPORTEN_ISSUER",
-                jwks_uri_env: "IDPORTEN_JWKS_URI",
-                token_capability: TokenCapability::IntrospectOnly,
-            },
-            ProviderKind::Ansattporten => ProviderEnv {
-                provider_name: "ansattporten",
-                well_known_env: "ANSATTPORTEN_WELL_KNOWN_URL",
-                issuer_env: "ANSATTPORTEN_ISSUER",
-                jwks_uri_env: "ANSATTPORTEN_JWKS_URI",
-                token_capability: TokenCapability::IntrospectOnly,
-            },
-            ProviderKind::Maskinporten => ProviderEnv {
-                provider_name: "maskinporten",
-                well_known_env: "MASKINPORTEN_WELL_KNOWN_URL",
-                issuer_env: "MASKINPORTEN_ISSUER",
-                jwks_uri_env: "MASKINPORTEN_JWKS_URI",
-                token_capability: TokenCapability::Exchange("MASKINPORTEN_TOKEN_ENDPOINT"),
-            },
-            ProviderKind::TokenX => ProviderEnv {
-                provider_name: "tokenx",
-                well_known_env: "TOKEN_X_WELL_KNOWN_URL",
-                issuer_env: "TOKEN_X_ISSUER",
-                jwks_uri_env: "TOKEN_X_JWKS_URI",
-                token_capability: TokenCapability::Exchange("TOKEN_X_TOKEN_ENDPOINT"),
-            },
+const ENTRA_ID: ProviderConfig = ProviderConfig {
+    name: "Entra ID",
+    enabled_env: "AZURE_ENABLED",
+    client_id_env: "AZURE_APP_CLIENT_ID",
+    well_known_env: "AZURE_APP_WELL_KNOWN_URL",
+    issuer_env: "AZURE_OPENID_CONFIG_ISSUER",
+    jwks_uri_env: "AZURE_OPENID_CONFIG_JWKS_URI",
+    mode: ProviderMode::Exchange {
+        client_jwk_env: "AZURE_APP_JWK",
+        token_endpoint_env: "AZURE_OPENID_CONFIG_TOKEN_ENDPOINT",
+    },
+};
+
+const IDPORTEN: ProviderConfig = ProviderConfig {
+    name: "ID-porten",
+    enabled_env: "IDPORTEN_ENABLED",
+    client_id_env: "IDPORTEN_AUDIENCE",
+    well_known_env: "IDPORTEN_WELL_KNOWN_URL",
+    issuer_env: "IDPORTEN_ISSUER",
+    jwks_uri_env: "IDPORTEN_JWKS_URI",
+    mode: ProviderMode::IntrospectOnly,
+};
+
+const ANSATTPORTEN: ProviderConfig = ProviderConfig {
+    name: "Ansattporten",
+    enabled_env: "ANSATTPORTEN_ENABLED",
+    client_id_env: "ANSATTPORTEN_AUDIENCE",
+    well_known_env: "ANSATTPORTEN_WELL_KNOWN_URL",
+    issuer_env: "ANSATTPORTEN_ISSUER",
+    jwks_uri_env: "ANSATTPORTEN_JWKS_URI",
+    mode: ProviderMode::IntrospectOnly,
+};
+
+const MASKINPORTEN: ProviderConfig = ProviderConfig {
+    name: "Maskinporten",
+    enabled_env: "MASKINPORTEN_ENABLED",
+    client_id_env: "MASKINPORTEN_CLIENT_ID",
+    well_known_env: "MASKINPORTEN_WELL_KNOWN_URL",
+    issuer_env: "MASKINPORTEN_ISSUER",
+    jwks_uri_env: "MASKINPORTEN_JWKS_URI",
+    mode: ProviderMode::Exchange {
+        client_jwk_env: "MASKINPORTEN_CLIENT_JWK",
+        token_endpoint_env: "MASKINPORTEN_TOKEN_ENDPOINT",
+    },
+};
+
+const TOKEN_X: ProviderConfig = ProviderConfig {
+    name: "TokenX",
+    enabled_env: "TOKEN_X_ENABLED",
+    client_id_env: "TOKEN_X_CLIENT_ID",
+    well_known_env: "TOKEN_X_WELL_KNOWN_URL",
+    issuer_env: "TOKEN_X_ISSUER",
+    jwks_uri_env: "TOKEN_X_JWKS_URI",
+    mode: ProviderMode::Exchange {
+        client_jwk_env: "TOKEN_X_PRIVATE_JWK",
+        token_endpoint_env: "TOKEN_X_TOKEN_ENDPOINT",
+    },
+};
+
+impl ProviderConfig {
+    async fn resolve(&self) -> Result<Option<Provider>, Error> {
+        match UnresolvedProvider::from_env(self)? {
+            Some(unresolved) => Ok(Some(unresolved.resolve(self).await?)),
+            None => Ok(None),
         }
     }
 }
 
-#[derive(Default, Deserialize)]
-struct AuthorizationServerMetadata {
+#[derive(Debug)]
+struct UnresolvedProvider {
+    client_id: String,
+    client_jwk: Option<String>,
+    well_known_url: Option<String>,
+    jwks_uri: Option<String>,
     issuer: Option<String>,
     token_endpoint: Option<String>,
-    jwks_uri: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
-struct RawProvider {
-    pub client_id: String,
-    pub client_jwk: Option<String>,
-    pub well_known_url: Option<String>,
-    pub jwks_uri: Option<String>,
-    pub issuer: Option<String>,
-    pub token_endpoint: Option<String>,
-}
+impl UnresolvedProvider {
+    fn from_env(config: &ProviderConfig) -> Result<Option<Self>, Error> {
+        let enabled = match std::env::var(config.enabled_env) {
+            Ok(val) => val.parse().map_err(|e| ParseBool(config.enabled_env.to_string(), e))?,
+            Err(_) => false,
+        };
+        if !enabled {
+            return Ok(None);
+        }
 
-impl RawProvider {
-    fn enabled_from_env(env_var: &str) -> Result<bool, Error> {
-        let Ok(envvar) = std::env::var(env_var) else {
-            return Ok(false);
+        let (client_jwk, token_endpoint) = match config.mode {
+            ProviderMode::Exchange {
+                client_jwk_env,
+                token_endpoint_env,
+            } => (
+                Some(must_read_env(client_jwk_env)?),
+                read_env(token_endpoint_env),
+            ),
+            ProviderMode::IntrospectOnly => (None, None),
         };
 
-        envvar.parse().map_err(|err| ParseBool(env_var.to_string(), err))
-    }
-
-    fn new_from_maskinporten_env() -> Result<Option<Self>, Error> {
-        if !Self::enabled_from_env("MASKINPORTEN_ENABLED")? {
-            return Ok(None);
-        }
-
         Ok(Some(Self {
-            client_id: must_read_env("MASKINPORTEN_CLIENT_ID")?,
-            client_jwk: Some(must_read_env("MASKINPORTEN_CLIENT_JWK")?),
-            well_known_url: read_env("MASKINPORTEN_WELL_KNOWN_URL"),
-            jwks_uri: read_env("MASKINPORTEN_JWKS_URI"),
-            issuer: read_env("MASKINPORTEN_ISSUER"),
-            token_endpoint: read_env("MASKINPORTEN_TOKEN_ENDPOINT"),
+            client_id: must_read_env(config.client_id_env)?,
+            client_jwk,
+            well_known_url: read_env(config.well_known_env),
+            jwks_uri: read_env(config.jwks_uri_env),
+            issuer: read_env(config.issuer_env),
+            token_endpoint,
         }))
     }
 
-    fn new_from_azure_env() -> Result<Option<Self>, Error> {
-        if !Self::enabled_from_env("AZURE_ENABLED")? {
-            return Ok(None);
-        }
+    async fn resolve(self, config: &ProviderConfig) -> Result<Provider, Error> {
+        let required_token_endpoint_env = match config.mode {
+            ProviderMode::Exchange {
+                token_endpoint_env, ..
+            } => Some(token_endpoint_env),
+            ProviderMode::IntrospectOnly => None,
+        };
 
-        Ok(Some(Self {
-            client_id: must_read_env("AZURE_APP_CLIENT_ID")?,
-            client_jwk: Some(must_read_env("AZURE_APP_JWK")?),
-            well_known_url: read_env("AZURE_APP_WELL_KNOWN_URL"),
-            jwks_uri: read_env("AZURE_OPENID_CONFIG_JWKS_URI"),
-            issuer: read_env("AZURE_OPENID_CONFIG_ISSUER"),
-            token_endpoint: read_env("AZURE_OPENID_CONFIG_TOKEN_ENDPOINT"),
-        }))
-    }
+        let needs_metadata = self.issuer.is_none()
+            || self.jwks_uri.is_none()
+            || (required_token_endpoint_env.is_some() && self.token_endpoint.is_none());
 
-    fn new_from_idporten_env() -> Result<Option<Self>, Error> {
-        if !Self::enabled_from_env("IDPORTEN_ENABLED")? {
-            return Ok(None);
-        }
-
-        Ok(Some(Self {
-            client_id: must_read_env("IDPORTEN_AUDIENCE")?,
-            client_jwk: None,
-            well_known_url: read_env("IDPORTEN_WELL_KNOWN_URL"),
-            jwks_uri: read_env("IDPORTEN_JWKS_URI"),
-            issuer: read_env("IDPORTEN_ISSUER"),
-            token_endpoint: None,
-        }))
-    }
-
-    fn new_from_ansattporten_env() -> Result<Option<Self>, Error> {
-        if !Self::enabled_from_env("ANSATTPORTEN_ENABLED")? {
-            return Ok(None);
-        }
-
-        Ok(Some(Self {
-            client_id: must_read_env("ANSATTPORTEN_AUDIENCE")?,
-            client_jwk: None,
-            well_known_url: read_env("ANSATTPORTEN_WELL_KNOWN_URL"),
-            jwks_uri: read_env("ANSATTPORTEN_JWKS_URI"),
-            issuer: read_env("ANSATTPORTEN_ISSUER"),
-            token_endpoint: None,
-        }))
-    }
-
-    fn new_from_tokenx_env() -> Result<Option<Self>, Error> {
-        if !Self::enabled_from_env("TOKEN_X_ENABLED")? {
-            return Ok(None);
-        }
-
-        Ok(Some(Self {
-            client_id: must_read_env("TOKEN_X_CLIENT_ID")?,
-            client_jwk: Some(must_read_env("TOKEN_X_PRIVATE_JWK")?),
-            well_known_url: read_env("TOKEN_X_WELL_KNOWN_URL"),
-            jwks_uri: read_env("TOKEN_X_JWKS_URI"),
-            issuer: read_env("TOKEN_X_ISSUER"),
-            token_endpoint: read_env("TOKEN_X_TOKEN_ENDPOINT"),
-        }))
-    }
-
-    async fn resolve(self, kind: ProviderKind) -> Result<Provider, Error> {
-        let env = kind.env();
-        let should_fetch_metadata = self.well_known_url.is_some()
-            && (self.issuer.is_none()
-                || self.jwks_uri.is_none()
-                || (matches!(env.token_capability, TokenCapability::Exchange(_))
-                    && self.token_endpoint.is_none()));
-
-        let metadata = if should_fetch_metadata {
-            let url = self.well_known_url.as_deref().unwrap_or_default();
-            log::debug!("Fetch metadata for {} from '{}'...", env.provider_name, url);
-            fetch_provider_metadata(url).await?
-        } else {
-            AuthorizationServerMetadata::default()
+        let metadata = match self.well_known_url.as_deref() {
+            Some(url) if needs_metadata => {
+                log::debug!(
+                    "{}: fetching metadata from {}={}",
+                    config.name,
+                    config.well_known_env,
+                    url,
+                );
+                fetch_provider_metadata(url).await?
+            }
+            Some(url) => {
+                log::debug!(
+                    "{}: all fields provided via env, skipping metadata fetch from {}={}",
+                    config.name,
+                    config.well_known_env,
+                    url,
+                );
+                AuthorizationServerMetadata::default()
+            }
+            None => AuthorizationServerMetadata::default(),
         };
 
         let issuer = self.issuer.or(metadata.issuer).ok_or(Error::MissingProviderConfigField {
-            provider: env.provider_name,
-            field_env: env.issuer_env,
-            well_known_env: env.well_known_env,
+            provider: config.name,
+            field_env: config.issuer_env,
+            well_known_env: config.well_known_env,
         })?;
+
         let jwks_uri =
             self.jwks_uri.or(metadata.jwks_uri).ok_or(Error::MissingProviderConfigField {
-                provider: env.provider_name,
-                field_env: env.jwks_uri_env,
-                well_known_env: env.well_known_env,
+                provider: config.name,
+                field_env: config.jwks_uri_env,
+                well_known_env: config.well_known_env,
             })?;
+
         let token_endpoint = self.token_endpoint.or(metadata.token_endpoint);
 
-        if let TokenCapability::Exchange(field_env) = env.token_capability
+        if let Some(field_env) = required_token_endpoint_env
             && token_endpoint.is_none()
         {
             return Err(Error::MissingProviderConfigField {
-                provider: env.provider_name,
+                provider: config.name,
                 field_env,
-                well_known_env: env.well_known_env,
+                well_known_env: config.well_known_env,
             });
         }
 
-        Ok(Provider {
+        let provider = Provider {
             client_id: self.client_id,
             client_jwk: self.client_jwk,
             jwks_uri,
             issuer,
             token_endpoint,
-        })
+        };
+
+        log::debug!("{}: client_id={}", config.name, provider.client_id);
+        log::debug!("{}: issuer={}", config.name, provider.issuer);
+        log::debug!("{}: jwks_uri={}", config.name, provider.jwks_uri);
+        if let Some(ref ep) = provider.token_endpoint {
+            log::debug!("{}: token_endpoint={}", config.name, ep);
+        }
+
+        Ok(provider)
     }
 }
 
@@ -307,6 +277,13 @@ fn must_read_env(env: &str) -> Result<String, Error> {
 
 fn read_env(env: &str) -> Option<String> {
     std::env::var(env).ok()
+}
+
+#[derive(Default, Deserialize)]
+struct AuthorizationServerMetadata {
+    issuer: Option<String>,
+    token_endpoint: Option<String>,
+    jwks_uri: Option<String>,
 }
 
 async fn fetch_provider_metadata(url: &str) -> Result<AuthorizationServerMetadata, Error> {
@@ -330,7 +307,7 @@ async fn fetch_provider_metadata(url: &str) -> Result<AuthorizationServerMetadat
 
 #[cfg(test)]
 mod tests {
-    use super::{ProviderKind, RawProvider};
+    use super::{ANSATTPORTEN, ENTRA_ID, IDPORTEN, MASKINPORTEN, UnresolvedProvider};
     use axum::{Json, Router, routing::get};
     use serde_json::{Value, json};
 
@@ -347,7 +324,7 @@ mod tests {
         )])
         .await;
 
-        let resolved = RawProvider {
+        let resolved = UnresolvedProvider {
             client_id: "client-id".to_string(),
             client_jwk: Some("private-jwk".to_string()),
             well_known_url: Some(format!("{base_url}/oidc/.well-known/openid-configuration")),
@@ -355,7 +332,7 @@ mod tests {
             token_endpoint: None,
             jwks_uri: None,
         }
-        .resolve(ProviderKind::EntraID)
+        .resolve(&ENTRA_ID)
         .await
         .unwrap();
 
@@ -380,7 +357,7 @@ mod tests {
         )])
         .await;
 
-        let resolved = RawProvider {
+        let resolved = UnresolvedProvider {
             client_id: "client-id".to_string(),
             client_jwk: Some("private-jwk".to_string()),
             well_known_url: Some(format!(
@@ -390,7 +367,7 @@ mod tests {
             token_endpoint: None,
             jwks_uri: None,
         }
-        .resolve(ProviderKind::Maskinporten)
+        .resolve(&MASKINPORTEN)
         .await
         .unwrap();
 
@@ -413,7 +390,7 @@ mod tests {
         )])
         .await;
 
-        let resolved = RawProvider {
+        let resolved = UnresolvedProvider {
             client_id: "client-id".to_string(),
             client_jwk: None,
             well_known_url: Some(format!(
@@ -423,7 +400,7 @@ mod tests {
             token_endpoint: None,
             jwks_uri: None,
         }
-        .resolve(ProviderKind::IDPorten)
+        .resolve(&IDPORTEN)
         .await
         .unwrap();
 
@@ -443,7 +420,7 @@ mod tests {
         )])
         .await;
 
-        let resolved = RawProvider {
+        let resolved = UnresolvedProvider {
             client_id: "client-id".to_string(),
             client_jwk: None,
             well_known_url: Some(format!(
@@ -453,7 +430,7 @@ mod tests {
             token_endpoint: None,
             jwks_uri: None,
         }
-        .resolve(ProviderKind::Ansattporten)
+        .resolve(&ANSATTPORTEN)
         .await
         .unwrap();
 
@@ -464,7 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_manual_issuer_has_provider_specific_error() {
-        let err = RawProvider {
+        let err = UnresolvedProvider {
             client_id: "client-id".to_string(),
             client_jwk: Some("private-jwk".to_string()),
             well_known_url: None,
@@ -472,19 +449,19 @@ mod tests {
             token_endpoint: Some("https://maskinporten.example/token".to_string()),
             jwks_uri: Some("https://maskinporten.example/jwks".to_string()),
         }
-        .resolve(ProviderKind::Maskinporten)
+        .resolve(&MASKINPORTEN)
         .await
         .unwrap_err();
 
         assert_eq!(
             err.to_string(),
-            "missing configuration for provider 'maskinporten': set MASKINPORTEN_WELL_KNOWN_URL or MASKINPORTEN_ISSUER"
+            "missing configuration for provider 'Maskinporten': set MASKINPORTEN_WELL_KNOWN_URL or MASKINPORTEN_ISSUER"
         );
     }
 
     #[tokio::test]
     async fn missing_manual_jwks_uri_has_provider_specific_error() {
-        let err = RawProvider {
+        let err = UnresolvedProvider {
             client_id: "client-id".to_string(),
             client_jwk: None,
             well_known_url: None,
@@ -492,19 +469,19 @@ mod tests {
             token_endpoint: None,
             jwks_uri: None,
         }
-        .resolve(ProviderKind::IDPorten)
+        .resolve(&IDPORTEN)
         .await
         .unwrap_err();
 
         assert_eq!(
             err.to_string(),
-            "missing configuration for provider 'idporten': set IDPORTEN_WELL_KNOWN_URL or IDPORTEN_JWKS_URI"
+            "missing configuration for provider 'ID-porten': set IDPORTEN_WELL_KNOWN_URL or IDPORTEN_JWKS_URI"
         );
     }
 
     #[tokio::test]
     async fn missing_manual_token_endpoint_has_provider_specific_error() {
-        let err = RawProvider {
+        let err = UnresolvedProvider {
             client_id: "client-id".to_string(),
             client_jwk: Some("private-jwk".to_string()),
             well_known_url: None,
@@ -512,17 +489,79 @@ mod tests {
             token_endpoint: None,
             jwks_uri: Some("https://entra.example/jwks".to_string()),
         }
-        .resolve(ProviderKind::EntraID)
+        .resolve(&ENTRA_ID)
         .await
         .unwrap_err();
 
         assert_eq!(
             err.to_string(),
-            "missing configuration for provider 'entra_id': set AZURE_APP_WELL_KNOWN_URL or AZURE_OPENID_CONFIG_TOKEN_ENDPOINT"
+            "missing configuration for provider 'Entra ID': set AZURE_APP_WELL_KNOWN_URL or AZURE_OPENID_CONFIG_TOKEN_ENDPOINT"
         );
     }
 
-    async fn metadata_server(routes: Vec<(&str, Value)>) -> (String, tokio::task::JoinHandle<()>) {
+    #[tokio::test]
+    async fn explicit_values_override_metadata() {
+        let (base_url, _server) = metadata_server(vec![(
+            "/oidc/.well-known/openid-configuration",
+            json!({
+                "issuer": "https://from-metadata.example",
+                "token_endpoint": "https://from-metadata.example/token",
+                "jwks_uri": "https://from-metadata.example/jwks"
+            }),
+        )])
+        .await;
+
+        let resolved = UnresolvedProvider {
+            client_id: "client-id".to_string(),
+            client_jwk: Some("private-jwk".to_string()),
+            well_known_url: Some(format!("{base_url}/oidc/.well-known/openid-configuration")),
+            issuer: Some("https://explicit.example".to_string()),
+            token_endpoint: Some("https://explicit.example/token".to_string()),
+            jwks_uri: None, // only this one falls back to metadata
+        }
+        .resolve(&ENTRA_ID)
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.issuer, "https://explicit.example");
+        assert_eq!(
+            resolved.token_endpoint.as_deref(),
+            Some("https://explicit.example/token")
+        );
+        assert_eq!(resolved.jwks_uri, "https://from-metadata.example/jwks");
+    }
+
+    #[tokio::test]
+    async fn explicit_values_used_when_all_fields_present() {
+        let resolved = UnresolvedProvider {
+            client_id: "client-id".to_string(),
+            client_jwk: Some("private-jwk".to_string()),
+            well_known_url: Some("http://should-not-resolve.example/metadata".to_string()),
+            issuer: Some("https://explicit.example".to_string()),
+            token_endpoint: Some("https://explicit.example/token".to_string()),
+            jwks_uri: Some("https://explicit.example/jwks".to_string()),
+        }
+        .resolve(&ENTRA_ID)
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.issuer, "https://explicit.example");
+        assert_eq!(
+            resolved.token_endpoint.as_deref(),
+            Some("https://explicit.example/token")
+        );
+        assert_eq!(resolved.jwks_uri, "https://explicit.example/jwks");
+    }
+
+    struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+
+    async fn metadata_server(routes: Vec<(&str, Value)>) -> (String, AbortOnDrop) {
         let mut router = Router::new();
 
         for (path, response) in routes {
@@ -536,6 +575,6 @@ mod tests {
             axum::serve(listener, router).await.unwrap();
         });
 
-        (format!("http://{address}"), server)
+        (format!("http://{address}"), AbortOnDrop(server))
     }
 }
