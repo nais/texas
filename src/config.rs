@@ -257,7 +257,8 @@ impl RawProvider {
         let should_fetch_metadata = self.well_known_url.is_some()
             && (self.issuer.is_none()
                 || self.jwks_uri.is_none()
-                || (matches!(env.token_capability, TokenCapability::Exchange(_)) && self.token_endpoint.is_none()));
+                || (matches!(env.token_capability, TokenCapability::Exchange(_))
+                    && self.token_endpoint.is_none()));
 
         let metadata = if should_fetch_metadata {
             let url = self.well_known_url.as_deref().unwrap_or_default();
@@ -280,14 +281,14 @@ impl RawProvider {
             })?;
         let token_endpoint = self.token_endpoint.or(metadata.token_endpoint);
 
-        if let TokenCapability::Exchange(field_env) = env.token_capability {
-            if token_endpoint.is_none() {
-                return Err(Error::MissingProviderConfigField {
-                    provider: env.provider_name,
-                    field_env,
-                    well_known_env: env.well_known_env,
-                });
-            }
+        if let TokenCapability::Exchange(field_env) = env.token_capability
+            && token_endpoint.is_none()
+        {
+            return Err(Error::MissingProviderConfigField {
+                provider: env.provider_name,
+                field_env,
+                well_known_env: env.well_known_env,
+            });
         }
 
         Ok(Provider {
