@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM rust:1.95.0-trixie AS builder
+FROM --platform=$BUILDPLATFORM rust:1.96.0-trixie AS builder
 WORKDIR /build
 
 # zig is not packaged in trixie; install via pip's ziglang wheel.
