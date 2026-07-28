@@ -29,7 +29,11 @@ depends = ['check:*', 'test']
 
 [tasks."check:clippy"]
 description = "Run clippy"
-run = "cargo clippy --all-targets --all-features -- -D warnings"
+# The second run covers `cfg(not(feature = "local"))` code, which --all-features excludes.
+run = [
+    "cargo clippy --all-targets --all-features -- -D warnings",
+    "cargo clippy --all-targets --features docker,openapi -- -D warnings",
+]
 
 [tasks."check:fmt"]
 description = "Check formatting"
