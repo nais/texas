@@ -149,14 +149,35 @@ where
     let inner = layer.inner_layer_mut();
     inner.with_thread_ids("thread_id");
     inner.with_thread_names("thread_name");
-    inner.add_from_extension::<tracing_opentelemetry::OtelData, _, _>("trace_id", |otel_data| {
-        otel_data.trace_id().map(|id| id.to_string())
+    inner.add_from_span("trace_id", |span| {
+        otel_span_context(span).map(|cx| cx.trace_id().to_string())
     });
-    inner.add_from_extension::<tracing_opentelemetry::OtelData, _, _>("span_id", |otel_data| {
-        otel_data.span_id().map(|id| id.to_string())
+    inner.add_from_span("span_id", |span| {
+        otel_span_context(span).map(|cx| cx.span_id().to_string())
     });
     inner.add_dynamic_field("message", |event, _ctx| extract_message(event));
     layer
+}
+
+/// Resolves the OTel `SpanContext` for a tracing span.
+///
+/// tracing-opentelemetry 0.33 made `OtelData` private; `get_otel_context` is the
+/// supported replacement and requires the dispatch the span belongs to. Relies on
+/// the subscriber being installed globally (see `init_tracing_subscriber`), since
+/// `get_default` yields a no-op dispatch inside a scoped subscriber.
+#[cfg(not(feature = "local"))]
+fn otel_span_context<S>(
+    span: &tracing_subscriber::registry::SpanRef<'_, S>,
+) -> Option<opentelemetry::trace::SpanContext>
+where
+    S: for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
+    use opentelemetry::trace::TraceContextExt;
+
+    tracing::dispatcher::get_default(|dispatch| {
+        tracing_opentelemetry::get_otel_context(&span.id(), dispatch)
+            .map(|cx| cx.span().span_context().clone())
+    })
 }
 
 /// Synthesizes a `message` field from `error` for events that lack one
