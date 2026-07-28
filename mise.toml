@@ -2,7 +2,7 @@
 pin = true
 
 [tools]
-rust = { version = "1.95.0", components = "rustfmt,clippy" }
+rust = { version = "1.97.1", components = "rustfmt,clippy" }
 cargo-binstall = "1.18.1"
 "aqua:sethvargo/ratchet" = "0.11.4"
 "cargo:cargo-audit" = "0.22.1"
