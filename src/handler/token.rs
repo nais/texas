@@ -88,6 +88,8 @@ pub async fn token(
 ) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token";
     let span = tracing::Span::current();
+    let request = request.with_normalized_target();
+    span.set_attribute("texas.target", request.target.clone());
     telemetry::inc_token_requests(PATH, request.identity_provider);
 
     if let Some(ref resource) = request.resource {

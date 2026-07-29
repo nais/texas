@@ -249,6 +249,68 @@ async fn token_exchange_token(
     );
 }
 
+#[test(tokio::test)]
+async fn entra_id_tokenx_targets_share_a_token_exchange_cache_entry() {
+    let server = TestServer::new().await;
+    let address = server.address();
+    let identity_provider_address = server.identity_provider_address();
+    let join_handler = tokio::spawn(async move {
+        server.run().await;
+    });
+
+    let user_token = get_user_token(&identity_provider_address, IdentityProvider::EntraID).await;
+    let tokenx_target = "cluster:namespace:application";
+    let scope = "api://cluster.namespace.application/.default";
+    let request = TokenExchangeRequest {
+        target: tokenx_target.to_string(),
+        identity_provider: IdentityProvider::EntraID,
+        user_token: user_token.access_token.clone(),
+        skip_cache: None,
+    };
+
+    let first = test_happy_path_token_exchange(&address, request, RequestFormat::Json).await;
+    let cached = test_happy_path_token_exchange(
+        &address,
+        TokenExchangeRequest {
+            target: scope.to_string(),
+            identity_provider: IdentityProvider::EntraID,
+            user_token: user_token.access_token.clone(),
+            skip_cache: None,
+        },
+        RequestFormat::Json,
+    )
+    .await;
+    assert_eq!(cached.access_token, first.access_token);
+
+    let renewed = test_happy_path_token_exchange(
+        &address,
+        TokenExchangeRequest {
+            target: tokenx_target.to_string(),
+            identity_provider: IdentityProvider::EntraID,
+            user_token: user_token.access_token.clone(),
+            skip_cache: Some(true),
+        },
+        RequestFormat::Json,
+    )
+    .await;
+    assert_ne!(renewed.access_token, first.access_token);
+
+    let cached_renewed = test_happy_path_token_exchange(
+        &address,
+        TokenExchangeRequest {
+            target: scope.to_string(),
+            identity_provider: IdentityProvider::EntraID,
+            user_token: user_token.access_token,
+            skip_cache: None,
+        },
+        RequestFormat::Json,
+    )
+    .await;
+    assert_eq!(cached_renewed.access_token, renewed.access_token);
+
+    join_handler.abort();
+}
+
 async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
     test_well_formed_json_request(
         token_exchange_url(address).as_str(),

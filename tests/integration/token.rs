@@ -197,6 +197,70 @@ async fn machine_to_machine_token(
     );
 }
 
+#[test(tokio::test)]
+async fn entra_id_tokenx_targets_share_a_cache_entry() {
+    let server = TestServer::new().await;
+    let address = server.address();
+    let join_handler = tokio::spawn(async move {
+        server.run().await;
+    });
+
+    let tokenx_target = "cluster:namespace:application";
+    let scope = "api://cluster.namespace.application/.default";
+    let request = TokenRequest {
+        target: tokenx_target.to_string(),
+        identity_provider: IdentityProvider::EntraID,
+        resource: None,
+        authorization_details: None,
+        skip_cache: None,
+    };
+
+    let first = test_happy_path_token(&address, request, RequestFormat::Json).await;
+    let cached = test_happy_path_token(
+        &address,
+        TokenRequest {
+            target: scope.to_string(),
+            identity_provider: IdentityProvider::EntraID,
+            resource: None,
+            authorization_details: None,
+            skip_cache: None,
+        },
+        RequestFormat::Json,
+    )
+    .await;
+    assert_eq!(cached.access_token, first.access_token);
+
+    let renewed = test_happy_path_token(
+        &address,
+        TokenRequest {
+            target: tokenx_target.to_string(),
+            identity_provider: IdentityProvider::EntraID,
+            resource: None,
+            authorization_details: None,
+            skip_cache: Some(true),
+        },
+        RequestFormat::Json,
+    )
+    .await;
+    assert_ne!(renewed.access_token, first.access_token);
+
+    let cached_renewed = test_happy_path_token(
+        &address,
+        TokenRequest {
+            target: scope.to_string(),
+            identity_provider: IdentityProvider::EntraID,
+            resource: None,
+            authorization_details: None,
+            skip_cache: None,
+        },
+        RequestFormat::Json,
+    )
+    .await;
+    assert_eq!(cached_renewed.access_token, renewed.access_token);
+
+    join_handler.abort();
+}
+
 async fn test_token_invalid_identity_provider(address: &str) {
     let http_response = post_request(
         format!("http://{}/api/v1/token", address),

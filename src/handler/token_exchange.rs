@@ -7,6 +7,7 @@ use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::IntoResponse;
 use tracing::instrument;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[utoipa::path(
     post,
@@ -65,6 +66,8 @@ pub async fn token_exchange(
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token/exchange";
+    let request = request.with_normalized_target();
+    tracing::Span::current().set_attribute("texas.target", request.target.clone());
     telemetry::inc_token_exchanges(PATH, request.identity_provider);
 
     if request.skip_cache.unwrap_or(false) {

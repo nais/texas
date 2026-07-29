@@ -213,6 +213,21 @@ pub enum IdentityProvider {
     Ansattporten,
 }
 
+impl IdentityProvider {
+    pub(crate) fn normalize_target(self, target: String) -> String {
+        if self != Self::EntraID || target.starts_with("https://") || target.starts_with("api://") {
+            return target;
+        }
+
+        let parts = target.split(':').collect::<Vec<_>>();
+        if parts.len() != 3 || parts.iter().any(|part| part.is_empty()) {
+            return target;
+        }
+
+        format!("api://{}/.default", parts.join("."))
+    }
+}
+
 impl Display for IdentityProvider {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if let Ok(Value::String(s)) = serde_json::to_value(self) {
@@ -237,6 +252,15 @@ pub struct TokenRequest {
     /// Force renewal of token. Defaults to false if omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_cache: Option<bool>,
+}
+
+impl TokenRequest {
+    pub(crate) fn with_normalized_target(&self) -> Self {
+        Self {
+            target: self.identity_provider.normalize_target(self.target.clone()),
+            ..self.clone()
+        }
+    }
 }
 
 // Manual PartialEq/Hash so that `skip_cache` does not influence cache lookup keys.
@@ -309,6 +333,15 @@ pub struct TokenExchangeRequest {
     /// Force renewal of token. Defaults to false if omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_cache: Option<bool>,
+}
+
+impl TokenExchangeRequest {
+    pub(crate) fn with_normalized_target(&self) -> Self {
+        Self {
+            target: self.identity_provider.normalize_target(self.target.clone()),
+            ..self.clone()
+        }
+    }
 }
 
 // Manual PartialEq/Hash so that `skip_cache` does not influence cache lookup keys.
@@ -619,7 +652,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{AuthorizationDetails, IdentityProvider, TokenRequest};
+    use super::{AuthorizationDetails, IdentityProvider, TokenExchangeRequest, TokenRequest};
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use serde::Deserialize;
@@ -666,6 +699,76 @@ mod tests {
         let deserialized =
             serde_json::from_str::<IdentityProvider>(&format!(r#""{}""#, input)).unwrap();
         assert_eq!(deserialized, expected);
+    }
+
+    #[rstest]
+    #[case(
+        IdentityProvider::EntraID,
+        "cluster:namespace:application",
+        "api://cluster.namespace.application/.default"
+    )]
+    #[case(
+        IdentityProvider::EntraID,
+        "https://application.example",
+        "https://application.example"
+    )]
+    #[case(
+        IdentityProvider::EntraID,
+        "api://application/.default",
+        "api://application/.default"
+    )]
+    #[case(
+        IdentityProvider::TokenX,
+        "cluster:namespace:application",
+        "cluster:namespace:application"
+    )]
+    #[case(IdentityProvider::EntraID, "ordinary-scope", "ordinary-scope")]
+    #[case(IdentityProvider::EntraID, "cluster:namespace", "cluster:namespace")]
+    #[case(
+        IdentityProvider::EntraID,
+        "cluster::application",
+        "cluster::application"
+    )]
+    fn identity_provider_normalizes_tokenx_target_for_entra_id(
+        #[case] identity_provider: IdentityProvider,
+        #[case] target: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(
+            identity_provider.normalize_target(target.to_string()),
+            expected
+        );
+    }
+
+    #[test]
+    fn normalized_requests_preserve_the_original_target() {
+        let token_request = TokenRequest {
+            target: "cluster:namespace:application".to_string(),
+            identity_provider: IdentityProvider::EntraID,
+            resource: None,
+            authorization_details: None,
+            skip_cache: None,
+        };
+        let exchange_request = TokenExchangeRequest {
+            target: "cluster:namespace:application".to_string(),
+            identity_provider: IdentityProvider::EntraID,
+            user_token: "user-token".to_string(),
+            skip_cache: None,
+        };
+
+        let normalized_token_request = token_request.with_normalized_target();
+        let normalized_exchange_request = exchange_request.with_normalized_target();
+
+        assert_eq!(
+            normalized_token_request.target,
+            "api://cluster.namespace.application/.default"
+        );
+        assert_eq!(
+            normalized_exchange_request.target,
+            "api://cluster.namespace.application/.default"
+        );
+        assert_eq!(token_request.target, "cluster:namespace:application");
+        assert_eq!(exchange_request.target, "cluster:namespace:application");
     }
 
     #[rstest]
