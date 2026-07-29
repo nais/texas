@@ -5,7 +5,7 @@ use crate::oauth::grant::{
     ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder,
     TokenRequestBuilderParams,
 };
-use crate::oauth::token;
+use crate::oauth::jwt::JwtValidator;
 use crate::telemetry::record_identity_provider_latency;
 use async_trait::async_trait;
 use jsonwebkey as jwk;
@@ -335,7 +335,6 @@ pub struct IntrospectRequest {
     pub identity_provider: IdentityProvider,
 }
 
-#[derive(Clone)]
 pub struct Provider<R, A> {
     client_id: String,
     issuer: String,
@@ -343,7 +342,7 @@ pub struct Provider<R, A> {
     identity_provider_kind: IdentityProvider,
     private_jwk: Option<jwt::EncodingKey>,
     client_assertion_header: Option<jwt::Header>,
-    upstream_jwks: token::Jwks,
+    jwt_validator: JwtValidator,
     http_client: reqwest_middleware::ClientWithMiddleware,
     _fake_request: PhantomData<R>,
     _fake_assertion: PhantomData<A>,
@@ -375,7 +374,7 @@ where
         issuer: String,
         token_endpoint: Option<String>,
         private_jwk: Option<String>,
-        upstream_jwks: token::Jwks,
+        jwt_validator: JwtValidator,
     ) -> Result<Self, ProviderError> {
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
             let client_private_jwk: jwk::JsonWebKey =
@@ -402,7 +401,7 @@ where
             token_endpoint,
             issuer,
             client_assertion_header,
-            upstream_jwks,
+            jwt_validator,
             http_client,
             identity_provider_kind: kind,
             private_jwk: client_private_jwk,
@@ -478,8 +477,8 @@ where
         self.get_token_from_idprovider(token_request).await
     }
 
-    async fn introspect(&mut self, token: String) -> IntrospectResponse {
-        self.upstream_jwks
+    async fn introspect(&self, token: String) -> IntrospectResponse {
+        self.jwt_validator
             .validate(&token)
             .await
             .map_or_else(IntrospectResponse::new_invalid, IntrospectResponse::new)
@@ -530,7 +529,7 @@ pub trait ProviderHandler: ShouldHandler + Send + Sync {
         &self,
         request: TokenExchangeRequest,
     ) -> Result<TokenResponse, ApiError>;
-    async fn introspect(&mut self, token: String) -> IntrospectResponse;
+    async fn introspect(&self, token: String) -> IntrospectResponse;
     async fn get_token_from_idprovider(
         &self,
         config: TokenRequestBuilderParams,

@@ -60,15 +60,13 @@ pub async fn token_introspect(
 
     let mut provider_enabled = false;
     for provider in state.providers {
-        if provider.read().await.identity_provider_matches(request.identity_provider) {
+        if provider.identity_provider_matches(request.identity_provider) {
             provider_enabled = true;
         }
-        if !provider.read().await.should_handle_introspect_request(&request) {
+        if !provider.should_handle_introspect_request(&request) {
             continue;
         }
-        // We need to acquire a write lock here because introspect
-        // might refresh its JWKS in-flight.
-        return Ok(provider.write().await.introspect(request.token).await);
+        return Ok(provider.introspect(request.token).await);
     }
 
     if !provider_enabled {

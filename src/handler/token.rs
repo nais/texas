@@ -106,16 +106,16 @@ pub async fn token(
 
     let mut provider_enabled = false;
     for provider in state.providers {
-        if provider.read().await.identity_provider_matches(request.identity_provider) {
+        if provider.identity_provider_matches(request.identity_provider) {
             provider_enabled = true;
         }
-        if !provider.read().await.should_handle_token_request(&request) {
+        if !provider.should_handle_token_request(&request) {
             continue;
         }
         let response: TokenResponse = state
             .token_cache
             .get_or_insert_with(request.clone(), request.identity_provider, PATH, async {
-                provider.read().await.get_token(request.clone()).await.inspect_err(|e| {
+                provider.get_token(request.clone()).await.inspect_err(|e| {
                     telemetry::inc_handler_errors(PATH, request.identity_provider, e.as_ref())
                 })
             })

@@ -9,32 +9,31 @@ use crate::oauth::identity_provider::{
     IdentityProvider, Provider, ProviderError, ProviderHandler, ShouldHandler,
     TokenExchangeRequest, TokenRequest,
 };
-use crate::oauth::token;
+use crate::oauth::jwt;
 use log::debug;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::RwLock;
 
 #[derive(Error, Debug)]
 pub enum InitError {
     #[error("invalid private JWK format: {0}")]
-    Jwk(ProviderError),
+    PrivateJwk(ProviderError),
 
-    #[error("fetch JWKS from remote endpoint: {0}")]
-    Jwks(#[from] token::Error),
+    #[error("fetch public JWKS from identity provider: {0}")]
+    PublicJwks(#[from] jwt::KeySetError),
 }
 
 #[derive(Clone)]
 pub struct State {
     pub cfg: Config,
-    pub providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>>,
+    pub providers: Vec<Arc<dyn ProviderHandler>>,
     pub token_cache: TokenCache<TokenRequest>,
     pub token_exchange_cache: TokenCache<TokenExchangeRequest>,
 }
 
 impl State {
     pub async fn from_config(cfg: Config) -> Result<Self, InitError> {
-        let mut providers: Vec<Arc<RwLock<Box<dyn ProviderHandler>>>> = vec![];
+        let mut providers: Vec<Arc<dyn ProviderHandler>> = vec![];
 
         if let Some(provider_cfg) = &cfg.maskinporten {
             debug!(
@@ -128,23 +127,23 @@ async fn new<R, A>(
     kind: IdentityProvider,
     provider_cfg: &config::Provider,
     audience: Option<String>,
-) -> Result<Arc<RwLock<Box<dyn ProviderHandler>>>, InitError>
+) -> Result<Arc<dyn ProviderHandler>, InitError>
 where
     R: TokenRequestBuilder + 'static,
     A: Assertion + 'static,
     Provider<R, A>: ShouldHandler,
 {
-    Ok(Arc::new(RwLock::new(Box::new(
+    Ok(Arc::new(
         Provider::<R, A>::new(
             kind,
             provider_cfg.client_id.clone(),
             provider_cfg.issuer.clone(),
             provider_cfg.token_endpoint.clone(),
             provider_cfg.client_jwk.clone(),
-            token::Jwks::new(&provider_cfg.issuer, &provider_cfg.jwks_uri, audience)
+            jwt::JwtValidator::new(&provider_cfg.issuer, &provider_cfg.jwks_uri, audience)
                 .await
-                .map_err(InitError::Jwks)?,
+                .map_err(InitError::PublicJwks)?,
         )
-        .map_err(InitError::Jwk)?,
-    ))))
+        .map_err(InitError::PrivateJwk)?,
+    ))
 }

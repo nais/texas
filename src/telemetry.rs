@@ -40,6 +40,13 @@ static COUNTER_TOKEN_CACHE_HITS: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
+static COUNTER_JWKS_REFRESHES: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    METER
+        .u64_counter("texas_jwks_refreshes")
+        .with_description("Number of JWKS refresh events")
+        .build()
+});
+
 static COUNTER_HANDLER_REQUESTS: LazyLock<Counter<u64>> = LazyLock::new(|| {
     METER
         .u64_counter("texas_handler_requests")
@@ -305,6 +312,18 @@ pub fn inc_token_cache_hits(path: &str, identity_provider: IdentityProvider) {
         with_resource_attributes(vec![
             KeyValue::new("path", path.to_string()),
             KeyValue::new("identity_provider", identity_provider.to_string()),
+        ])
+        .as_slice(),
+    );
+}
+
+pub fn inc_jwks_refresh(issuer: &str, reason: &str, outcome: &str) {
+    COUNTER_JWKS_REFRESHES.add(
+        1,
+        with_resource_attributes(vec![
+            KeyValue::new("issuer", issuer.to_string()),
+            KeyValue::new("reason", reason.to_string()),
+            KeyValue::new("outcome", outcome.to_string()),
         ])
         .as_slice(),
     );

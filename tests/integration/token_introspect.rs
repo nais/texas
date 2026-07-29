@@ -93,6 +93,46 @@ async fn all_providers() {
     join_handler.abort();
 }
 
+/// Introspection holds no exclusive lock, so many tokens can be introspected at the same time.
+#[test(tokio::test)]
+async fn concurrent_introspection() {
+    let server = TestServer::new().await;
+    let address = server.address();
+    let identity_provider_address = server.identity_provider_address();
+    let issuer = server.maskinporten_issuer();
+
+    let join_handler = tokio::spawn(async move {
+        server.run().await;
+    });
+
+    let user_token =
+        get_user_token(&identity_provider_address, IdentityProvider::Maskinporten).await;
+
+    let introspections = (0..32).map(|_| {
+        let address = address.clone();
+        let issuer = issuer.clone();
+        let token = user_token.access_token.clone();
+        tokio::spawn(async move {
+            test_happy_path_introspect(
+                &address,
+                &issuer,
+                IntrospectRequest {
+                    token,
+                    identity_provider: IdentityProvider::Maskinporten,
+                },
+                RequestFormat::Json,
+            )
+            .await
+        })
+    });
+
+    for introspection in introspections {
+        assert!(introspection.await.unwrap().active);
+    }
+
+    join_handler.abort();
+}
+
 async fn introspect_token(
     expected_issuer: &str,
     address: &str,
