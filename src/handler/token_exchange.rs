@@ -66,8 +66,12 @@ pub async fn token_exchange(
     JsonOrForm(request): JsonOrForm<TokenExchangeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token/exchange";
-    let request = request.with_normalized_target();
-    tracing::Span::current().set_attribute("texas.target", request.target.clone());
+    let normalized_request = request.with_normalized_target();
+    if request.target != normalized_request.target {
+        tracing::Span::current()
+            .set_attribute("texas.target_normalized", normalized_request.target.clone());
+    }
+    let request = normalized_request;
     telemetry::inc_token_exchanges(PATH, request.identity_provider);
 
     if request.skip_cache.unwrap_or(false) {
