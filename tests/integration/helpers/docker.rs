@@ -1,3 +1,4 @@
+#[cfg(feature = "docker")]
 use serde::{Deserialize, Serialize};
 use testcontainers::{ContainerAsync, GenericImage};
 
@@ -56,18 +57,21 @@ impl RuntimeParams {
     }
 }
 
+#[cfg(feature = "docker")]
 #[derive(Debug, Serialize, Deserialize)]
 struct MockOAuthServerConfig {
     #[serde(rename = "tokenProvider")]
     token_provider: TokenProvider,
 }
 
+#[cfg(feature = "docker")]
 #[derive(Debug, Serialize, Deserialize)]
 struct TokenProvider {
     #[serde(rename = "keyProvider")]
     key_provider: KeyProvider,
 }
 
+#[cfg(feature = "docker")]
 #[derive(Debug, Serialize, Deserialize)]
 struct KeyProvider {
     #[serde(rename = "initialKeys")]
@@ -75,6 +79,7 @@ struct KeyProvider {
     algorithm: String,
 }
 
+#[cfg(feature = "docker")]
 impl MockOAuthServerConfig {
     pub fn new() -> Self {
         Self {
