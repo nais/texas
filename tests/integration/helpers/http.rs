@@ -1,7 +1,7 @@
 use crate::helpers::jwt::IntrospectClaims;
 use axum::http::StatusCode;
 use pretty_assertions::assert_eq;
-use reqwest::{Error, Response};
+use reqwest::{Error, Response, Url, redirect::Policy};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
@@ -83,32 +83,74 @@ pub async fn test_well_formed_json_request<
 
 #[derive(Serialize)]
 struct AuthorizeRequest {
+    response_type: String,
+    client_id: String,
+    redirect_uri: String,
+    scope: String,
+    state: String,
+}
+
+#[derive(Serialize)]
+struct AuthorizeCodeRequest {
     grant_type: String,
     code: String,
     client_id: String,
     client_secret: String,
+    redirect_uri: String,
 }
 
 pub async fn get_user_token(
     identity_provider_address: &str,
     identity_provider: IdentityProvider,
 ) -> TokenResponse {
-    // This request goes directly to the mock oauth2 server, which only accepts form encoding
-    let user_token_response = post_request(
-        format!(
+    let client = reqwest::Client::builder().redirect(Policy::none()).build().unwrap();
+    let redirect_uri = "http://localhost/callback";
+    let authorize_response = client
+        .get(format!(
+            "http://{}/{}/authorize",
+            identity_provider_address, identity_provider
+        ))
+        .query(&AuthorizeRequest {
+            response_type: "code".to_string(),
+            client_id: "myclientid".to_string(),
+            redirect_uri: redirect_uri.to_string(),
+            scope: "openid".to_string(),
+            state: "test-state".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(authorize_response.status(), StatusCode::FOUND);
+
+    let callback_url = Url::parse(
+        authorize_response.headers().get(reqwest::header::LOCATION).unwrap().to_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        callback_url.query_pairs().find(|(key, _)| key == "state"),
+        Some(("state".into(), "test-state".into()))
+    );
+    let code = callback_url
+        .query_pairs()
+        .find(|(key, _)| key == "code")
+        .map(|(_, value)| value.into_owned())
+        .unwrap();
+
+    let user_token_response = client
+        .post(format!(
             "http://{}/{}/token",
             identity_provider_address, identity_provider
-        ),
-        AuthorizeRequest {
+        ))
+        .form(&AuthorizeCodeRequest {
             grant_type: "authorization_code".to_string(),
-            code: "mycode".to_string(),
+            code,
             client_id: "myclientid".to_string(),
             client_secret: "myclientsecret".to_string(),
-        },
-        RequestFormat::Form,
-    )
-    .await
-    .unwrap();
+            redirect_uri: redirect_uri.to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
 
     assert_eq!(user_token_response.status(), 200);
     user_token_response.json::<TokenResponse>().await.unwrap()

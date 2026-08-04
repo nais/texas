@@ -26,7 +26,7 @@ impl RuntimeParams {
             ))
         }
 
-        let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "3.0.0")
+        let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "6.0.0")
             .with_exposed_port(8080.tcp())
             .with_wait_for(wait_for_provider("entra_id"))
             .with_wait_for(wait_for_provider("idporten"))
@@ -37,11 +37,10 @@ impl RuntimeParams {
             .start()
             .await
             .unwrap();
-        let host = container.get_host().await.unwrap().to_string();
         let port = container.get_host_port_ipv4(8080).await.unwrap();
         Self {
             container: Some(container),
-            host,
+            host: "127.0.0.1".to_string(),
             port,
         }
     }
