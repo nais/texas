@@ -29,7 +29,7 @@ jobs:
       - name: Ensure rust components are installed
         # mise's cached rust install can be missing rustfmt/clippy on cache hit (components aren't re-added on restore).
         run: rustup component add rustfmt clippy
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # ratchet:Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # ratchet:Swatinem/rust-cache@v2
         with:
           shared-key: check
       - run: mise run ${{ matrix.task }}
