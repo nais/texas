@@ -25,11 +25,11 @@ jobs:
           - test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7
-      - uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # ratchet:jdx/mise-action@v4
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # ratchet:jdx/mise-action@v4
       - name: Ensure rust components are installed
         # mise's cached rust install can be missing rustfmt/clippy on cache hit (components aren't re-added on restore).
         run: rustup component add rustfmt clippy
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # ratchet:Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # ratchet:Swatinem/rust-cache@v2
         with:
           shared-key: check
       - run: mise run ${{ matrix.task }}
@@ -99,7 +99,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4.1.1
+      - uses: nais/fasit-deploy@53e433b1bdd08fc622e03a78584c0832c9083bd3 # ratchet:nais/fasit-deploy@v4
         with:
           chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/${{ needs.publish.outputs.chart_name }}
           version: ${{ needs.publish.outputs.chart_version }}
