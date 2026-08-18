@@ -46,14 +46,14 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
             }))),
             ("Generate a token for Entra ID" = (value = json!(TokenRequest{
                 identity_provider: IdentityProvider::EntraID,
-                target: "api://cluster.namespace.application/.default".to_string(),
+                target: "cluster:namespace:application".to_string(),
                 resource: None,
                 authorization_details: None,
                 skip_cache: None,
             }))),
             ("Force renewal of token for Entra ID" = (value = json!(TokenRequest{
                 identity_provider: IdentityProvider::EntraID,
-                target: "api://cluster.namespace.application/.default".to_string(),
+                target: "cluster:namespace:application".to_string(),
                 resource: None,
                 authorization_details: None,
                 skip_cache: Some(true),
