@@ -1,6 +1,8 @@
 use crate::handler;
 use crate::handler::{JsonOrForm, State};
-use crate::oauth::identity_provider::{IdentityProvider, IntrospectRequest, IntrospectResponse};
+use crate::oauth::identity_provider::IdentityProvider;
+use crate::oauth::request::IntrospectRequest;
+use crate::oauth::response::IntrospectResponse;
 use crate::telemetry::inc_token_introspections;
 use axum::Json;
 use axum::extract::State as AxumState;

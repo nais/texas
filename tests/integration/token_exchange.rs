@@ -7,10 +7,9 @@ use crate::helpers::server::TestServer;
 use pretty_assertions::{assert_eq, assert_ne};
 use reqwest::StatusCode;
 use test_log::test;
-use texas::oauth::identity_provider::{
-    ErrorResponse, IdentityProvider, IntrospectRequest, OAuthErrorCode, TokenExchangeRequest,
-    TokenResponse,
-};
+use texas::oauth::identity_provider::IdentityProvider;
+use texas::oauth::request::{IntrospectRequest, TokenExchangeRequest};
+use texas::oauth::response::{ErrorResponse, OAuthErrorCode, TokenResponse};
 
 /// Test a full round-trip of the `/token/exchange` endpoint.
 ///

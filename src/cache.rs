@@ -1,4 +1,5 @@
-use crate::oauth::identity_provider::{IdentityProvider, TokenResponse};
+use crate::oauth::identity_provider::IdentityProvider;
+use crate::oauth::response::TokenResponse;
 use crate::telemetry;
 use moka::Expiry;
 use moka::notification::RemovalCause;
@@ -170,7 +171,7 @@ impl<R> Expiry<R, CachedTokenResponse> for TokenResponseExpiry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::oauth::identity_provider::TokenType;
+    use crate::oauth::response::TokenType;
     use mock_instant::thread_local::MockClock;
     use pretty_assertions::assert_eq;
     use rstest::rstest;

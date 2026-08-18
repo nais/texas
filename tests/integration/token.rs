@@ -9,10 +9,9 @@ use reqwest::StatusCode;
 use serde_json::{from_str, json};
 use std::collections::HashMap;
 use test_log::test;
-use texas::oauth::identity_provider::{
-    AuthorizationDetails, ErrorResponse, IdentityProvider, IntrospectRequest, OAuthErrorCode,
-    TokenRequest, TokenResponse,
-};
+use texas::oauth::identity_provider::IdentityProvider;
+use texas::oauth::request::{AuthorizationDetails, IntrospectRequest, TokenRequest};
+use texas::oauth::response::{ErrorResponse, OAuthErrorCode, TokenResponse};
 
 /// Test a full round-trip of the `/token` endpoint.
 ///

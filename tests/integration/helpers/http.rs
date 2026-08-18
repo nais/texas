@@ -5,10 +5,9 @@ use reqwest::{Error, Response, Url, redirect::Policy};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
-use texas::oauth::identity_provider::{
-    IdentityProvider, IntrospectRequest, IntrospectResponse, TokenExchangeRequest, TokenRequest,
-    TokenResponse,
-};
+use texas::oauth::identity_provider::IdentityProvider;
+use texas::oauth::request::{IntrospectRequest, TokenExchangeRequest, TokenRequest};
+use texas::oauth::response::{IntrospectResponse, TokenResponse};
 
 #[derive(Clone)]
 pub enum RequestFormat {

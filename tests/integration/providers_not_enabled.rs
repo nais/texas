@@ -4,10 +4,9 @@ use crate::helpers::http::{
 use crate::helpers::server::TestServer;
 use axum::http::StatusCode;
 use test_log::test;
-use texas::oauth::identity_provider::{
-    ErrorResponse, IdentityProvider, IntrospectRequest, IntrospectResponse, OAuthErrorCode,
-    TokenExchangeRequest, TokenRequest,
-};
+use texas::oauth::identity_provider::IdentityProvider;
+use texas::oauth::request::{IntrospectRequest, TokenExchangeRequest, TokenRequest};
+use texas::oauth::response::{ErrorResponse, IntrospectResponse, OAuthErrorCode};
 
 /// Test that Texas returns an appropriate error when the identity provider is not supported.
 #[test(tokio::test)]

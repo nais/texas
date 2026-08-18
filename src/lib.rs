@@ -11,5 +11,7 @@ pub mod oauth {
     pub(super) mod grant;
     pub mod identity_provider;
     pub(super) mod jwt;
+    pub mod request;
+    pub mod response;
 }
 pub mod telemetry;

@@ -7,9 +7,9 @@ use crate::oauth::grant::{
 };
 use crate::oauth::identity_provider::{
     IdentityProvider, Provider, ProviderError, ProviderHandler, ShouldHandler,
-    TokenExchangeRequest, TokenRequest,
 };
 use crate::oauth::jwt;
+use crate::oauth::request::{TokenExchangeRequest, TokenRequest};
 use log::debug;
 use std::sync::Arc;
 use thiserror::Error;

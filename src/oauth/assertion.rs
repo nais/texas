@@ -1,4 +1,4 @@
-use crate::oauth::identity_provider::AuthorizationDetails;
+use crate::oauth::request::AuthorizationDetails;
 use jsonwebtoken as jwt;
 use serde::Serialize;
 

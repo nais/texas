@@ -1,7 +1,7 @@
 use crate::handler::{ApiError, JsonOrForm, State};
-use crate::oauth::identity_provider::{
-    AuthorizationDetails, ErrorResponse, IdentityProvider, TokenRequest, TokenResponse, TokenType,
-};
+use crate::oauth::identity_provider::IdentityProvider;
+use crate::oauth::request::{AuthorizationDetails, TokenRequest};
+use crate::oauth::response::{ErrorResponse, TokenResponse, TokenType};
 use crate::{handler, telemetry};
 use axum::Json;
 use axum::extract::State as AxumState;

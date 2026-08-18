@@ -9,9 +9,9 @@ use reqwest::StatusCode;
 use serde_json::Value;
 use test_log::test;
 use texas::oauth::assertion::epoch_now_secs;
-use texas::oauth::identity_provider::{
-    IdentityProvider, IntrospectRequest, IntrospectResponse, TokenRequest, TokenResponse,
-};
+use texas::oauth::identity_provider::IdentityProvider;
+use texas::oauth::request::{IntrospectRequest, TokenRequest};
+use texas::oauth::response::{IntrospectResponse, TokenResponse};
 
 /// Test a full round-trip of the `/introspect` endpoint.
 ///

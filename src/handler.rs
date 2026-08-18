@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::oauth::identity_provider::{ErrorResponse, IdentityProvider, OAuthErrorCode};
+use crate::http::client::{FetchError, body_preview};
+use crate::oauth::identity_provider::IdentityProvider;
+use crate::oauth::response::{ErrorResponse, OAuthErrorCode};
 use crate::telemetry::inc_handler_errors;
 use axum::Form;
 use axum::Json;
@@ -28,7 +30,7 @@ pub(crate) use token_introspect::{__path_token_introspect, token_introspect};
 #[derive(Debug, AsRefStr, Error, Clone)]
 pub enum ApiError {
     #[error("identity provider request failed: {0}")]
-    UpstreamFailure(Arc<crate::http::client::FetchError>),
+    UpstreamFailure(Arc<FetchError>),
 
     #[error("identity provider returned OAuth error: HTTP {status_code}: {error}")]
     UpstreamOAuthError {
@@ -130,6 +132,7 @@ impl From<FetchError> for ApiError {
         }
     }
 }
+
 pub struct JsonOrForm<T>(pub T);
 
 impl<S, T> FromRequest<S> for JsonOrForm<T>
@@ -202,4 +205,64 @@ fn identity_provider_not_enabled_error(path: &str, provider: IdentityProvider) -
     tracing::Span::current().set_attribute("texas.identity_provider.enabled", false);
     inc_handler_errors(path, provider, err.as_ref());
     err
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ApiError, ErrorResponse, FetchError, OAuthErrorCode};
+    use axum::http::StatusCode;
+
+    #[test]
+    fn malformed_oauth_error_response_becomes_server_error() {
+        let error = ApiError::from(FetchError::Status {
+            status: StatusCode::BAD_REQUEST,
+            body: b"not json".to_vec(),
+        });
+
+        assert!(matches!(
+            error,
+            ApiError::UpstreamOAuthError {
+                status_code: StatusCode::BAD_REQUEST,
+                error: ErrorResponse {
+                    error: OAuthErrorCode::ServerError,
+                    description,
+                },
+            } if description == "identity provider returned an invalid error response"
+        ));
+    }
+
+    #[test]
+    fn redirect_status_becomes_upstream_failure() {
+        let error = ApiError::from(FetchError::Status {
+            status: StatusCode::FOUND,
+            body: b"redirect".to_vec(),
+        });
+
+        assert!(matches!(
+            error,
+            ApiError::UpstreamFailure(error) if matches!(
+                error.as_ref(),
+                FetchError::Status { status: StatusCode::FOUND, .. }
+            )
+        ));
+    }
+
+    #[test]
+    fn oauth_error_without_description_is_valid() {
+        let error = ApiError::from(FetchError::Status {
+            status: StatusCode::BAD_REQUEST,
+            body: br#"{"error":"invalid_grant"}"#.to_vec(),
+        });
+
+        assert!(matches!(
+            error,
+            ApiError::UpstreamOAuthError {
+                status_code: StatusCode::BAD_REQUEST,
+                error: ErrorResponse {
+                    error: OAuthErrorCode::InvalidGrant,
+                    description,
+                },
+            } if description.is_empty()
+        ));
+    }
 }
