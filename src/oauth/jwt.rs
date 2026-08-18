@@ -1,8 +1,7 @@
-use crate::http;
+use crate::http::client::{self, FetchError};
 use crate::oauth::assertion::epoch_now_secs;
 use crate::telemetry;
 use jsonwebtoken::{DecodingKey, Validation};
-use reqwest_middleware::ClientWithMiddleware;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,7 +24,7 @@ pub struct JwtValidator {
     endpoint: String,
     issuer: String,
     validation: Validation,
-    client: ClientWithMiddleware,
+    client: client::Client,
     keys: RwLock<KeySet>,
     /// Held across the fetch in [`JwtValidator::refresh_jwks`], so that tasks queueing up behind
     /// an in-flight refresh receive its result rather than starting one of their own. An async
@@ -52,12 +51,8 @@ struct RefreshState {
 pub enum KeySetError {
     #[error("init client: {0}")]
     Init(reqwest::Error),
-    #[error("fetch: {0:?}")]
-    Fetch(reqwest_middleware::Error),
-    #[error("unsuccessful response: {0}")]
-    HttpStatus(reqwest::Error),
-    #[error("decode json: {0}")]
-    JsonDecode(reqwest::Error),
+    #[error("fetch: {0}")]
+    Fetch(#[from] FetchError),
     #[error("json web key set has key with blank key id")]
     MissingKeyId,
     #[error("invalid public jwk: {0}")]
@@ -83,7 +78,7 @@ impl JwtValidator {
         endpoint: &str,
         required_audience: Option<String>,
     ) -> Result<Self, KeySetError> {
-        let client = http::client::jwks().map_err(KeySetError::Init)?;
+        let client = client::discovery().map_err(KeySetError::Init)?;
         let initial = fetch_keys(&client, endpoint).await?;
         Ok(Self {
             endpoint: endpoint.to_string(),
@@ -193,16 +188,8 @@ impl JwtValidator {
     }
 }
 
-async fn fetch_keys(client: &ClientWithMiddleware, endpoint: &str) -> Result<KeySet, KeySetError> {
-    let response = client
-        .get(endpoint)
-        .header("accept", "application/json")
-        .send()
-        .await
-        .map_err(KeySetError::Fetch)?;
-    let response = response.error_for_status().map_err(KeySetError::HttpStatus)?;
-    let response: jsonwebtoken::jwk::JwkSet =
-        response.json().await.map_err(KeySetError::JsonDecode)?;
+async fn fetch_keys(client: &client::Client, endpoint: &str) -> Result<KeySet, KeySetError> {
+    let response: jsonwebtoken::jwk::JwkSet = client.get(endpoint).await?;
 
     let mut by_kid = HashMap::new();
     for key in &response.keys {
@@ -247,7 +234,7 @@ mod tests {
 
         assert!(matches!(
             idp.connect().await,
-            Err(KeySetError::HttpStatus(_))
+            Err(KeySetError::Fetch(FetchError::Status { .. }))
         ));
     }
 
@@ -258,7 +245,7 @@ mod tests {
 
         assert!(matches!(
             idp.connect().await,
-            Err(KeySetError::JsonDecode(_))
+            Err(KeySetError::Fetch(FetchError::Decode(_)))
         ));
     }
 
@@ -401,6 +388,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn transient_jwks_status_is_retried() {
+        let idp = MockIdentityProvider::start().await;
+        idp.respond_with(StatusCode::SERVICE_UNAVAILABLE, "temporary".to_string());
+
+        let result = JwtValidator::new(ISSUER, &idp.url, None).await;
+
+        assert!(matches!(
+            result,
+            Err(KeySetError::Fetch(FetchError::Status { .. }))
+        ));
+        assert_eq!(idp.hits(), 3);
+    }
+
+    #[tokio::test]
     async fn token_without_key_id_is_rejected_without_refreshing() {
         let idp = MockIdentityProvider::start().await;
         idp.serve_keys(&["key-1"]);
@@ -473,11 +474,11 @@ mod tests {
             let router =
                 axum::Router::new().route("/jwks", get(Self::respond)).with_state(state.clone());
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let url = format!("http://{}/jwks", listener.local_addr().unwrap());
+            let address = listener.local_addr().unwrap();
+            let url = format!("http://{address}/jwks");
             tokio::spawn(async move {
                 axum::serve(listener, router).await.unwrap();
             });
-
             Self { url, state }
         }
 

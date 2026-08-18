@@ -2,7 +2,7 @@ pub mod cache;
 pub mod config;
 pub mod handler;
 pub mod http {
-    pub mod client;
+    pub(crate) mod client;
     pub mod router;
     pub mod server;
 }

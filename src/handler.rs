@@ -27,17 +27,14 @@ pub(crate) use token_introspect::{__path_token_introspect, token_introspect};
 
 #[derive(Debug, AsRefStr, Error, Clone)]
 pub enum ApiError {
-    #[error("identity provider error: {0:?}")]
-    UpstreamRequest(Arc<reqwest_middleware::Error>),
+    #[error("identity provider request failed: {0}")]
+    UpstreamFailure(Arc<crate::http::client::FetchError>),
 
-    #[error("upstream: status code={status_code}: {error}")]
-    Upstream {
+    #[error("identity provider returned OAuth error: HTTP {status_code}: {error}")]
+    UpstreamOAuthError {
         status_code: StatusCode,
         error: ErrorResponse,
     },
-
-    #[error("invalid JSON in token response: {0}")]
-    Json(Arc<reqwest::Error>),
 
     #[error("cannot sign JWT claims")]
     Sign,
@@ -68,7 +65,7 @@ impl IntoResponse for ApiError {
             //
             // We propagate the error response as-is from the upstream instead of trying to handle
             // these ambiguities.
-            ApiError::Upstream { status_code, error } => (status_code, error),
+            ApiError::UpstreamOAuthError { status_code, error } => (status_code, error),
             ApiError::Sign => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorResponse {
@@ -76,18 +73,11 @@ impl IntoResponse for ApiError {
                     description: "Failed to sign assertion".to_string(),
                 },
             ),
-            ApiError::Json(err) => (
+            ApiError::UpstreamFailure(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorResponse {
                     error: OAuthErrorCode::ServerError,
-                    description: format!("Failed to parse JSON: {err}"),
-                },
-            ),
-            ApiError::UpstreamRequest(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ErrorResponse {
-                    error: OAuthErrorCode::ServerError,
-                    description: format!("Upstream request failed: {err}"),
+                    description: format!("Identity provider request failed: {err}"),
                 },
             ),
             ApiError::TokenExchangeUnsupported(_)
@@ -106,6 +96,40 @@ impl IntoResponse for ApiError {
     }
 }
 
+impl From<FetchError> for ApiError {
+    fn from(error: FetchError) -> Self {
+        let error = Arc::new(error);
+
+        match error.as_ref() {
+            FetchError::Send(_)
+            | FetchError::BodyRead { .. }
+            | FetchError::BodyTooLarge { .. }
+            | FetchError::Decode(_) => Self::UpstreamFailure(error),
+            FetchError::Status { status, body } => {
+                if status.is_redirection() {
+                    return Self::UpstreamFailure(error);
+                }
+                let error = serde_json::from_slice(body).unwrap_or_else(|err| {
+                    tracing::warn!(
+                        %status,
+                        error = %err,
+                        body_preview = %body_preview(body),
+                        "identity provider returned an invalid OAuth error response"
+                    );
+                    ErrorResponse {
+                        error: OAuthErrorCode::ServerError,
+                        description: "identity provider returned an invalid error response"
+                            .to_string(),
+                    }
+                });
+                Self::UpstreamOAuthError {
+                    status_code: *status,
+                    error,
+                }
+            }
+        }
+    }
+}
 pub struct JsonOrForm<T>(pub T);
 
 impl<S, T> FromRequest<S> for JsonOrForm<T>

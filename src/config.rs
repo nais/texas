@@ -1,5 +1,5 @@
 use crate::config::Error::{MissingEnv, ParseBool};
-use crate::http;
+use crate::http::client::{self, FetchError};
 use serde::{Deserialize, Serialize};
 use std::str::ParseBoolError;
 use thiserror::Error;
@@ -49,14 +49,8 @@ pub enum Error {
     #[error("initialize HTTP client: {0}")]
     InitializeHttpClient(reqwest::Error),
 
-    #[error("fetch provider metadata from '{url}': {source:?}")]
-    ProviderMetadataFetch {
-        url: String,
-        source: reqwest_middleware::Error,
-    },
-
-    #[error("decode provider metadata from '{url}': {source}")]
-    ProviderMetadataDecode { url: String, source: reqwest::Error },
+    #[error("fetch provider metadata from '{url}': {source}")]
+    ProviderMetadata { url: String, source: FetchError },
 
     #[error("missing configuration for provider '{provider}': set {well_known_env} or {field_env}")]
     MissingProviderConfigField {
@@ -287,22 +281,11 @@ struct AuthorizationServerMetadata {
 }
 
 async fn fetch_provider_metadata(url: &str) -> Result<AuthorizationServerMetadata, Error> {
-    let client = http::client::jwks().map_err(Error::InitializeHttpClient)?;
-    let request = client.get(url).header("accept", "application/json");
-
-    request
-        .send()
-        .await
-        .map_err(|source| Error::ProviderMetadataFetch {
-            url: url.to_string(),
-            source,
-        })?
-        .json()
-        .await
-        .map_err(|source| Error::ProviderMetadataDecode {
-            url: url.to_string(),
-            source,
-        })
+    let client = client::discovery().map_err(Error::InitializeHttpClient)?;
+    client.get(url).await.map_err(|source| Error::ProviderMetadata {
+        url: url.to_string(),
+        source,
+    })
 }
 
 #[cfg(test)]
@@ -574,7 +557,6 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
         });
-
         (format!("http://{address}"), AbortOnDrop(server))
     }
 }

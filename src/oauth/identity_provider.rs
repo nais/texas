@@ -1,5 +1,5 @@
 use crate::handler::ApiError;
-use crate::http;
+use crate::http::client::{self, FetchError, body_preview};
 use crate::oauth::assertion::{Assertion, serialize};
 use crate::oauth::grant::{
     ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder,
@@ -10,7 +10,6 @@ use crate::telemetry::record_identity_provider_latency;
 use async_trait::async_trait;
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use reqwest::StatusCode;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -114,6 +113,7 @@ fn test_introspect_response_serialization_format() {
 #[derive(Serialize, Deserialize, ToSchema, Debug, Clone, PartialEq)]
 pub struct ErrorResponse {
     pub error: OAuthErrorCode,
+    #[serde(default)]
     #[serde(rename = "error_description")]
     pub description: String,
 }
@@ -254,6 +254,19 @@ pub struct TokenRequest {
     pub skip_cache: Option<bool>,
 }
 
+/// Per-request inputs for a token request.
+///
+/// The token endpoint is not part of this struct: it is provider configuration
+/// owned by `Provider`, and the caller resolves it so that a missing endpoint
+/// maps to the error of the operation being performed.
+#[derive(Clone)]
+struct TokenRequestInputs {
+    target: String,
+    resource: Option<String>,
+    authorization_details: Option<AuthorizationDetails>,
+    user_token: Option<String>,
+}
+
 impl TokenRequest {
     pub(crate) fn with_normalized_target(&self) -> Self {
         Self {
@@ -376,7 +389,7 @@ pub struct Provider<R, A> {
     private_jwk: Option<jwt::EncodingKey>,
     client_assertion_header: Option<jwt::Header>,
     jwt_validator: JwtValidator,
-    http_client: reqwest_middleware::ClientWithMiddleware,
+    http_client: client::Client,
     _fake_request: PhantomData<R>,
     _fake_assertion: PhantomData<A>,
 }
@@ -427,7 +440,7 @@ where
             (None, None)
         };
 
-        let http_client = http::client::token().map_err(ProviderError::InitializeHttpClient)?;
+        let http_client = client::token().map_err(ProviderError::InitializeHttpClient)?;
 
         Ok(Self {
             client_id,
@@ -464,6 +477,70 @@ where
         )
         .ok()
     }
+
+    #[instrument(skip_all, name = "Request token from upstream identity provider")]
+    async fn get_token_from_idprovider(
+        &self,
+        inputs: TokenRequestInputs,
+        token_endpoint: &str,
+    ) -> Result<TokenResponse, ApiError> {
+        let identity_provider = self.identity_provider_kind;
+        self.http_client
+            .post(
+                token_endpoint,
+                || {
+                    let assertion = self
+                        .create_assertion(
+                            inputs.target.clone(),
+                            inputs.resource.clone(),
+                            inputs.authorization_details.clone(),
+                        )
+                        .ok_or(ApiError::Sign)?;
+                    let params = R::token_request(TokenRequestBuilderParams {
+                        target: inputs.target.clone(),
+                        assertion,
+                        client_id: Some(self.client_id.clone()),
+                        user_token: inputs.user_token.clone(),
+                    })
+                    .ok_or(ApiError::Sign)?;
+                    Ok::<_, ApiError>(params)
+                },
+                |elapsed| record_identity_provider_latency(identity_provider, elapsed),
+            )
+            .await
+    }
+}
+
+impl From<FetchError> for ApiError {
+    fn from(error: FetchError) -> Self {
+        match error {
+            error @ (FetchError::Send(_) | FetchError::BodyRead { .. } | FetchError::Decode(_)) => {
+                Self::UpstreamFailure(Arc::new(error))
+            }
+            FetchError::Status { status, body } => {
+                if status.is_redirection() {
+                    return Self::UpstreamFailure(Arc::new(FetchError::Status { status, body }));
+                }
+                let error = serde_json::from_slice(&body).unwrap_or_else(|err| {
+                    tracing::warn!(
+                        %status,
+                        error = %err,
+                        body_preview = %body_preview(&body),
+                        "identity provider returned an invalid OAuth error response"
+                    );
+                    ErrorResponse {
+                        error: OAuthErrorCode::ServerError,
+                        description: "identity provider returned an invalid error response"
+                            .to_string(),
+                    }
+                });
+                Self::UpstreamOAuthError {
+                    status_code: status,
+                    error,
+                }
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -478,36 +555,38 @@ where
     }
 
     async fn get_token(&self, request: TokenRequest) -> Result<TokenResponse, ApiError> {
-        let token_request = TokenRequestBuilderParams {
-            target: request.target.clone(),
-            assertion: self
-                .create_assertion(
-                    request.target,
-                    request.resource,
-                    request.authorization_details,
-                )
-                .ok_or(ApiError::TokenRequestUnsupported(
-                    self.identity_provider_kind,
-                ))?,
-            client_id: Some(self.client_id.clone()),
-            user_token: None,
-        };
-        self.get_token_from_idprovider(token_request).await
+        let token_endpoint = self.token_endpoint.as_deref().ok_or(
+            ApiError::TokenRequestUnsupported(self.identity_provider_kind),
+        )?;
+        self.get_token_from_idprovider(
+            TokenRequestInputs {
+                target: request.target,
+                resource: request.resource,
+                authorization_details: request.authorization_details,
+                user_token: None,
+            },
+            token_endpoint,
+        )
+        .await
     }
 
     async fn exchange_token(
         &self,
         request: TokenExchangeRequest,
     ) -> Result<TokenResponse, ApiError> {
-        let token_request = TokenRequestBuilderParams {
-            target: request.target.clone(),
-            assertion: self.create_assertion(request.target, None, None).ok_or(
-                ApiError::TokenExchangeUnsupported(self.identity_provider_kind),
-            )?,
-            client_id: Some(self.client_id.clone()),
-            user_token: Some(request.user_token),
-        };
-        self.get_token_from_idprovider(token_request).await
+        let token_endpoint = self.token_endpoint.as_deref().ok_or(
+            ApiError::TokenExchangeUnsupported(self.identity_provider_kind),
+        )?;
+        self.get_token_from_idprovider(
+            TokenRequestInputs {
+                target: request.target,
+                resource: None,
+                authorization_details: None,
+                user_token: Some(request.user_token),
+            },
+            token_endpoint,
+        )
+        .await
     }
 
     async fn introspect(&self, token: String) -> IntrospectResponse {
@@ -515,42 +594,6 @@ where
             .validate(&token)
             .await
             .map_or_else(IntrospectResponse::new_invalid, IntrospectResponse::new)
-    }
-
-    #[instrument(skip_all, name = "Request token from upstream identity provider")]
-    async fn get_token_from_idprovider(
-        &self,
-        config: TokenRequestBuilderParams,
-    ) -> Result<TokenResponse, ApiError> {
-        let params = R::token_request(config).ok_or(ApiError::Sign)?;
-
-        let start = std::time::Instant::now();
-        let response = self
-            .http_client
-            .post(
-                self.token_endpoint.clone().ok_or(ApiError::TokenRequestUnsupported(
-                    self.identity_provider_kind,
-                ))?,
-            )
-            .header("accept", "application/json")
-            .form(&params)
-            .send()
-            .await;
-
-        let duration = start.elapsed();
-        record_identity_provider_latency(self.identity_provider_kind, duration);
-
-        let response = response.map_err(|err| ApiError::UpstreamRequest(Arc::new(err)))?;
-
-        let status = response.status();
-        if status >= StatusCode::BAD_REQUEST {
-            return Err(ApiError::Upstream {
-                status_code: status,
-                error: response.json().await.map_err(|err| ApiError::Json(Arc::new(err)))?,
-            });
-        }
-
-        Ok(response.json().await.map_err(|err| ApiError::Json(Arc::new(err)))?)
     }
 }
 
@@ -563,10 +606,6 @@ pub trait ProviderHandler: ShouldHandler + Send + Sync {
         request: TokenExchangeRequest,
     ) -> Result<TokenResponse, ApiError>;
     async fn introspect(&self, token: String) -> IntrospectResponse;
-    async fn get_token_from_idprovider(
-        &self,
-        config: TokenRequestBuilderParams,
-    ) -> Result<TokenResponse, ApiError>;
 }
 
 pub trait ShouldHandler: Send + Sync {
@@ -652,16 +691,33 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{AuthorizationDetails, IdentityProvider, TokenExchangeRequest, TokenRequest};
+    use super::{
+        AuthorizationDetails, ErrorResponse, IdentityProvider, OAuthErrorCode, Provider,
+        ProviderHandler, TokenExchangeRequest, TokenRequest, TokenRequestInputs,
+    };
+    use crate::handler::ApiError;
+    use crate::http::client::FetchError;
+    use crate::http::client::{Client, ClientConfig};
+    use crate::oauth::assertion::ClientAssertion;
+    use crate::oauth::grant::TokenExchange;
+    use crate::oauth::jwt::JwtValidator;
+    use axum::Router;
+    use axum::extract::{Form, State};
+    use axum::http::StatusCode;
+    use axum::response::{IntoResponse, Response};
+    use axum::routing::{get, post};
+    use jsonwebkey as jwk;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use serde::Deserialize;
     use serde_json::json;
-    // serde_json is used internally by the axum::Json extractor
-    use serde_json;
-    // serde_urlencoded is used internally by the axum::Form extractor
-    use serde_urlencoded;
+    use std::collections::HashMap;
     use std::hash::{DefaultHasher, Hash, Hasher};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
 
     // build AuthorizationDetails without deserializing a JSON string.
     macro_rules! auth_details {
@@ -678,8 +734,6 @@ mod tests {
         };
     }
 
-    // This wrapper is necessary because serde_urlencoded cannot deserialize directly into AuthorizationDetails.
-    // It needs to be part of a struct with a field name matching the form parameter.
     #[derive(Deserialize, Debug)]
     struct AuthorizationDetailsWrapper {
         authorization_details: AuthorizationDetails,
@@ -888,5 +942,430 @@ mod tests {
     ) {
         let serialized = serde_json::to_value(&input).unwrap();
         assert_eq!(serialized, expected);
+    }
+
+    const JWKS_BODY: &str = r#"{"keys":[]}"#;
+
+    struct MockIdentityProvider {
+        url: String,
+        assertions: Arc<Mutex<Vec<String>>>,
+        server: tokio::task::JoinHandle<()>,
+    }
+
+    impl MockIdentityProvider {
+        async fn serving(responses: Vec<(StatusCode, &'static str)>) -> Self {
+            let assertions = Arc::new(Mutex::new(Vec::new()));
+            let state = Arc::new(MockState {
+                responses: responses
+                    .into_iter()
+                    .map(|(status, body)| (status, body.to_string()))
+                    .collect(),
+                attempts: AtomicUsize::new(0),
+                assertions: assertions.clone(),
+            });
+            let router = Router::new()
+                .route(
+                    "/jwks",
+                    get(|| async {
+                        (
+                            StatusCode::OK,
+                            [("content-type", "application/json")],
+                            JWKS_BODY,
+                        )
+                            .into_response()
+                    }),
+                )
+                .route("/token", post(token))
+                .with_state(state);
+            let (listener, url) = bind().await;
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            Self {
+                url,
+                assertions,
+                server,
+            }
+        }
+
+        async fn serving_split_body(body: &'static str, delay: Duration) -> Self {
+            let (listener, url) = bind().await;
+            let assertions = Arc::new(Mutex::new(Vec::new()));
+            let server_assertions = assertions.clone();
+            let server = tokio::spawn(async move {
+                let attempts = Arc::new(AtomicUsize::new(0));
+                loop {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    let attempts = attempts.clone();
+                    let assertions = server_assertions.clone();
+                    tokio::spawn(async move {
+                        serve_split_body(stream, body, delay, &attempts, &assertions).await;
+                    });
+                }
+            });
+            Self {
+                url,
+                assertions,
+                server,
+            }
+        }
+
+        fn token_endpoint(&self) -> String {
+            format!("{}/token", self.url)
+        }
+
+        fn assertions(&self) -> Vec<String> {
+            self.assertions.lock().unwrap().clone()
+        }
+    }
+
+    impl Drop for MockIdentityProvider {
+        fn drop(&mut self) {
+            self.server.abort();
+        }
+    }
+
+    async fn bind() -> (TcpListener, String) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        (listener, url)
+    }
+
+    struct MockState {
+        responses: Vec<(StatusCode, String)>,
+        attempts: AtomicUsize,
+        assertions: Arc<Mutex<Vec<String>>>,
+    }
+
+    async fn token(
+        State(state): State<Arc<MockState>>,
+        Form(form): Form<HashMap<String, String>>,
+    ) -> Response {
+        state.assertions.lock().unwrap().push(form["client_assertion"].clone());
+        let attempt = state.attempts.fetch_add(1, Ordering::Relaxed);
+        let (status, body) =
+            state.responses.get(attempt).or_else(|| state.responses.last()).unwrap();
+        (
+            *status,
+            [("content-type", "application/json")],
+            body.clone(),
+        )
+            .into_response()
+    }
+
+    async fn serve_split_body(
+        mut stream: TcpStream,
+        body: &'static str,
+        delay: Duration,
+        attempts: &AtomicUsize,
+        assertions: &Mutex<Vec<String>>,
+    ) {
+        let Some((mut request, headers_end)) = read_headers(&mut stream).await else {
+            return;
+        };
+
+        if request.starts_with(b"GET /jwks") {
+            write_headers(&mut stream, JWKS_BODY.len()).await;
+            stream.write_all(JWKS_BODY.as_bytes()).await.unwrap();
+            return;
+        }
+
+        assert!(request.starts_with(b"POST /token"));
+        let headers = std::str::from_utf8(&request[..headers_end]).unwrap();
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("content-length: ")
+                    .or_else(|| line.strip_prefix("Content-Length: "))
+            })
+            .and_then(|length| length.parse::<usize>().ok())
+            .unwrap_or(0);
+        let body_start = headers_end + 4;
+        let mut buffer = [0; 1024];
+        while request.len() < body_start + content_length {
+            let bytes_read = stream.read(&mut buffer).await.unwrap();
+            if bytes_read == 0 {
+                return;
+            }
+            request.extend_from_slice(&buffer[..bytes_read]);
+        }
+        let form = serde_urlencoded::from_bytes::<HashMap<String, String>>(
+            &request[body_start..body_start + content_length],
+        )
+        .unwrap();
+        assertions.lock().unwrap().push(form["client_assertion"].clone());
+
+        let first_attempt = attempts.fetch_add(1, Ordering::Relaxed) == 0;
+        let (head, tail) = body.split_at(body.len() / 2);
+        write_headers(&mut stream, body.len()).await;
+        stream.write_all(head.as_bytes()).await.unwrap();
+        if first_attempt {
+            tokio::time::sleep(delay).await;
+        }
+        stream.write_all(tail.as_bytes()).await.unwrap();
+    }
+
+    async fn read_headers(stream: &mut TcpStream) -> Option<(Vec<u8>, usize)> {
+        let mut request = Vec::new();
+        let mut buffer = [0; 1024];
+        loop {
+            let bytes_read = stream.read(&mut buffer).await.unwrap();
+            if bytes_read == 0 {
+                return None;
+            }
+            request.extend_from_slice(&buffer[..bytes_read]);
+            if let Some(headers_end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                return Some((request, headers_end));
+            }
+        }
+    }
+
+    async fn write_headers(stream: &mut TcpStream, content_length: usize) {
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {content_length}\r\nConnection: close\r\n\r\n"
+        );
+        stream.write_all(headers.as_bytes()).await.unwrap();
+    }
+
+    async fn provider_with_read_timeout(
+        base_url: &str,
+        read_timeout: Duration,
+        max_retries: u32,
+    ) -> Provider<TokenExchange, ClientAssertion> {
+        let jwks_url = format!("{base_url}/jwks");
+        let jwt_validator = JwtValidator::new(&jwks_url, &jwks_url, None).await.unwrap();
+        let mut provider = Provider::<TokenExchange, ClientAssertion>::new(
+            IdentityProvider::TokenX,
+            "client-id".to_string(),
+            format!("{base_url}/issuer"),
+            Some(format!("{base_url}/token")),
+            Some({
+                let mut key = jwk::JsonWebKey::new(jwk::Key::generate_p256());
+                key.set_algorithm(jwk::Algorithm::ES256).unwrap();
+                key.key_id = Some("client-key".to_string());
+                key.to_string()
+            }),
+            jwt_validator,
+        )
+        .unwrap();
+        provider.http_client = Client::new(ClientConfig {
+            connect_timeout: Duration::from_secs(1),
+            read_timeout,
+            request_timeout: Duration::from_secs(10),
+            pool_max_idle_per_host: 100,
+            pool_idle_timeout: Duration::from_secs(10),
+            max_retries,
+        })
+        .unwrap();
+        provider
+    }
+
+    fn token_request_inputs() -> TokenRequestInputs {
+        TokenRequestInputs {
+            target: "target".to_string(),
+            resource: None,
+            authorization_details: None,
+            user_token: Some("user-token".to_string()),
+        }
+    }
+
+    fn token_request() -> TokenRequest {
+        TokenRequest {
+            target: "target".to_string(),
+            identity_provider: IdentityProvider::TokenX,
+            resource: None,
+            authorization_details: None,
+            skip_cache: None,
+        }
+    }
+
+    fn token_exchange_request() -> TokenExchangeRequest {
+        TokenExchangeRequest {
+            target: "target".to_string(),
+            identity_provider: IdentityProvider::TokenX,
+            user_token: "user-token".to_string(),
+            skip_cache: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn assertion_failure_is_reported_as_sign_error() {
+        let server = MockIdentityProvider::serving(vec![]).await;
+        let mut provider = provider_with_read_timeout(&server.url, Duration::from_secs(1), 1).await;
+        provider.private_jwk = None;
+
+        assert!(matches!(
+            provider.get_token(token_request()).await,
+            Err(ApiError::Sign)
+        ));
+        assert!(server.assertions().is_empty());
+    }
+
+    #[tokio::test]
+    async fn missing_token_endpoint_reports_operation_specific_error() {
+        let server = MockIdentityProvider::serving(vec![]).await;
+        let mut provider = provider_with_read_timeout(&server.url, Duration::from_secs(1), 1).await;
+        provider.token_endpoint = None;
+
+        assert!(matches!(
+            provider.get_token(token_request()).await,
+            Err(ApiError::TokenRequestUnsupported(IdentityProvider::TokenX))
+        ));
+        assert!(matches!(
+            provider.exchange_token(token_exchange_request()).await,
+            Err(ApiError::TokenExchangeUnsupported(IdentityProvider::TokenX))
+        ));
+        assert!(server.assertions().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delayed_token_response_body_is_reported_as_body_read_error() {
+        let server = MockIdentityProvider::serving_split_body(
+            r#"{"access_token":"token","token_type":"Bearer","expires_in":3600}"#,
+            Duration::from_millis(2_000),
+        )
+        .await;
+        let provider = provider_with_read_timeout(&server.url, Duration::from_millis(500), 0).await;
+
+        let error = provider
+            .get_token_from_idprovider(token_request_inputs(), &server.token_endpoint())
+            .await
+            .unwrap_err();
+
+        match error {
+            ApiError::UpstreamFailure(error) => {
+                let FetchError::BodyRead { status, source } = error.as_ref() else {
+                    panic!("expected body read error, got {error:?}");
+                };
+                assert_eq!(*status, StatusCode::OK);
+                assert!(source.is_decode());
+                assert!(source.is_timeout());
+            }
+            error => panic!("expected upstream response error, got {error:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn retrying_delayed_token_response_body_succeeds() {
+        let server = MockIdentityProvider::serving_split_body(
+            r#"{"access_token":"token","token_type":"Bearer","expires_in":3600}"#,
+            Duration::from_millis(2_000),
+        )
+        .await;
+        let provider = provider_with_read_timeout(&server.url, Duration::from_millis(500), 1).await;
+
+        let response = provider
+            .get_token_from_idprovider(token_request_inputs(), &server.token_endpoint())
+            .await
+            .unwrap();
+
+        assert_eq!(response.access_token, "token");
+        let assertions = server.assertions();
+        assert_eq!(assertions.len(), 2);
+        assert_ne!(assertions[0], assertions[1]);
+    }
+
+    #[tokio::test]
+    async fn malformed_oauth_error_response_preserves_upstream_status() {
+        let server =
+            MockIdentityProvider::serving(vec![(StatusCode::BAD_REQUEST, "not json")]).await;
+        let provider = provider_with_read_timeout(&server.url, Duration::from_secs(1), 1).await;
+
+        let error = provider
+            .get_token_from_idprovider(token_request_inputs(), &server.token_endpoint())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ApiError::UpstreamOAuthError {
+                status_code: StatusCode::BAD_REQUEST,
+                error: ErrorResponse {
+                    error: OAuthErrorCode::ServerError,
+                    ..
+                },
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn redirect_response_is_reported_as_upstream_failure() {
+        let server = MockIdentityProvider::serving(vec![(StatusCode::FOUND, "redirect")]).await;
+        let provider = provider_with_read_timeout(&server.url, Duration::from_secs(1), 1).await;
+
+        let error = provider
+            .get_token_from_idprovider(token_request_inputs(), &server.token_endpoint())
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, ApiError::UpstreamFailure(error) if matches!(
+                error.as_ref(),
+                FetchError::Status { status: StatusCode::FOUND, .. }
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_error_without_description_is_valid() {
+        let server = MockIdentityProvider::serving(vec![(
+            StatusCode::BAD_REQUEST,
+            r#"{"error":"invalid_grant"}"#,
+        )])
+        .await;
+        let provider = provider_with_read_timeout(&server.url, Duration::from_secs(1), 1).await;
+
+        let error = provider
+            .get_token_from_idprovider(token_request_inputs(), &server.token_endpoint())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ApiError::UpstreamOAuthError {
+                status_code: StatusCode::BAD_REQUEST,
+                error: ErrorResponse {
+                    error: OAuthErrorCode::InvalidGrant,
+                    description,
+                },
+            } if description.is_empty()
+        ));
+    }
+
+    #[tokio::test]
+    async fn retrying_token_request_regenerates_assertion() {
+        let server = MockIdentityProvider::serving(vec![
+            (StatusCode::SERVICE_UNAVAILABLE, r#"{"error":"temporary"}"#),
+            (
+                StatusCode::OK,
+                r#"{"access_token":"token","token_type":"Bearer","expires_in":3600}"#,
+            ),
+        ])
+        .await;
+        let provider = provider_with_read_timeout(&server.url, Duration::from_secs(1), 1).await;
+
+        let response = provider
+            .get_token_from_idprovider(token_request_inputs(), &server.token_endpoint())
+            .await
+            .unwrap();
+
+        assert_eq!(response.access_token, "token");
+        let assertions = server.assertions();
+        assert_eq!(assertions.len(), 2);
+        assert_ne!(assertions[0], assertions[1]);
+    }
+
+    #[tokio::test]
+    async fn malformed_token_json_is_not_retried() {
+        let server = MockIdentityProvider::serving(vec![(StatusCode::OK, "not json")]).await;
+        let provider = provider_with_read_timeout(&server.url, Duration::from_secs(1), 3).await;
+
+        let error = provider
+            .get_token_from_idprovider(token_request_inputs(), &server.token_endpoint())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, ApiError::UpstreamFailure(_)));
+        assert_eq!(server.assertions().len(), 1);
     }
 }
