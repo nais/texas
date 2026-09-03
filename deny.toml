@@ -25,16 +25,11 @@ unknown-git = "deny"
 confidence-threshold = 0.93
 allow = [
     "Apache-2.0",
-    "CDLA-Permissive-2.0",
     "MIT",
     "BSD-3-Clause",
     "ISC",
     "Unicode-3.0",
     "Zlib",
-]
-exceptions = [
-    # reqwest uses aws-lc-sys for rustls
-    { name = "aws-lc-sys", allow = ["OpenSSL"] },
 ]
 
 [bans]
