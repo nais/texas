@@ -407,10 +407,10 @@
           "authorization_details": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AuthorizationDetails"
               },
               {
-                "$ref": "#/components/schemas/AuthorizationDetails"
+                "type": "null"
               }
             ]
           },
