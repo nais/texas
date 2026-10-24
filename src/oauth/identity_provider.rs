@@ -90,6 +90,9 @@ pub enum ProviderError {
     #[error("private JWK is missing algorithm")]
     PrivateJwkMissingAlgorithm,
 
+    #[error("symmetric JWKs are not supported for client assertion signing; use RS256 or ES256")]
+    PrivateJwkSymmetric,
+
     #[error("private JWK contains only a public key")]
     PrivateJwkNotPrivate,
 
@@ -129,7 +132,7 @@ where
                 .algorithm
                 .ok_or(ProviderError::PrivateJwkMissingAlgorithm)?
             {
-                jwk::Algorithm::HS256 => jwt::Algorithm::HS256,
+                jwk::Algorithm::HS256 => return Err(ProviderError::PrivateJwkSymmetric),
                 jwk::Algorithm::ES256 => jwt::Algorithm::ES256,
                 jwk::Algorithm::RS256 => jwt::Algorithm::RS256,
             };
@@ -143,7 +146,7 @@ where
                 return Err(ProviderError::PrivateJwkNotPrivate);
             }
             let key = match client_private_jwk.key.as_ref() {
-                jwk::Key::Symmetric { key } => jwt::EncodingKey::from_secret(key),
+                jwk::Key::Symmetric { .. } => return Err(ProviderError::PrivateJwkSymmetric),
                 key @ jwk::Key::EC { .. } => {
                     jwt::EncodingKey::from_ec_pem(key.try_to_pem()?.as_bytes())?
                 }
@@ -695,17 +698,8 @@ mod tests {
         }
     }
 
-    #[rstest]
-    #[case(EC_PRIVATE_JWK, jsonwebtoken::Algorithm::ES256)]
-    #[case(
-        r#"{"kty":"oct","k":"c2VjcmV0","alg":"HS256","kid":"client-key"}"#,
-        jsonwebtoken::Algorithm::HS256
-    )]
     #[tokio::test]
-    async fn configured_signing_key_produces_a_verifiable_assertion(
-        #[case] private_jwk: &str,
-        #[case] algorithm: jsonwebtoken::Algorithm,
-    ) {
+    async fn ec_signing_key_produces_a_verifiable_assertion() {
         let server = MockIdentityProvider::serving(vec![]).await;
         let jwks_url = format!("{}/jwks", server.url);
         let validator = JwtValidator::new(&server.url, &jwks_url, None).await.unwrap();
@@ -714,24 +708,43 @@ mod tests {
             "client-id".to_string(),
             server.url.clone(),
             Some(server.token_endpoint()),
-            Some(private_jwk.to_string()),
+            Some(EC_PRIVATE_JWK.to_string()),
             validator,
         )
         .unwrap();
 
         let assertion = provider.create_assertion("target".to_string(), None, None).unwrap();
-        let jwk = serde_json::from_str(private_jwk).unwrap();
+        let jwk = serde_json::from_str(EC_PRIVATE_JWK).unwrap();
         let key = jsonwebtoken::DecodingKey::from_jwk(&jwk).unwrap();
-        let mut validation = jsonwebtoken::Validation::new(algorithm);
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::ES256);
         validation.set_audience(&[&server.url]);
         let token =
             jsonwebtoken::decode::<serde_json::Value>(&assertion, &key, &validation).unwrap();
 
-        assert_eq!(token.header.alg, algorithm);
+        assert_eq!(token.header.alg, jsonwebtoken::Algorithm::ES256);
         assert_eq!(token.header.kid.as_deref(), Some("client-key"));
         assert_eq!(token.claims["iss"], "client-id");
         assert_eq!(token.claims["sub"], "client-id");
         assert_eq!(token.claims["aud"], server.url);
+    }
+
+    #[tokio::test]
+    async fn symmetric_signing_key_is_rejected() {
+        let server = MockIdentityProvider::serving(vec![]).await;
+        let jwks_url = format!("{}/jwks", server.url);
+        let validator = JwtValidator::new(&server.url, &jwks_url, None).await.unwrap();
+        let key = r#"{"kty":"oct","k":"c2VjcmV0","alg":"HS256","kid":"client-key"}"#;
+
+        let result = Provider::<TokenExchange, ClientAssertion>::new(
+            IdentityProvider::TokenX,
+            "client-id".to_string(),
+            server.url.clone(),
+            Some(server.token_endpoint()),
+            Some(key.to_string()),
+            validator,
+        );
+
+        assert!(matches!(result, Err(ProviderError::PrivateJwkSymmetric)));
     }
 
     #[tokio::test]
