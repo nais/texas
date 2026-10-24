@@ -1,6 +1,10 @@
 [advisories]
 ignore = [
     "RUSTSEC-2023-0071", # CVSS 5.9 (medium severity). No fix available. Has no practical impact for our usage.
+    # Temporary risk acceptance for EC signing while evaluating crypto migrations.
+    # Review by 2026-11-07; remove when the affected dependency is gone.
+    # https://github.com/nais/texas/issues/204
+    "RUSTSEC-2026-0387",
 ]
 informational_warnings = ["unmaintained"]
 severity_threshold = "low" # CVSS severity ("none", "low", "medium", "high", "critical")
