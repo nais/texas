@@ -89,6 +89,15 @@ pub enum ProviderError {
 
     #[error("private JWK is missing algorithm")]
     PrivateJwkMissingAlgorithm,
+
+    #[error("private JWK contains only a public key")]
+    PrivateJwkNotPrivate,
+
+    #[error("convert private JWK: {0}")]
+    PrivateJwkConversion(#[from] jwk::ConversionError),
+
+    #[error("decode private JWK: {0}")]
+    PrivateJwkDecode(#[from] jwt::errors::Error),
 }
 
 /// Per-request inputs for a token request.
@@ -116,17 +125,34 @@ where
         let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
             let client_private_jwk: jwk::JsonWebKey =
                 private_jwk.parse().map_err(ProviderError::PrivateJwkParseError)?;
-            let alg: jwt::Algorithm = client_private_jwk
+            let alg = match client_private_jwk
                 .algorithm
                 .ok_or(ProviderError::PrivateJwkMissingAlgorithm)?
-                .into();
+            {
+                jwk::Algorithm::HS256 => jwt::Algorithm::HS256,
+                jwk::Algorithm::ES256 => jwt::Algorithm::ES256,
+                jwk::Algorithm::RS256 => jwt::Algorithm::RS256,
+            };
             let kid: String =
                 client_private_jwk.key_id.clone().ok_or(ProviderError::PrivateJwkMissingKid)?;
 
             let mut header = jwt::Header::new(alg);
             header.kid = Some(kid);
 
-            (Some(client_private_jwk.key.to_encoding_key()), Some(header))
+            if !client_private_jwk.key.is_private() {
+                return Err(ProviderError::PrivateJwkNotPrivate);
+            }
+            let key = match client_private_jwk.key.as_ref() {
+                jwk::Key::Symmetric { key } => jwt::EncodingKey::from_secret(key),
+                key @ jwk::Key::EC { .. } => {
+                    jwt::EncodingKey::from_ec_pem(key.try_to_pem()?.as_bytes())?
+                }
+                key @ jwk::Key::RSA { .. } => {
+                    jwt::EncodingKey::from_rsa_pem(key.try_to_pem()?.as_bytes())?
+                }
+            };
+
+            (Some(key), Some(header))
         } else {
             (None, None)
         };
@@ -350,7 +376,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{IdentityProvider, Provider, ProviderHandler, TokenRequestInputs};
+    use super::{IdentityProvider, Provider, ProviderError, ProviderHandler, TokenRequestInputs};
     use crate::handler::ApiError;
     use crate::http::client::FetchError;
     use crate::http::client::{Client, ClientConfig};
@@ -363,7 +389,6 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::{IntoResponse, Response};
     use axum::routing::{get, post};
-    use jsonwebkey as jwk;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use std::collections::HashMap;
@@ -429,6 +454,9 @@ mod tests {
     }
 
     const JWKS_BODY: &str = r#"{"keys":[]}"#;
+
+    // Test-only P-256 key with private scalar 1 and the standard generator point.
+    const EC_PRIVATE_JWK: &str = r#"{"kty":"EC","crv":"P-256","alg":"ES256","kid":"client-key","d":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE","x":"axfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpY","y":"T-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU"}"#;
 
     struct MockIdentityProvider {
         url: String,
@@ -623,12 +651,7 @@ mod tests {
             "client-id".to_string(),
             format!("{base_url}/issuer"),
             Some(format!("{base_url}/token")),
-            Some({
-                let mut key = jwk::JsonWebKey::new(jwk::Key::generate_p256());
-                key.set_algorithm(jwk::Algorithm::ES256).unwrap();
-                key.key_id = Some("client-key".to_string());
-                key.to_string()
-            }),
+            Some(EC_PRIVATE_JWK.to_string()),
             jwt_validator,
         )
         .unwrap();
@@ -670,6 +693,65 @@ mod tests {
             user_token: "user-token".to_string(),
             skip_cache: None,
         }
+    }
+
+    #[rstest]
+    #[case(EC_PRIVATE_JWK, jsonwebtoken::Algorithm::ES256)]
+    #[case(
+        r#"{"kty":"oct","k":"c2VjcmV0","alg":"HS256","kid":"client-key"}"#,
+        jsonwebtoken::Algorithm::HS256
+    )]
+    #[tokio::test]
+    async fn configured_signing_key_produces_a_verifiable_assertion(
+        #[case] private_jwk: &str,
+        #[case] algorithm: jsonwebtoken::Algorithm,
+    ) {
+        let server = MockIdentityProvider::serving(vec![]).await;
+        let jwks_url = format!("{}/jwks", server.url);
+        let validator = JwtValidator::new(&server.url, &jwks_url, None).await.unwrap();
+        let provider = Provider::<TokenExchange, ClientAssertion>::new(
+            IdentityProvider::TokenX,
+            "client-id".to_string(),
+            server.url.clone(),
+            Some(server.token_endpoint()),
+            Some(private_jwk.to_string()),
+            validator,
+        )
+        .unwrap();
+
+        let assertion = provider.create_assertion("target".to_string(), None, None).unwrap();
+        let jwk = serde_json::from_str(private_jwk).unwrap();
+        let key = jsonwebtoken::DecodingKey::from_jwk(&jwk).unwrap();
+        let mut validation = jsonwebtoken::Validation::new(algorithm);
+        validation.set_audience(&[&server.url]);
+        let token =
+            jsonwebtoken::decode::<serde_json::Value>(&assertion, &key, &validation).unwrap();
+
+        assert_eq!(token.header.alg, algorithm);
+        assert_eq!(token.header.kid.as_deref(), Some("client-key"));
+        assert_eq!(token.claims["iss"], "client-id");
+        assert_eq!(token.claims["sub"], "client-id");
+        assert_eq!(token.claims["aud"], server.url);
+    }
+
+    #[tokio::test]
+    async fn public_signing_key_is_rejected_without_panicking() {
+        let server = MockIdentityProvider::serving(vec![]).await;
+        let jwks_url = format!("{}/jwks", server.url);
+        let validator = JwtValidator::new(&server.url, &jwks_url, None).await.unwrap();
+        let mut key: serde_json::Value = serde_json::from_str(EC_PRIVATE_JWK).unwrap();
+        key.as_object_mut().unwrap().remove("d");
+
+        let result = Provider::<TokenExchange, ClientAssertion>::new(
+            IdentityProvider::TokenX,
+            "client-id".to_string(),
+            server.url.clone(),
+            Some(server.token_endpoint()),
+            Some(key.to_string()),
+            validator,
+        );
+
+        assert!(matches!(result, Err(ProviderError::PrivateJwkNotPrivate)));
     }
 
     #[tokio::test]

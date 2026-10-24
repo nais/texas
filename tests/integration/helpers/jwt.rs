@@ -21,7 +21,10 @@ impl Token {
         Self {
             header: jwt::Header::new(jwt::Algorithm::RS256),
             claims,
-            signing_key: SIGNING_KEY.parse::<jwk::JsonWebKey>().unwrap().key.to_encoding_key(),
+            signing_key: jwt::EncodingKey::from_rsa_pem(
+                SIGNING_KEY.parse::<jwk::JsonWebKey>().unwrap().key.to_pem().as_bytes(),
+            )
+            .unwrap(),
         }
     }
 

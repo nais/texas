@@ -216,6 +216,9 @@ Texas uses JWTs for client authentication with the respective authorization serv
 This is also known as the `private_key_jwt` client authentication method.
 Using client secrets is not supported.
 
+The private JWK must use RS256, ES256 or HS256.
+RSA keys must be between 2048 and 8192 bits.
+
 ## Development
 
 ### Run tests and checks
