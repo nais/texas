@@ -1,6 +1,6 @@
 use crate::handler::ApiError;
 use crate::http::client;
-use crate::oauth::assertion::{Assertion, serialize};
+use crate::oauth::assertion::Assertion;
 use crate::oauth::grant::{
     ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder,
     TokenRequestBuilderParams,
@@ -10,10 +10,9 @@ use crate::oauth::request::{
     AuthorizationDetails, IntrospectRequest, TokenExchangeRequest, TokenRequest,
 };
 use crate::oauth::response::{IntrospectResponse, TokenResponse};
+use crate::oauth::signing_key::{SigningKey, SigningKeyError};
 use crate::telemetry::record_identity_provider_latency;
 use async_trait::async_trait;
-use jsonwebkey as jwk;
-use jsonwebtoken as jwt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::PartialEq;
@@ -68,8 +67,7 @@ pub struct Provider<R, A> {
     issuer: String,
     token_endpoint: Option<String>,
     identity_provider_kind: IdentityProvider,
-    private_jwk: Option<jwt::EncodingKey>,
-    client_assertion_header: Option<jwt::Header>,
+    signing_key: Option<SigningKey>,
     jwt_validator: JwtValidator,
     http_client: client::Client,
     _fake_request: PhantomData<R>,
@@ -81,14 +79,8 @@ pub enum ProviderError {
     #[error("initialize HTTP client: {0}")]
     InitializeHttpClient(#[from] reqwest::Error),
 
-    #[error("parse private JWK: {0}")]
-    PrivateJwkParseError(#[from] jwk::Error),
-
-    #[error("private JWK is missing key id")]
-    PrivateJwkMissingKid,
-
-    #[error("private JWK is missing algorithm")]
-    PrivateJwkMissingAlgorithm,
+    #[error(transparent)]
+    SigningKey(#[from] SigningKeyError),
 }
 
 /// Per-request inputs for a token request.
@@ -113,35 +105,17 @@ where
         private_jwk: Option<String>,
         jwt_validator: JwtValidator,
     ) -> Result<Self, ProviderError> {
-        let (client_private_jwk, client_assertion_header) = if let Some(private_jwk) = private_jwk {
-            let client_private_jwk: jwk::JsonWebKey =
-                private_jwk.parse().map_err(ProviderError::PrivateJwkParseError)?;
-            let alg: jwt::Algorithm = client_private_jwk
-                .algorithm
-                .ok_or(ProviderError::PrivateJwkMissingAlgorithm)?
-                .into();
-            let kid: String =
-                client_private_jwk.key_id.clone().ok_or(ProviderError::PrivateJwkMissingKid)?;
-
-            let mut header = jwt::Header::new(alg);
-            header.kid = Some(kid);
-
-            (Some(client_private_jwk.key.to_encoding_key()), Some(header))
-        } else {
-            (None, None)
-        };
-
+        let signing_key = private_jwk.as_deref().map(str::parse).transpose()?;
         let http_client = client::token().map_err(ProviderError::InitializeHttpClient)?;
 
         Ok(Self {
             client_id,
             token_endpoint,
             issuer,
-            client_assertion_header,
+            signing_key,
             jwt_validator,
             http_client,
             identity_provider_kind: kind,
-            private_jwk: client_private_jwk,
             _fake_request: PhantomData,
             _fake_assertion: PhantomData,
         })
@@ -161,12 +135,7 @@ where
             resource,
             authorization_details,
         );
-        serialize(
-            assertion,
-            self.client_assertion_header.as_ref()?,
-            self.private_jwk.as_ref()?,
-        )
-        .ok()
+        self.signing_key.as_ref()?.sign(&assertion).ok()
     }
 
     #[instrument(skip_all, name = "Request token from upstream identity provider")]
@@ -358,12 +327,12 @@ mod tests {
     use crate::oauth::grant::TokenExchange;
     use crate::oauth::jwt::JwtValidator;
     use crate::oauth::request::{TokenExchangeRequest, TokenRequest};
+    use crate::oauth::signing_key::tests::EC_PRIVATE_JWK;
     use axum::Router;
     use axum::extract::{Form, State};
     use axum::http::StatusCode;
     use axum::response::{IntoResponse, Response};
     use axum::routing::{get, post};
-    use jsonwebkey as jwk;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
     use std::collections::HashMap;
@@ -623,12 +592,7 @@ mod tests {
             "client-id".to_string(),
             format!("{base_url}/issuer"),
             Some(format!("{base_url}/token")),
-            Some({
-                let mut key = jwk::JsonWebKey::new(jwk::Key::generate_p256());
-                key.set_algorithm(jwk::Algorithm::ES256).unwrap();
-                key.key_id = Some("client-key".to_string());
-                key.to_string()
-            }),
+            Some(EC_PRIVATE_JWK.to_string()),
             jwt_validator,
         )
         .unwrap();
@@ -676,7 +640,7 @@ mod tests {
     async fn assertion_failure_is_reported_as_sign_error() {
         let server = MockIdentityProvider::serving(vec![]).await;
         let mut provider = provider_with_read_timeout(&server.url, Duration::from_secs(1), 1).await;
-        provider.private_jwk = None;
+        provider.signing_key = None;
 
         assert!(matches!(
             provider.get_token(token_request()).await,

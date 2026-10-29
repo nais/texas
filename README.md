@@ -207,6 +207,8 @@ The `aud` claim is not validated for tokens from Maskinporten, as they do not co
 
 The `nbf` claim, if set, must be in the past.
 
+The token must be signed with RS256, RS384, RS512, PS256, PS384, PS512, ES256 or ES384.
+
 ### Client authentication
 
 Texas handles client authentication with the identity provider for you.
@@ -215,6 +217,9 @@ Your application doesn't need to know about or handle any credentials.
 Texas uses JWTs for client authentication with the respective authorization servers, as defined in [RFC 7523, section 2.2](https://datatracker.ietf.org/doc/html/rfc7523#section-2.2).
 This is also known as the `private_key_jwt` client authentication method.
 Using client secrets is not supported.
+
+The private JWK must use RS256, RS384, RS512, PS256, PS384, PS512 or ES256.
+RSA keys must be between 2048 and 8192 bits.
 
 ## Development
 
