@@ -6,8 +6,9 @@ ignore = [
     # https://github.com/nais/texas/issues/204
     "RUSTSEC-2026-0387",
 ]
-informational_warnings = ["unmaintained"]
+informational_warnings = ["unmaintained", "unsound"]
 severity_threshold = "low" # CVSS severity ("none", "low", "medium", "high", "critical")
 
 [output]
+deny = ["unsound"]
 quiet = false
