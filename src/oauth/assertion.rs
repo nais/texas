@@ -1,5 +1,4 @@
 use crate::oauth::request::AuthorizationDetails;
-use jsonwebtoken as jwt;
 use serde::Serialize;
 
 const EXPIRY_LEEWAY_SECONDS: u64 = 30;
@@ -104,12 +103,4 @@ pub fn epoch_now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("SystemTime::now() should be after UNIX_EPOCH")
         .as_secs()
-}
-
-pub fn serialize<T: Serialize>(
-    claims: T,
-    client_assertion_header: &jwt::Header,
-    key: &jwt::EncodingKey,
-) -> Result<String, jsonwebtoken::errors::Error> {
-    jwt::encode(client_assertion_header, &claims, key)
 }

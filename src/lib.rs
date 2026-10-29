@@ -13,5 +13,6 @@ pub mod oauth {
     pub(super) mod jwt;
     pub mod request;
     pub mod response;
+    pub(super) mod signing_key;
 }
 pub mod telemetry;
