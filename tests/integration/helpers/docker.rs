@@ -26,7 +26,7 @@ impl RuntimeParams {
             ))
         }
 
-        let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "6.0.0")
+        let container = GenericImage::new("ghcr.io/navikt/mock-oauth2-server", "6.1.4")
             .with_exposed_port(8080.tcp())
             .with_wait_for(wait_for_provider("entra_id"))
             .with_wait_for(wait_for_provider("idporten"))
