@@ -325,24 +325,11 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// Any valid RSA modulus will do: these tests exercise key lookup and refreshing, and never
-    /// get as far as verifying a signature. Copied from key pair used in mock-oauth2-server.
-    const MODULUS: &str = "8ZqUp5Cs90XpNn8tJBdUUxdGH4bjqKjFj8lyB3x50RpTuECuwzX1NpVqyFENDiEtMja5fdmJl6SErjnhj6kbhcmfmFibANuG-0WlV5yMysdSbocd75C1JQbiPdpHdXrijmVFMfDnoZTQ-ErNsqqngTNkn5SXBcPenli6Cf9MTSchZuh_qFj_B7Fp3CWKehTiyBcLlNOIjYsXX8WQjZkWKGpQ23AWjZulngWRektLcRWuEKTWaRBtbAr3XAfSmcqTICrebaD3IMWKHDtvzHAt_pt4wnZ06clgeO2Wbc980usnpsF7g8k9p81RcbS4JEZmuuA9NCmOmbyADXwgA9_-Aw";
-
     const ISSUER: &str = "https://issuer.example";
 
-    const EC_P256_PRIVATE_PEM: &str = "-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgXmpl+sikIgmQZmWx
-5e0gd5hGTfxVMnlE63PoAjpDe4ahRANCAAR1E+MStid5jBMGVbm/PrPX7l8KdcGq
-a9NGQ5v3jbxTICOzgqasybtr6nrY28ajmhW6oJztaCYBbDuSfwkpdCjL
------END PRIVATE KEY-----";
+    const EC_P256_PRIVATE_PEM: &str = include_str!("../../tests/fixtures/ec-p256-private.pem");
 
-    const EC_P384_PRIVATE_PEM: &str = "-----BEGIN PRIVATE KEY-----
-MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDR3vJEYjVg9pmE39Q/
-BFveZ8Pwm9eohknK0HDlFZgs2bGYXdG+p3fOEylx+diUKM+hZANiAAReUJxl5I2h
-wvcn6KB9NAi/Zgbx1N+/V0nCx4pOZnQbY3o8mNTfjjoKaXGRMVWvpY4khcDMdmt8
-NrgcZZ2BCqWo8RGeULXtDJoJ55GiA+zBHcsWhC9pTpq98WCnQkPJ7F4=
------END PRIVATE KEY-----";
+    const EC_P384_PRIVATE_PEM: &str = include_str!("../../tests/fixtures/ec-p384-private.pem");
 
     const RSA_PRIVATE_JWK: &str = include_str!("../../tests/fixtures/rsa-private.jwk");
 
@@ -880,15 +867,15 @@ NrgcZZ2BCqWo8RGeULXtDJoJ55GiA+zBHcsWhC9pTpq98WCnQkPJ7F4=
         }
 
         fn serve_keys(&self, key_ids: &[&str]) {
-            let keys: Vec<String> = key_ids
+            let keys: Vec<Value> = key_ids
                 .iter()
                 .map(|kid| {
-                    format!(
-                        r#"{{"kty":"RSA","use":"sig","alg":"RS256","kid":"{kid}","e":"AQAB","n":"{MODULUS}"}}"#
-                    )
+                    let mut jwk = rsa_public_jwk(Some("RS256"));
+                    jwk["kid"] = (*kid).into();
+                    jwk
                 })
                 .collect();
-            self.serve(format!(r#"{{"keys":[{}]}}"#, keys.join(",")));
+            self.serve(serde_json::json!({ "keys": keys }).to_string());
         }
 
         fn respond_with(&self, status: StatusCode, body: String) {
