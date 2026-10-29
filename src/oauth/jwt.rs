@@ -1,6 +1,7 @@
 use crate::http::client::{self, FetchError};
 use crate::oauth::assertion::epoch_now_secs;
 use crate::telemetry;
+use jsonwebtoken::jwk::{CommonParameters, KeyOperations, PublicKeyUse};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -38,8 +39,15 @@ pub struct JwtValidator {
 /// The signing keys currently trusted for an identity provider.
 #[derive(Clone, Debug)]
 struct KeySet {
-    by_kid: Arc<HashMap<String, DecodingKey>>,
+    by_kid: Arc<HashMap<String, VerifyingKey>>,
     fetched_at: Instant,
+}
+
+#[derive(Debug)]
+struct VerifyingKey {
+    key: DecodingKey,
+    /// From the JWK's `alg`. If set, the key verifies only this algorithm.
+    algorithm: Option<Algorithm>,
 }
 
 #[derive(Debug, Default)]
@@ -127,11 +135,17 @@ impl JwtValidator {
         if !keys.by_kid.contains_key(&key_id) {
             keys = self.refresh_jwks("unknown_kid").await;
         }
-        let signing_key = keys.by_kid.get(&key_id).ok_or(Error::KeyNotInKeySet)?;
+        let verifying_key = keys.by_kid.get(&key_id).ok_or(Error::KeyNotInKeySet)?;
+        if verifying_key.algorithm.is_some_and(|algorithm| algorithm != header.alg) {
+            return Err(Error::InvalidToken(
+                jsonwebtoken::errors::ErrorKind::InvalidAlgorithm.into(),
+            ));
+        }
 
-        let claims = jsonwebtoken::decode::<HashMap<String, Value>>(token, signing_key, validation)
-            .map_err(Error::InvalidToken)?
-            .claims;
+        let claims =
+            jsonwebtoken::decode::<HashMap<String, Value>>(token, &verifying_key.key, validation)
+                .map_err(Error::InvalidToken)?
+                .claims;
 
         // validate the `iat` claim manually as the jsonwebtoken crate does not do this
         let iat = claims.get("iat").and_then(Value::as_u64).ok_or_else(|| {
@@ -214,16 +228,39 @@ async fn fetch_keys(client: &client::Client, endpoint: &str) -> Result<KeySet, K
     let response: jsonwebtoken::jwk::JwkSet = client.get(endpoint).await?;
 
     let mut by_kid = HashMap::new();
-    for key in &response.keys {
-        let key_id = key.common.key_id.clone().ok_or(KeySetError::MissingKeyId)?;
-        let decoding_key = DecodingKey::from_jwk(key).map_err(KeySetError::InvalidJwk)?;
-        by_kid.insert(key_id, decoding_key);
+    for jwk in &response.keys {
+        if !is_signature_key(&jwk.common) {
+            continue;
+        }
+        let algorithm = match jwk.common.key_algorithm {
+            None => None,
+            Some(algorithm) => match algorithm.to_string().parse() {
+                Ok(algorithm) => Some(algorithm),
+                // Not a signature algorithm, such as RSA-OAEP.
+                Err(_) => continue,
+            },
+        };
+
+        let key_id = jwk.common.key_id.clone().ok_or(KeySetError::MissingKeyId)?;
+        let key = DecodingKey::from_jwk(jwk).map_err(KeySetError::InvalidJwk)?;
+        by_kid.insert(key_id, VerifyingKey { key, algorithm });
     }
 
     Ok(KeySet {
         by_kid: Arc::new(by_kid),
         fetched_at: Instant::now(),
     })
+}
+
+fn is_signature_key(jwk: &CommonParameters) -> bool {
+    let use_allows =
+        jwk.public_key_use.as_ref().is_none_or(|key_use| *key_use == PublicKeyUse::Signature);
+    let operations_allow = jwk
+        .key_operations
+        .as_ref()
+        .is_none_or(|operations| operations.contains(&KeyOperations::Verify));
+
+    use_allows && operations_allow
 }
 
 impl KeySet {
@@ -235,6 +272,7 @@ impl KeySet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::oauth::signing_key::SigningKey;
     use axum::extract::State as AxumState;
     use axum::response::IntoResponse;
     use axum::routing::get;
@@ -346,7 +384,9 @@ NrgcZZ2BCqWo8RGeULXtDJoJ55GiA+zBHcsWhC9pTpq98WCnQkPJ7F4=
     ) {
         let idp = MockIdentityProvider::start().await;
         let (_, token) = signed_ec_token(algorithm);
-        let (other_jwk, _) = signed_ec_token(jwk_algorithm);
+        let (mut other_jwk, _) = signed_ec_token(jwk_algorithm);
+        // Remove `alg`, so the test reaches the curve check.
+        other_jwk.common.key_algorithm = None;
 
         idp.serve(serde_json::json!({ "keys": [other_jwk] }).to_string());
         let validator = idp.connect().await.unwrap();
@@ -366,7 +406,9 @@ NrgcZZ2BCqWo8RGeULXtDJoJ55GiA+zBHcsWhC9pTpq98WCnQkPJ7F4=
     async fn rejects_ec_token_with_rsa_jwk(#[case] algorithm: Algorithm) {
         let idp = MockIdentityProvider::start().await;
         let (_, token) = signed_ec_token(algorithm);
-        idp.serve_keys(&["ec-key"]);
+        let mut rsa_jwk = rsa_public_jwk(None);
+        rsa_jwk["kid"] = "ec-key".into();
+        idp.serve(serde_json::json!({ "keys": [rsa_jwk] }).to_string());
         let validator = idp.connect().await.unwrap();
 
         let result = validator.validate(&token).await;
@@ -375,6 +417,98 @@ NrgcZZ2BCqWo8RGeULXtDJoJ55GiA+zBHcsWhC9pTpq98WCnQkPJ7F4=
             result,
             Err(Error::InvalidToken(error)) if *error.kind() == jsonwebtoken::errors::ErrorKind::InvalidKeyFormat
         ));
+    }
+
+    const RSA_PRIVATE_JWK: &str = include_str!("../../tests/fixtures/rsa-private.jwk");
+
+    /// The public half of the RSA fixture, with the given `alg`.
+    fn rsa_public_jwk(alg: Option<&str>) -> Value {
+        let private: Value = serde_json::from_str(RSA_PRIVATE_JWK).unwrap();
+        let mut jwk = serde_json::json!({
+            "kty": "RSA",
+            "kid": private["kid"],
+            "n": private["n"],
+            "e": private["e"],
+        });
+        if let Some(alg) = alg {
+            jwk["alg"] = alg.into();
+        }
+
+        jwk
+    }
+
+    fn signed_rsa_token(alg: &str) -> String {
+        let mut jwk: Value = serde_json::from_str(RSA_PRIVATE_JWK).unwrap();
+        jwk["alg"] = alg.into();
+        let key: SigningKey = jwk.to_string().parse().unwrap();
+
+        let now = epoch_now_secs();
+        let claims = serde_json::json!({
+            "iss": ISSUER,
+            "sub": "subject",
+            "iat": now,
+            "exp": now + 300,
+        });
+
+        key.sign(&claims).unwrap()
+    }
+
+    #[rstest::rstest]
+    #[case(None, "PS256", true)]
+    #[case(Some("PS256"), "PS256", true)]
+    #[case(Some("RS256"), "PS256", false)]
+    #[case(Some("PS256"), "RS512", false)]
+    #[tokio::test]
+    async fn key_with_alg_verifies_only_that_algorithm(
+        #[case] jwk_alg: Option<&str>,
+        #[case] token_alg: &str,
+        #[case] accepted: bool,
+    ) {
+        let idp = MockIdentityProvider::start().await;
+        idp.serve(serde_json::json!({ "keys": [rsa_public_jwk(jwk_alg)] }).to_string());
+        let validator = idp.connect().await.unwrap();
+
+        let result = validator.validate(&signed_rsa_token(token_alg)).await;
+
+        if accepted {
+            assert_eq!(result.unwrap()["sub"], "subject");
+        } else {
+            assert!(matches!(
+                result,
+                Err(Error::InvalidToken(error)) if *error.kind() == jsonwebtoken::errors::ErrorKind::InvalidAlgorithm
+            ));
+        }
+    }
+
+    #[rstest::rstest]
+    #[case(serde_json::json!({ "use": "sig", "key_ops": ["verify"] }), true)]
+    #[case(serde_json::json!({ "use": "enc" }), false)]
+    #[case(serde_json::json!({ "key_ops": ["encrypt"] }), false)]
+    #[case(serde_json::json!({ "key_ops": [] }), false)]
+    #[case(serde_json::json!({ "alg": "RSA-OAEP" }), false)]
+    #[tokio::test]
+    async fn uses_only_keys_for_signature_verification(
+        #[case] metadata: Value,
+        #[case] used: bool,
+    ) {
+        let mut jwk = rsa_public_jwk(None);
+        jwk.as_object_mut().unwrap().extend(metadata.as_object().unwrap().clone());
+        let idp = MockIdentityProvider::start().await;
+        idp.serve(serde_json::json!({ "keys": [jwk] }).to_string());
+
+        let validator = idp.connect().await.unwrap();
+
+        assert_eq!(validator.keys().await.by_kid.len(), usize::from(used));
+    }
+
+    #[tokio::test]
+    async fn ignores_encryption_keys_without_key_id() {
+        let idp = MockIdentityProvider::start().await;
+        idp.serve(format!(
+            r#"{{"keys":[{{"kty":"RSA","use":"enc","e":"AQAB","n":"{MODULUS}"}}]}}"#
+        ));
+
+        assert!(idp.connect().await.is_ok());
     }
 
     #[tokio::test]
