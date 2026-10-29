@@ -207,6 +207,8 @@ The `aud` claim is not validated for tokens from Maskinporten, as they do not co
 
 The `nbf` claim, if set, must be in the past.
 
+The token must be signed with RS256, RS384, RS512, PS256, PS384, PS512, ES256 or ES384.
+
 ### Client authentication
 
 Texas handles client authentication with the identity provider for you.

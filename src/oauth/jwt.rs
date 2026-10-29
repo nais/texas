@@ -1,7 +1,7 @@
 use crate::http::client::{self, FetchError};
 use crate::oauth::assertion::epoch_now_secs;
 use crate::telemetry;
-use jsonwebtoken::{DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,7 +23,9 @@ const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 pub struct JwtValidator {
     endpoint: String,
     issuer: String,
-    validation: Validation,
+    /// jsonwebtoken cannot mix algorithm families in one allowlist.
+    rsa_validation: Validation,
+    ec_validation: Validation,
     client: client::Client,
     keys: RwLock<KeySet>,
     /// Held across the fetch in [`JwtValidator::refresh_jwks`], so that tasks queueing up behind
@@ -80,10 +82,23 @@ impl JwtValidator {
     ) -> Result<Self, KeySetError> {
         let client = client::discovery().map_err(KeySetError::Init)?;
         let initial = fetch_keys(&client, endpoint).await?;
+
+        let validation = |algorithms: &[Algorithm]| {
+            Self::validation(issuer.to_string(), required_audience.clone(), algorithms)
+        };
+
         Ok(Self {
             endpoint: endpoint.to_string(),
             issuer: issuer.to_string(),
-            validation: Self::validation(issuer.to_string(), required_audience),
+            rsa_validation: validation(&[
+                Algorithm::RS256,
+                Algorithm::RS384,
+                Algorithm::RS512,
+                Algorithm::PS256,
+                Algorithm::PS384,
+                Algorithm::PS512,
+            ]),
+            ec_validation: validation(&[Algorithm::ES256, Algorithm::ES384]),
             client,
             keys: RwLock::new(initial),
             refresh: Mutex::new(RefreshState::default()),
@@ -95,10 +110,15 @@ impl JwtValidator {
     /// Refreshes the key set if it has gone stale or does not contain the token's key ID.
     #[instrument(skip_all, name = "Validate token signature and claims")]
     pub async fn validate(&self, token: &str) -> Result<HashMap<String, Value>, Error> {
-        let key_id = jsonwebtoken::decode_header(token)
-            .map_err(Error::InvalidTokenHeader)?
-            .kid
-            .ok_or(Error::MissingKeyIdInTokenHeader)?;
+        let header = jsonwebtoken::decode_header(token).map_err(Error::InvalidTokenHeader)?;
+        let key_id = header.kid.ok_or(Error::MissingKeyIdInTokenHeader)?;
+
+        let validation = [&self.rsa_validation, &self.ec_validation]
+            .into_iter()
+            .find(|validation| validation.algorithms.contains(&header.alg))
+            .ok_or_else(|| {
+                Error::InvalidToken(jsonwebtoken::errors::ErrorKind::InvalidAlgorithm.into())
+            })?;
 
         let mut keys = self.keys().await;
         if keys.is_stale() {
@@ -109,10 +129,9 @@ impl JwtValidator {
         }
         let signing_key = keys.by_kid.get(&key_id).ok_or(Error::KeyNotInKeySet)?;
 
-        let claims =
-            jsonwebtoken::decode::<HashMap<String, Value>>(token, signing_key, &self.validation)
-                .map_err(Error::InvalidToken)?
-                .claims;
+        let claims = jsonwebtoken::decode::<HashMap<String, Value>>(token, signing_key, validation)
+            .map_err(Error::InvalidToken)?
+            .claims;
 
         // validate the `iat` claim manually as the jsonwebtoken crate does not do this
         let iat = claims.get("iat").and_then(Value::as_u64).ok_or_else(|| {
@@ -121,7 +140,7 @@ impl JwtValidator {
             )
         })?;
 
-        if iat > epoch_now_secs() + self.validation.leeway {
+        if iat > epoch_now_secs() + validation.leeway {
             return Err(Error::InvalidToken(
                 jsonwebtoken::errors::ErrorKind::ImmatureSignature.into(),
             ));
@@ -130,10 +149,13 @@ impl JwtValidator {
         Ok(claims)
     }
 
-    // TODO: should allow validation with a selection of asymmetric signing algorithms
-    fn validation(issuer: String, audience: Option<String>) -> Validation {
-        let alg = jsonwebtoken::AlgorithmFamily::Rsa;
-        let mut validation = Validation::new_for_family(alg);
+    fn validation(
+        issuer: String,
+        audience: Option<String>,
+        algorithms: &[Algorithm],
+    ) -> Validation {
+        let mut validation = Validation::default();
+        validation.algorithms = algorithms.to_vec();
 
         validation.validate_aud = true;
         validation.validate_exp = true;
@@ -216,6 +238,7 @@ mod tests {
     use axum::extract::State as AxumState;
     use axum::response::IntoResponse;
     use axum::routing::get;
+    use jsonwebtoken::{EncodingKey, Header, jwk::Jwk};
     use pretty_assertions::assert_eq;
     use reqwest::StatusCode;
     use std::sync::Mutex;
@@ -226,6 +249,157 @@ mod tests {
     const MODULUS: &str = "8ZqUp5Cs90XpNn8tJBdUUxdGH4bjqKjFj8lyB3x50RpTuECuwzX1NpVqyFENDiEtMja5fdmJl6SErjnhj6kbhcmfmFibANuG-0WlV5yMysdSbocd75C1JQbiPdpHdXrijmVFMfDnoZTQ-ErNsqqngTNkn5SXBcPenli6Cf9MTSchZuh_qFj_B7Fp3CWKehTiyBcLlNOIjYsXX8WQjZkWKGpQ23AWjZulngWRektLcRWuEKTWaRBtbAr3XAfSmcqTICrebaD3IMWKHDtvzHAt_pt4wnZ06clgeO2Wbc980usnpsF7g8k9p81RcbS4JEZmuuA9NCmOmbyADXwgA9_-Aw";
 
     const ISSUER: &str = "https://issuer.example";
+
+    const EC_P256_PRIVATE_PEM: &str = "-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgXmpl+sikIgmQZmWx
+5e0gd5hGTfxVMnlE63PoAjpDe4ahRANCAAR1E+MStid5jBMGVbm/PrPX7l8KdcGq
+a9NGQ5v3jbxTICOzgqasybtr6nrY28ajmhW6oJztaCYBbDuSfwkpdCjL
+-----END PRIVATE KEY-----";
+
+    const EC_P384_PRIVATE_PEM: &str = "-----BEGIN PRIVATE KEY-----
+MIG2AgEAMBAGByqGSM49AgEGBSuBBAAiBIGeMIGbAgEBBDDR3vJEYjVg9pmE39Q/
+BFveZ8Pwm9eohknK0HDlFZgs2bGYXdG+p3fOEylx+diUKM+hZANiAAReUJxl5I2h
+wvcn6KB9NAi/Zgbx1N+/V0nCx4pOZnQbY3o8mNTfjjoKaXGRMVWvpY4khcDMdmt8
+NrgcZZ2BCqWo8RGeULXtDJoJ55GiA+zBHcsWhC9pTpq98WCnQkPJ7F4=
+-----END PRIVATE KEY-----";
+
+    fn signed_ec_token(algorithm: Algorithm) -> (Jwk, String) {
+        let pem = match algorithm {
+            Algorithm::ES256 => EC_P256_PRIVATE_PEM,
+            Algorithm::ES384 => EC_P384_PRIVATE_PEM,
+            _ => panic!("expected an EC algorithm"),
+        };
+
+        let key = EncodingKey::from_ec_pem(pem.as_bytes()).unwrap();
+        let mut jwk = Jwk::from_encoding_key(&key, algorithm).unwrap();
+        jwk.common.key_id = Some("ec-key".to_string());
+
+        let mut header = Header::new(algorithm);
+        header.kid = jwk.common.key_id.clone();
+
+        let now = epoch_now_secs();
+        let claims = serde_json::json!({
+            "iss": ISSUER,
+            "sub": "subject",
+            "iat": now,
+            "exp": now + 300,
+        });
+        let token = jsonwebtoken::encode(&header, &claims, &key).unwrap();
+
+        (jwk, token)
+    }
+
+    #[rstest::rstest]
+    #[case(Algorithm::ES256)]
+    #[case(Algorithm::ES384)]
+    #[tokio::test]
+    async fn verifies_ec_token_from_jwks(#[case] algorithm: Algorithm) {
+        let idp = MockIdentityProvider::start().await;
+        let (jwk, token) = signed_ec_token(algorithm);
+        idp.serve(serde_json::json!({ "keys": [jwk] }).to_string());
+        let validator = idp.connect().await.unwrap();
+
+        let claims = validator.validate(&token).await.unwrap();
+
+        assert_eq!(claims["iss"], ISSUER);
+        assert_eq!(claims["sub"], "subject");
+        assert_eq!(idp.hits(), 1);
+    }
+
+    /// Keeps the signature valid base64url, so only verification can fail.
+    fn corrupt_signature(token: &str) -> String {
+        let signature_start = token.rfind('.').unwrap() + 1;
+        let mut bytes = token.as_bytes().to_vec();
+        bytes[signature_start] = if bytes[signature_start] == b'A' {
+            b'B'
+        } else {
+            b'A'
+        };
+        String::from_utf8(bytes).unwrap()
+    }
+
+    #[rstest::rstest]
+    #[case(Algorithm::ES256)]
+    #[case(Algorithm::ES384)]
+    #[tokio::test]
+    async fn rejects_ec_token_with_corrupted_signature(#[case] algorithm: Algorithm) {
+        let idp = MockIdentityProvider::start().await;
+        let (jwk, token) = signed_ec_token(algorithm);
+        idp.serve(serde_json::json!({ "keys": [jwk] }).to_string());
+        let validator = idp.connect().await.unwrap();
+
+        let result = validator.validate(&corrupt_signature(&token)).await;
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidToken(error)) if *error.kind() == jsonwebtoken::errors::ErrorKind::InvalidSignature
+        ));
+    }
+
+    #[rstest::rstest]
+    #[case(Algorithm::ES256, Algorithm::ES384)]
+    #[case(Algorithm::ES384, Algorithm::ES256)]
+    #[tokio::test]
+    async fn rejects_ec_token_with_jwk_of_another_curve(
+        #[case] algorithm: Algorithm,
+        #[case] jwk_algorithm: Algorithm,
+    ) {
+        let idp = MockIdentityProvider::start().await;
+        let (_, token) = signed_ec_token(algorithm);
+        let (other_jwk, _) = signed_ec_token(jwk_algorithm);
+
+        idp.serve(serde_json::json!({ "keys": [other_jwk] }).to_string());
+        let validator = idp.connect().await.unwrap();
+
+        let result = validator.validate(&token).await;
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidToken(error)) if *error.kind() == jsonwebtoken::errors::ErrorKind::InvalidSignature
+        ));
+    }
+
+    #[rstest::rstest]
+    #[case(Algorithm::ES256)]
+    #[case(Algorithm::ES384)]
+    #[tokio::test]
+    async fn rejects_ec_token_with_rsa_jwk(#[case] algorithm: Algorithm) {
+        let idp = MockIdentityProvider::start().await;
+        let (_, token) = signed_ec_token(algorithm);
+        idp.serve_keys(&["ec-key"]);
+        let validator = idp.connect().await.unwrap();
+
+        let result = validator.validate(&token).await;
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidToken(error)) if *error.kind() == jsonwebtoken::errors::ErrorKind::InvalidKeyFormat
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_hs256_token_without_refreshing() {
+        let idp = MockIdentityProvider::start().await;
+        idp.serve_keys(&["key-1"]);
+        let validator = idp.connect().await.unwrap();
+
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some("unknown-key".to_string());
+        let token = jsonwebtoken::encode(
+            &header,
+            &HashMap::<String, Value>::new(),
+            &EncodingKey::from_secret(b"secret"),
+        )
+        .unwrap();
+
+        let result = validator.validate(&token).await;
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidToken(error)) if *error.kind() == jsonwebtoken::errors::ErrorKind::InvalidAlgorithm
+        ));
+        assert_eq!(idp.hits(), 1);
+    }
 
     #[tokio::test]
     async fn startup_fails_on_unsuccessful_response() {
@@ -419,17 +593,12 @@ mod tests {
         assert_eq!(idp.hits(), 1);
     }
 
-    /// A syntactically valid JWT that nothing can be signed with; enough to exercise the key
-    /// lookup that happens before the signature is checked.
+    /// A token for key lookup tests. Its signature matches no served key.
     fn token_signed_with(key_id: &str) -> String {
-        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+        let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(key_id.to_string());
-        jsonwebtoken::encode(
-            &header,
-            &HashMap::<String, Value>::new(),
-            &jsonwebtoken::EncodingKey::from_secret(b"secret"),
-        )
-        .unwrap()
+        let key = EncodingKey::from_ec_pem(EC_P256_PRIVATE_PEM.as_bytes()).unwrap();
+        jsonwebtoken::encode(&header, &HashMap::<String, Value>::new(), &key).unwrap()
     }
 
     impl JwtValidator {
