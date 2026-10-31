@@ -87,12 +87,14 @@ pub async fn token(
     JsonOrForm(request): JsonOrForm<TokenRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     const PATH: &str = "/api/v1/token";
+
     let span = tracing::Span::current();
     let normalized_request = request.with_normalized_target();
     if request.target != normalized_request.target {
         span.set_attribute("texas.target_normalized", normalized_request.target.clone());
     }
     let request = normalized_request;
+
     telemetry::inc_token_requests(PATH, request.identity_provider);
 
     if let Some(ref resource) = request.resource {
@@ -114,9 +116,11 @@ pub async fn token(
         if provider.identity_provider_matches(request.identity_provider) {
             provider_enabled = true;
         }
+
         if !provider.should_handle_token_request(&request) {
             continue;
         }
+
         let response: TokenResponse = state
             .token_cache
             .get_or_insert_with(request.clone(), request.identity_provider, PATH, async {

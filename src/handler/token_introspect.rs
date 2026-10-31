@@ -58,6 +58,7 @@ pub async fn token_introspect(
     JsonOrForm(request): JsonOrForm<IntrospectRequest>,
 ) -> IntrospectResult {
     const PATH: &str = "/api/v1/introspect";
+
     inc_token_introspections(PATH, request.identity_provider);
 
     let mut provider_enabled = false;
@@ -65,9 +66,11 @@ pub async fn token_introspect(
         if provider.identity_provider_matches(request.identity_provider) {
             provider_enabled = true;
         }
+
         if !provider.should_handle_introspect_request(&request) {
             continue;
         }
+
         return Ok(provider.introspect(request.token).await);
     }
 
