@@ -16,12 +16,36 @@ run = "cargo build --release"
 
 [tasks."local"]
 description = "Run texas locally with debug logging"
+depends = ["compose"]
 env = { RUST_LOG = "info,texas=debug" }
 run = "cargo run --features local"
 
+[tasks."compose"]
+description = "Start the mock OAuth server and OpenTelemetry stack"
+depends = ["setup"]
+run = "docker compose up -d"
+
 [tasks."setup"]
-description = "Create .env from .env.example if missing"
-run = "[ ! -f .env ] && cp -v .env.example .env || true"
+description = "Create .env from .env.example if missing, and the mock OAuth server config"
+run = '''
+{% set client_jwk = read_json(path='tests/fixtures/client-auth-rsa-private.jwk') | json_encode %}
+if [ ! -f .env ]; then
+  cp -v .env.example .env
+  cat >> .env <<'EOF'
+
+MASKINPORTEN_CLIENT_JWK='{{ client_jwk }}'
+AZURE_APP_JWK='{{ client_jwk }}'
+TOKEN_X_PRIVATE_JWK='{{ client_jwk }}'
+EOF
+fi
+mkdir -p .local
+{% set idp_jwk = read_file(path='tests/fixtures/rsa-private.jwk') %}
+{% set key_provider = { "initialKeys": idp_jwk, "algorithm": "RS256" } %}
+{% set mock_config = { "tokenProvider": { "keyProvider": key_provider } } %}
+cat > .local/mock-oauth2-server.json <<'EOF'
+{{ mock_config | json_encode(pretty=true) }}
+EOF
+'''
 
 [tasks."check"]
 description = "Run all static analysis tools and tests"

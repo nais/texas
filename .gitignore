@@ -17,6 +17,7 @@
 *~
 
 .env*
+/.local/
 
 # Nix stuff
 result*

@@ -40,22 +40,9 @@ It is designed to run as a [sidecar container](https://kubernetes.io/docs/concep
 
 - [mise](https://mise.jdx.dev/) - tool version manager and task runner
 
-### Setup
+### Run
 
 See [the `.env.example` file](.env.example) for available configuration options.
-To set up a local environment based on this, run:
-
-```shell
-mise run setup
-```
-
-Start a mock OAuth 2 server with:
-
-```shell
-docker-compose up -d
-```
-
-### Run
 
 ```shell
 mise run local
