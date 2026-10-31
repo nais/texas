@@ -124,8 +124,7 @@ pub async fn token(
                     telemetry::inc_handler_errors(PATH, request.identity_provider, e.as_ref())
                 })
             })
-            .await
-            .map_err(|e| (*e).clone())?;
+            .await?;
 
         return Ok(Json(response));
     }

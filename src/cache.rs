@@ -51,10 +51,10 @@ where
         identity_provider: IdentityProvider,
         path: &str,
         init: F,
-    ) -> Result<TokenResponse, Arc<E>>
+    ) -> Result<TokenResponse, E>
     where
         F: Future<Output = Result<TokenResponse, E>>,
-        E: Send + Sync + 'static,
+        E: Clone + Send + Sync + 'static,
     {
         let span = tracing::Span::current();
         let entry = self
@@ -65,7 +65,9 @@ where
                 telemetry::inc_token_cache(self.kind);
                 Ok(CachedTokenResponse::from(r))
             })
-            .await?;
+            .await
+            // moka shares one Arc'd init error among all concurrent waiters for the key.
+            .map_err(Arc::unwrap_or_clone)?;
 
         if entry.is_fresh() {
             span.set_attribute("texas.cache_hit", false);
