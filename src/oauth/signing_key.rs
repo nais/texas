@@ -94,8 +94,9 @@ pub(crate) mod tests {
     use serde_json::{Value, json};
 
     // Private scalar 1. Not a real key.
-    pub(crate) const EC_PRIVATE_JWK: &str = r#"{"kty":"EC","crv":"P-256","alg":"ES256","kid":"client-key","d":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE","x":"axfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpY","y":"T-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU"}"#;
-    const RSA_PRIVATE_JWK: &str = include_str!("../../tests/fixtures/rsa-private.jwk");
+    pub(crate) const EC_PRIVATE_JWK: &str =
+        include_str!("../../tests/fixtures/client-auth-ec-p256-private.jwk");
+    const RSA_PRIVATE_JWK: &str = include_str!("../../tests/fixtures/client-auth-rsa-private.jwk");
     const SYMMETRIC_JWK: &str = r#"{"kty":"oct","k":"c2VjcmV0","kid":"client-key"}"#;
 
     fn with_alg(jwk: &str, alg: &str) -> Value {
