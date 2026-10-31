@@ -249,8 +249,6 @@ fn init_meter_provider() -> Result<SdkMeterProvider, Error> {
 
     let reader = PeriodicReader::builder(exporter).build();
 
-    // TODO: Resource attributes aren't propagated to the metrics for some reason
-    //  Creating a meter with an explicit InstrumentScope also doesn't work...
     let meter_provider =
         MeterProviderBuilder::default().with_resource(resource()).with_reader(reader).build();
 
@@ -302,7 +300,8 @@ static RESOURCE_ATTRIBUTES: LazyLock<Vec<KeyValue>> = LazyLock::new(|| {
     }
 });
 
-// TODO: this manually appends resource attributes because they aren't being propagated by the MeterProvider
+// Prometheus only stores resource attributes in target_info, so copy them onto each metric.
+// We can drop this if the collector enables `resource_to_telemetry_conversion`.
 fn with_resource_attributes(additional_attributes: Vec<KeyValue>) -> Vec<KeyValue> {
     [RESOURCE_ATTRIBUTES.clone(), additional_attributes].concat()
 }
