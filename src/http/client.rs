@@ -14,8 +14,7 @@ use thiserror::Error;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-/// Upper bound on a buffered upstream response body. The largest realistic body is a JWKS
-/// document, which is orders of magnitude smaller.
+/// Maximum buffered upstream response body. Larger bodies fail with [`FetchError::BodyTooLarge`].
 pub const MAX_BODY_BYTES: usize = 1 << 20;
 pub const BODY_PREVIEW_LIMIT: usize = 256;
 
@@ -86,8 +85,8 @@ where
 impl Client {
     pub fn new(config: ClientConfig) -> Result<Self, reqwest::Error> {
         let inner = reqwest::Client::builder()
-            // OpenID Connect Discovery and RFC 8414 both mandate 200 OK, and token endpoints
-            // never redirect. A 3xx means a misconfigured or hijacked upstream, so surface it.
+            // A 307/308 redirect would resend the signed assertion to another host. Discovery
+            // (OIDC, RFC 8414) requires 200 OK, so any 3xx becomes FetchError::Status.
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(config.connect_timeout)
             .read_timeout(config.read_timeout)
@@ -151,51 +150,21 @@ impl Client {
         E: From<FetchError>,
         OnAttempt: FnMut(Duration),
     {
-        for retry in 0..=self.max_retries {
+        let mut retry = 0;
+        loop {
             let request = prepare()?;
             let start = std::time::Instant::now();
-            let result = async {
-                let mut response = request.send().await.map_err(FetchError::Send)?;
-                let status = response.status();
-                let mut body = Vec::new();
-                while let Some(chunk) = response
-                    .chunk()
-                    .await
-                    .map_err(|source| FetchError::BodyRead { status, source })?
-                {
-                    if body.len() + chunk.len() > MAX_BODY_BYTES {
-                        return Err(FetchError::BodyTooLarge {
-                            status,
-                            limit: MAX_BODY_BYTES,
-                        });
-                    }
-                    body.extend_from_slice(&chunk);
-                }
-                Ok::<_, FetchError>((status, body))
-            }
-            .await;
+            let result = send_and_read(request).await;
             on_attempt(start.elapsed());
 
-            let result = result.and_then(|(status, body)| {
-                if !status.is_success() {
-                    return Err(FetchError::Status { status, body });
-                }
-                serde_json::from_slice(&body).map_err(|source| {
-                    tracing::warn!(
-                        error = %source,
-                        body_preview = %body_preview(&body),
-                        "upstream returned invalid JSON"
-                    );
-                    FetchError::Decode(source)
-                })
-            });
-
-            match result {
+            match result.and_then(|(status, body)| decode(status, body)) {
                 Ok(value) => return Ok(value),
                 Err(failure) if retry < self.max_retries && is_retryable(&failure) => {
-                    tracing::info!(attempt = retry + 1, error = %failure, "retrying upstream request");
+                    retry += 1;
+                    tracing::info!(attempt = retry, error = %failure, "retrying upstream request");
                 }
                 Err(failure) => {
+                    // Status failures are upstream answers; callers decide how to report them.
                     if !matches!(failure, FetchError::Status { .. }) {
                         tracing::info!(
                             error = %failure,
@@ -207,9 +176,44 @@ impl Client {
                 }
             }
         }
-
-        unreachable!("request loop always returns from its body")
     }
+}
+
+async fn send_and_read(
+    request: RequestBuilder,
+) -> Result<(reqwest::StatusCode, Vec<u8>), FetchError> {
+    let mut response = request.send().await.map_err(FetchError::Send)?;
+    let status = response.status();
+    let mut body = Vec::new();
+    while let Some(chunk) =
+        response.chunk().await.map_err(|source| FetchError::BodyRead { status, source })?
+    {
+        if body.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err(FetchError::BodyTooLarge {
+                status,
+                limit: MAX_BODY_BYTES,
+            });
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok((status, body))
+}
+
+fn decode<T: DeserializeOwned>(
+    status: reqwest::StatusCode,
+    body: Vec<u8>,
+) -> Result<T, FetchError> {
+    if !status.is_success() {
+        return Err(FetchError::Status { status, body });
+    }
+    serde_json::from_slice(&body).map_err(|source| {
+        tracing::warn!(
+            error = %source,
+            body_preview = %body_preview(&body),
+            "upstream returned invalid JSON"
+        );
+        FetchError::Decode(source)
+    })
 }
 
 #[derive(Error)]
@@ -235,6 +239,7 @@ pub enum FetchError {
     Decode(serde_json::Error),
 }
 
+// Omits `Status::body`; upstream bodies must not reach logs.
 impl Debug for FetchError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -271,9 +276,8 @@ fn is_retryable(failure: &FetchError) -> bool {
     }
 }
 
-/// Extends [`SpanBackendWithUrl`] to mark the client span as errored on HTTP 4xx/5xx
-/// responses. `default_on_request_end` only does this for transport failures, but
-/// OTel HTTP client semconv expects error status for unsuccessful response codes too.
+/// [`SpanBackendWithUrl`] that also sets span status to error on HTTP 4xx/5xx, as OTel HTTP
+/// client semconv requires. `default_on_request_end` only does so for transport errors.
 pub struct StatusAwareSpanBackend;
 
 impl ReqwestOtelSpanBackend for StatusAwareSpanBackend {
