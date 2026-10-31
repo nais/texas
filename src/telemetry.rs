@@ -111,13 +111,14 @@ pub fn init_tracing_subscriber() -> Result<OtelGuard, Error> {
     #[cfg(feature = "local")]
     let fmt_layer = tracing_subscriber::fmt::layer().with_thread_names(true).boxed();
 
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy()
-        // we don't care about internal opentelemetry logs
-        // (there's an internal-logs feature for these crates that can be excluded, though doesn't quite work)
-        // see https://github.com/open-telemetry/opentelemetry-rust/issues/2972
-        .add_directive(Directive::from_str("opentelemetry=off")?);
+    let mut env_filter =
+        EnvFilter::builder().with_default_directive(LevelFilter::INFO.into()).from_env_lossy();
+    // we don't care about internal opentelemetry logs unless RUST_LOG is set
+    // (there's an internal-logs feature for these crates that can be excluded, though doesn't quite work)
+    // see https://github.com/open-telemetry/opentelemetry-rust/issues/2972
+    if !env::var(EnvFilter::DEFAULT_ENV).is_ok_and(|v| !v.is_empty()) {
+        env_filter = env_filter.add_directive(Directive::from_str("opentelemetry=off")?);
+    }
 
     tracing_subscriber::registry()
         .with(env_filter)
