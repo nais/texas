@@ -1,7 +1,7 @@
 use super::Error;
-use super::key_set::VerifyingKey;
 use crate::oauth::assertion::epoch_now_secs;
-use crate::oauth::signing_key::SigningKey;
+use crate::oauth::jwk::signing::SigningKey;
+use crate::oauth::jwk::test_helpers::{IDP_RSA_PRIVATE_JWK, with_alg};
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
@@ -15,8 +15,6 @@ pub(super) const EC_P256_PRIVATE_PEM: &str =
 
 pub(super) const EC_P384_PRIVATE_PEM: &str =
     include_str!("../../../tests/fixtures/ec-p384-private.pem");
-
-pub(super) const RSA_PRIVATE_JWK: &str = include_str!("../../../tests/fixtures/rsa-private.jwk");
 
 pub(super) fn valid_claims() -> Value {
     let now = epoch_now_secs();
@@ -47,33 +45,10 @@ pub(super) fn signed_ec_token(algorithm: Algorithm, claims: &Value) -> (Jwk, Str
     (jwk, token)
 }
 
-pub(super) fn rsa_public_jwk(alg: Option<&str>) -> Value {
-    let private: Value = serde_json::from_str(RSA_PRIVATE_JWK).unwrap();
-    let mut jwk = serde_json::json!({
-        "kty": "RSA",
-        "kid": private["kid"],
-        "n": private["n"],
-        "e": private["e"],
-    });
-    if let Some(alg) = alg {
-        jwk["alg"] = alg.into();
-    }
-
-    jwk
-}
-
 pub(super) fn signed_rsa_token(alg: &str) -> String {
-    let mut jwk: Value = serde_json::from_str(RSA_PRIVATE_JWK).unwrap();
-    jwk["alg"] = alg.into();
-    let key: SigningKey = jwk.to_string().parse().unwrap();
+    let key: SigningKey = with_alg(IDP_RSA_PRIVATE_JWK, alg).to_string().parse().unwrap();
 
-    key.sign(&valid_claims()).unwrap()
-}
-
-pub(super) fn verifying_key(jwk: impl serde::Serialize) -> Option<VerifyingKey> {
-    let jwk: Jwk = serde_json::from_value(serde_json::to_value(jwk).unwrap()).unwrap();
-
-    VerifyingKey::from_jwk(&jwk).unwrap()
+    super::sign(&key, &valid_claims()).unwrap()
 }
 
 pub(super) fn assert_rejected(result: Result<HashMap<String, Value>, Error>, expected: &ErrorKind) {

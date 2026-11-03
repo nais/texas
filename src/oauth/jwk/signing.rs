@@ -1,11 +1,12 @@
 use jsonwebkey as jwk;
 use jsonwebtoken as jwt;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::str::FromStr;
 use thiserror::Error;
 
 pub struct SigningKey {
-    header: jwt::Header,
+    key_id: String,
+    algorithm: jwt::Algorithm,
     key: jwt::EncodingKey,
 }
 
@@ -73,73 +74,44 @@ impl FromStr for SigningKey {
             _ => return Err(SigningKeyError::UnsupportedAlgorithm(alg)),
         };
 
-        let mut header = jwt::Header::new(alg);
-        header.kid = Some(kid);
-
-        Ok(Self { header, key })
+        Ok(Self {
+            key_id: kid,
+            algorithm: alg,
+            key,
+        })
     }
 }
 
 impl SigningKey {
-    pub fn sign(&self, claims: &impl Serialize) -> Result<String, jwt::errors::Error> {
-        jwt::encode(&self.header, claims, &self.key)
+    pub(crate) fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
+    pub(crate) fn algorithm(&self) -> jwt::Algorithm {
+        self.algorithm
+    }
+
+    pub(crate) fn encoding_key(&self) -> &jwt::EncodingKey {
+        &self.key
     }
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
+    use crate::oauth::jwk::test_helpers::*;
     use pretty_assertions::assert_eq;
     use rstest::rstest;
-    use serde_json::{Value, json};
+    use serde_json::Value;
 
-    // Private scalar 1. Not a real key.
-    pub(crate) const EC_PRIVATE_JWK: &str =
-        include_str!("../../tests/fixtures/client-auth-ec-p256-private.jwk");
-    const RSA_PRIVATE_JWK: &str = include_str!("../../tests/fixtures/client-auth-rsa-private.jwk");
     const SYMMETRIC_JWK: &str = r#"{"kty":"oct","k":"c2VjcmV0","kid":"client-key"}"#;
-
-    fn with_alg(jwk: &str, alg: &str) -> Value {
-        let mut jwk: Value = serde_json::from_str(jwk).unwrap();
-        jwk["alg"] = alg.into();
-
-        jwk
-    }
-
-    #[rstest]
-    #[case(EC_PRIVATE_JWK, "ES256")]
-    #[case(RSA_PRIVATE_JWK, "RS256")]
-    #[case(RSA_PRIVATE_JWK, "RS384")]
-    #[case(RSA_PRIVATE_JWK, "RS512")]
-    #[case(RSA_PRIVATE_JWK, "PS256")]
-    #[case(RSA_PRIVATE_JWK, "PS384")]
-    #[case(RSA_PRIVATE_JWK, "PS512")]
-    fn signs_verifiable_tokens(#[case] jwk: &str, #[case] alg: &str) {
-        let jwk = with_alg(jwk, alg);
-        let key: SigningKey = jwk.to_string().parse().unwrap();
-
-        let token = key.sign(&json!({ "sub": "client-id" })).unwrap();
-
-        let alg: jwt::Algorithm = alg.parse().unwrap();
-
-        let decoding_key =
-            jwt::DecodingKey::from_jwk(&serde_json::from_value(jwk.clone()).unwrap()).unwrap();
-        let mut validation = jwt::Validation::new(alg);
-        validation.required_spec_claims.clear();
-        validation.validate_exp = false;
-        let token = jwt::decode::<Value>(&token, &decoding_key, &validation).unwrap();
-
-        assert_eq!(token.header.alg, alg);
-        assert_eq!(token.header.kid.as_deref(), jwk["kid"].as_str());
-        assert_eq!(token.claims["sub"], "client-id");
-    }
 
     #[rstest]
     #[case(SYMMETRIC_JWK, "HS256")]
     #[case(SYMMETRIC_JWK, "HS384")]
     #[case(SYMMETRIC_JWK, "HS512")]
     #[case(SYMMETRIC_JWK, "RS256")]
-    #[case(RSA_PRIVATE_JWK, "HS256")]
+    #[case(CLIENT_RSA_PRIVATE_JWK, "HS256")]
     fn rejects_symmetric_signing(#[case] jwk: &str, #[case] alg: &str) {
         let result = with_alg(jwk, alg).to_string().parse::<SigningKey>();
 
@@ -147,11 +119,11 @@ pub(crate) mod tests {
     }
 
     #[rstest]
-    #[case(EC_PRIVATE_JWK, "RS256")]
-    #[case(EC_PRIVATE_JWK, "PS256")]
-    #[case(EC_PRIVATE_JWK, "ES384")]
-    #[case(EC_PRIVATE_JWK, "EdDSA")]
-    #[case(RSA_PRIVATE_JWK, "ES256")]
+    #[case(CLIENT_EC_PRIVATE_JWK, "RS256")]
+    #[case(CLIENT_EC_PRIVATE_JWK, "PS256")]
+    #[case(CLIENT_EC_PRIVATE_JWK, "ES384")]
+    #[case(CLIENT_EC_PRIVATE_JWK, "EdDSA")]
+    #[case(CLIENT_RSA_PRIVATE_JWK, "ES256")]
     fn rejects_algorithm_unsupported_by_key(#[case] jwk: &str, #[case] alg: &str) {
         let result = with_alg(jwk, alg).to_string().parse::<SigningKey>();
 
@@ -163,7 +135,7 @@ pub(crate) mod tests {
 
     #[test]
     fn rejects_unknown_algorithm() {
-        let result = with_alg(RSA_PRIVATE_JWK, "none").to_string().parse::<SigningKey>();
+        let result = with_alg(CLIENT_RSA_PRIVATE_JWK, "none").to_string().parse::<SigningKey>();
 
         assert!(matches!(result, Err(SigningKeyError::Parse(_))));
     }
@@ -173,7 +145,7 @@ pub(crate) mod tests {
     #[case("kid", SigningKeyError::MissingKeyId)]
     #[case("d", SigningKeyError::NotPrivate)]
     fn rejects_incomplete_key(#[case] field: &str, #[case] expected: SigningKeyError) {
-        let mut jwk: Value = serde_json::from_str(EC_PRIVATE_JWK).unwrap();
+        let mut jwk: Value = serde_json::from_str(CLIENT_EC_PRIVATE_JWK).unwrap();
         jwk.as_object_mut().unwrap().remove(field);
 
         let error = jwk.to_string().parse::<SigningKey>().err().unwrap();

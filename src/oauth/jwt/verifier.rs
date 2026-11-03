@@ -1,6 +1,6 @@
 use super::Error;
-use super::key_set::VerifyingKey;
 use crate::oauth::assertion::epoch_now_secs;
+use crate::oauth::jwk::verification::VerificationKey;
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::{Algorithm, Validation};
 use serde_json::Value;
@@ -18,12 +18,12 @@ const SUPPORTED_ALGORITHMS: [Algorithm; 8] = [
 ];
 
 #[derive(Debug)]
-pub(super) struct TokenVerifier {
+pub(super) struct JwtVerifier {
     /// One per algorithm, because jsonwebtoken cannot mix algorithm families in one validation.
     validations: HashMap<Algorithm, Validation>,
 }
 
-impl TokenVerifier {
+impl JwtVerifier {
     pub(super) fn new(issuer: &str, audience: Option<String>) -> Self {
         let mut validation = Validation::default();
         validation.validate_aud = true;
@@ -60,16 +60,17 @@ impl TokenVerifier {
         &self,
         token: &str,
         algorithm: Algorithm,
-        key: &VerifyingKey,
+        key: &VerificationKey,
     ) -> Result<HashMap<String, Value>, Error> {
         let validation = self.validation_for(algorithm)?;
         if !key.allows(algorithm) {
             return Err(invalid_token(ErrorKind::InvalidAlgorithm));
         }
 
-        let claims = jsonwebtoken::decode::<HashMap<String, Value>>(token, &key.key, validation)
-            .map_err(Error::InvalidToken)?
-            .claims;
+        let claims =
+            jsonwebtoken::decode::<HashMap<String, Value>>(token, key.decoding_key(), validation)
+                .map_err(Error::InvalidToken)?
+                .claims;
 
         // jsonwebtoken does not check `iat`.
         let iat = claims
@@ -95,13 +96,14 @@ fn invalid_token(kind: ErrorKind) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::oauth::jwk::test_helpers::*;
     use crate::oauth::jwt::test_helpers::*;
     use pretty_assertions::assert_eq;
 
-    fn verify(token: &str, key: &VerifyingKey) -> Result<HashMap<String, Value>, Error> {
+    fn verify(token: &str, key: &VerificationKey) -> Result<HashMap<String, Value>, Error> {
         let algorithm = jsonwebtoken::decode_header(token).unwrap().alg;
 
-        TokenVerifier::new(ISSUER, None).verify(token, algorithm, key)
+        JwtVerifier::new(ISSUER, None).verify(token, algorithm, key)
     }
 
     /// Swaps the first signature character for another base64url character.
@@ -123,7 +125,7 @@ mod tests {
     fn verifies_ec_token(#[case] algorithm: Algorithm) {
         let (jwk, token) = signed_ec_token(algorithm, &valid_claims());
 
-        let claims = verify(&token, &verifying_key(jwk).unwrap()).unwrap();
+        let claims = verify(&token, &verification_key(jwk).unwrap()).unwrap();
 
         assert_eq!(claims["iss"], ISSUER);
         assert_eq!(claims["sub"], "subject");
@@ -135,7 +137,7 @@ mod tests {
     fn rejects_ec_token_with_corrupted_signature(#[case] algorithm: Algorithm) {
         let (jwk, token) = signed_ec_token(algorithm, &valid_claims());
 
-        let result = verify(&corrupt_signature(&token), &verifying_key(jwk).unwrap());
+        let result = verify(&corrupt_signature(&token), &verification_key(jwk).unwrap());
 
         assert_rejected(result, &ErrorKind::InvalidSignature);
     }
@@ -152,7 +154,7 @@ mod tests {
         // Otherwise the alg check rejects the token first.
         other_jwk.common.key_algorithm = None;
 
-        let result = verify(&token, &verifying_key(other_jwk).unwrap());
+        let result = verify(&token, &verification_key(other_jwk).unwrap());
 
         assert_rejected(result, &ErrorKind::InvalidSignature);
     }
@@ -163,7 +165,7 @@ mod tests {
     fn rejects_ec_token_with_rsa_key(#[case] algorithm: Algorithm) {
         let (_, token) = signed_ec_token(algorithm, &valid_claims());
 
-        let result = verify(&token, &verifying_key(rsa_public_jwk(None)).unwrap());
+        let result = verify(&token, &verification_key(rsa_public_jwk(None)).unwrap());
 
         assert_rejected(result, &ErrorKind::InvalidKeyFormat);
     }
@@ -179,7 +181,7 @@ mod tests {
         #[case] token_alg: &str,
         #[case] accepted: bool,
     ) {
-        let key = verifying_key(rsa_public_jwk(jwk_alg)).unwrap();
+        let key = verification_key(rsa_public_jwk(jwk_alg)).unwrap();
 
         let result = verify(&signed_rsa_token(token_alg), &key);
 
@@ -196,7 +198,7 @@ mod tests {
         claims.as_object_mut().unwrap().remove("iat");
         let (jwk, token) = signed_ec_token(Algorithm::ES256, &claims);
 
-        let result = verify(&token, &verifying_key(jwk).unwrap());
+        let result = verify(&token, &verification_key(jwk).unwrap());
 
         assert_rejected(result, &ErrorKind::MissingRequiredClaim("iat".to_string()));
     }
@@ -207,7 +209,7 @@ mod tests {
         claims["iat"] = (epoch_now_secs() + 120).into();
         let (jwk, token) = signed_ec_token(Algorithm::ES256, &claims);
 
-        let result = verify(&token, &verifying_key(jwk).unwrap());
+        let result = verify(&token, &verification_key(jwk).unwrap());
 
         assert_rejected(result, &ErrorKind::ImmatureSignature);
     }

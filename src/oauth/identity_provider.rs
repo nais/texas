@@ -5,12 +5,12 @@ use crate::oauth::grant::{
     ClientCredentials, JWTBearer, OnBehalfOf, TokenExchange, TokenRequestBuilder,
     TokenRequestBuilderParams,
 };
-use crate::oauth::jwt::JwtValidator;
+use crate::oauth::jwk::signing::{SigningKey, SigningKeyError};
+use crate::oauth::jwt::{self, JwtValidator};
 use crate::oauth::request::{
     AuthorizationDetails, IntrospectRequest, TokenExchangeRequest, TokenRequest,
 };
 use crate::oauth::response::{IntrospectResponse, TokenResponse};
-use crate::oauth::signing_key::{SigningKey, SigningKeyError};
 use crate::telemetry::record_identity_provider_latency;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -135,7 +135,7 @@ where
             resource,
             authorization_details,
         );
-        self.signing_key.as_ref()?.sign(&assertion).ok()
+        jwt::sign(self.signing_key.as_ref()?, &assertion).ok()
     }
 
     #[instrument(skip_all, name = "Request token from upstream identity provider")]
@@ -325,9 +325,9 @@ mod tests {
     use crate::http::client::{Client, ClientConfig};
     use crate::oauth::assertion::ClientAssertion;
     use crate::oauth::grant::TokenExchange;
+    use crate::oauth::jwk::test_helpers::CLIENT_EC_PRIVATE_JWK;
     use crate::oauth::jwt::JwtValidator;
     use crate::oauth::request::{TokenExchangeRequest, TokenRequest};
-    use crate::oauth::signing_key::tests::EC_PRIVATE_JWK;
     use axum::Router;
     use axum::extract::{Form, State};
     use axum::http::StatusCode;
@@ -592,7 +592,7 @@ mod tests {
             "client-id".to_string(),
             format!("{base_url}/issuer"),
             Some(format!("{base_url}/token")),
-            Some(EC_PRIVATE_JWK.to_string()),
+            Some(CLIENT_EC_PRIVATE_JWK.to_string()),
             jwt_validator,
         )
         .unwrap();

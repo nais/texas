@@ -1,13 +1,14 @@
-mod key_set;
+mod signing;
 #[cfg(test)]
 mod test_helpers;
 mod verifier;
 
-pub use key_set::KeySetError;
+pub use crate::oauth::jwk::set::KeySetError;
+pub(crate) use signing::sign;
 
 use crate::http::client;
+use crate::oauth::jwk::set::KeySet;
 use crate::telemetry;
-use key_set::KeySet;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -15,7 +16,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::Instant;
 use tracing::instrument;
-use verifier::TokenVerifier;
+use verifier::JwtVerifier;
 
 /// Shortest interval between two attempts at fetching the key set from the identity provider.
 /// Bounds outbound traffic when tokens reference unknown key IDs or the JWKS endpoint is unavailable.
@@ -25,7 +26,7 @@ const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 pub struct JwtValidator {
     jwks_uri: String,
     issuer: String,
-    verifier: TokenVerifier,
+    verifier: JwtVerifier,
     client: client::Client,
     keys: RwLock<KeySet>,
     /// Held across the fetch in [`JwtValidator::refresh_jwks`], so that tasks queueing up behind
@@ -66,7 +67,7 @@ impl JwtValidator {
         Ok(Self {
             jwks_uri: jwks_uri.to_string(),
             issuer: issuer.to_string(),
-            verifier: TokenVerifier::new(issuer, required_audience),
+            verifier: JwtVerifier::new(issuer, required_audience),
             client,
             keys: RwLock::new(initial),
             refresh: Mutex::new(RefreshState::default()),
@@ -88,10 +89,10 @@ impl JwtValidator {
         if keys.is_stale() {
             keys = self.refresh_jwks("expired").await;
         }
-        if !keys.by_kid.contains_key(&key_id) {
+        if keys.get(&key_id).is_none() {
             keys = self.refresh_jwks("unknown_kid").await;
         }
-        let key = keys.by_kid.get(&key_id).ok_or(Error::KeyNotInKeySet)?;
+        let key = keys.get(&key_id).ok_or(Error::KeyNotInKeySet)?;
 
         self.verifier.verify(token, header.alg, key)
     }
@@ -134,10 +135,11 @@ impl JwtValidator {
 
 #[cfg(test)]
 mod tests {
-    use super::key_set::KEY_SET_TTL;
     use super::test_helpers::*;
     use super::*;
     use crate::http::client::FetchError;
+    use crate::oauth::jwk::set::KEY_SET_TTL;
+    use crate::oauth::jwk::test_helpers::*;
     use axum::extract::State as AxumState;
     use axum::response::IntoResponse;
     use axum::routing::get;
@@ -242,8 +244,8 @@ mod tests {
         idp.serve_keys(&["key-2"]);
         let keys = validator.refresh_jwks("test").await;
 
-        assert!(keys.by_kid.contains_key("key-2"));
-        assert!(!keys.by_kid.contains_key("key-1"));
+        assert!(keys.get("key-2").is_some());
+        assert!(!keys.get("key-1").is_some());
         assert_eq!(idp.hits(), 2);
     }
 
@@ -256,8 +258,8 @@ mod tests {
         idp.respond_with(StatusCode::BAD_REQUEST, "boom".to_string());
         let keys = validator.refresh_jwks("test").await;
 
-        assert!(keys.by_kid.contains_key("key-1"));
-        assert_eq!(validator.keys().await.by_kid.len(), 1);
+        assert!(keys.get("key-1").is_some());
+        assert_eq!(validator.keys().await.len(), 1);
         assert_eq!(idp.hits(), 2);
     }
 
@@ -272,7 +274,7 @@ mod tests {
         let keys = validator.refresh_jwks("test").await;
 
         // The second refresh returned the key set fetched by the first one.
-        assert!(keys.by_kid.contains_key("key-2"));
+        assert!(keys.get("key-2").is_some());
         assert_eq!(idp.hits(), 2);
     }
 
@@ -318,7 +320,7 @@ mod tests {
         let _ = validator.validate(&token_with_kid("key-1")).await;
 
         assert_eq!(idp.hits(), 2);
-        assert!(validator.keys().await.by_kid.contains_key("key-2"));
+        assert!(validator.keys().await.get("key-2").is_some());
     }
 
     #[tokio::test]
@@ -387,7 +389,7 @@ mod tests {
         /// Backdate the current key set so that it looks like it was fetched `age` ago.
         /// Also clears the refresh cooldown, which would otherwise suppress the next fetch.
         async fn age(&self, age: Duration) {
-            self.keys.write().await.fetched_at -= age;
+            self.keys.write().await.backdate(age);
             if let Some(last_attempt) = self.refresh.lock().await.last_attempt.as_mut() {
                 *last_attempt -= MIN_REFRESH_INTERVAL;
             }
