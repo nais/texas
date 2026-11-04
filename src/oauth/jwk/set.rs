@@ -65,14 +65,15 @@ impl KeySet {
     pub(crate) fn is_stale(&self) -> bool {
         self.fetched_at.elapsed() >= KEY_SET_TTL
     }
+}
 
-    #[cfg(test)]
+#[cfg(test)]
+impl KeySet {
     pub(crate) fn len(&self) -> usize {
         self.by_kid.len()
     }
 
     /// Makes the key set look like it was fetched `age` ago.
-    #[cfg(test)]
     pub(crate) fn backdate(&mut self, age: Duration) {
         self.fetched_at -= age;
     }

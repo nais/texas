@@ -1,12 +1,21 @@
-use super::Error;
+use super::{Error, JwtValidator, KeySetError};
+use crate::http::client;
 use crate::oauth::assertion::epoch_now_secs;
+use crate::oauth::jwk::set::KeySet;
 use crate::oauth::jwk::signing::SigningKey;
+use crate::oauth::jwk::test_helpers::rsa_public_jwk;
 use crate::oauth::jwk::test_helpers::{IDP_RSA_PRIVATE_JWK, with_alg};
+use axum::extract::State as AxumState;
+use axum::response::IntoResponse;
+use axum::routing::get;
 use jsonwebtoken::errors::ErrorKind;
-use jsonwebtoken::jwk::Jwk;
+use jsonwebtoken::jwk::{Jwk, JwkSet};
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
+use reqwest::StatusCode;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 pub(super) const ISSUER: &str = "https://issuer.example";
 
@@ -56,4 +65,96 @@ pub(super) fn assert_rejected(result: Result<HashMap<String, Value>, Error>, exp
         matches!(&result, Err(Error::InvalidToken(error)) if error.kind() == expected),
         "expected {expected:?}, got {result:?}"
     );
+}
+
+impl JwtValidator {
+    /// A validator without keys that never fetches any, for checking tokens against a given key.
+    pub(super) fn without_keys() -> Self {
+        let keys = KeySet::from_jwks(&JwkSet { keys: vec![] }).unwrap();
+
+        Self::with_keys(
+            ISSUER,
+            "http://jwks.invalid",
+            None,
+            client::discovery().unwrap(),
+            keys,
+        )
+    }
+}
+
+/// A stand-in for an identity provider's JWKS endpoint, so that tests can rotate keys, fail
+/// requests, and count how often the endpoint was asked for keys.
+pub(super) struct MockIdentityProvider {
+    pub(super) url: String,
+    state: Arc<MockState>,
+}
+
+struct MockState {
+    hits: AtomicUsize,
+    response: Mutex<MockResponse>,
+}
+
+#[derive(Clone)]
+struct MockResponse {
+    status: StatusCode,
+    body: String,
+}
+
+impl MockIdentityProvider {
+    pub(super) async fn start() -> Self {
+        let state = Arc::new(MockState {
+            hits: AtomicUsize::new(0),
+            response: Mutex::new(MockResponse {
+                status: StatusCode::OK,
+                body: r#"{"keys":[]}"#.to_string(),
+            }),
+        });
+
+        let router =
+            axum::Router::new().route("/jwks", get(Self::respond)).with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let url = format!("http://{address}/jwks");
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        Self { url, state }
+    }
+
+    async fn respond(AxumState(state): AxumState<Arc<MockState>>) -> impl IntoResponse {
+        state.hits.fetch_add(1, Ordering::SeqCst);
+        let response = state.response.lock().unwrap().clone();
+
+        (response.status, response.body).into_response()
+    }
+
+    pub(super) async fn connect(&self) -> Result<JwtValidator, KeySetError> {
+        JwtValidator::new(ISSUER, &self.url, None).await
+    }
+
+    pub(super) fn hits(&self) -> usize {
+        self.state.hits.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn serve(&self, body: String) {
+        self.respond_with(StatusCode::OK, body);
+    }
+
+    pub(super) fn serve_keys(&self, key_ids: &[&str]) {
+        let keys: Vec<Value> = key_ids
+            .iter()
+            .map(|kid| {
+                let mut jwk = rsa_public_jwk(Some("RS256"));
+                jwk["kid"] = (*kid).into();
+                jwk
+            })
+            .collect();
+        self.serve(serde_json::json!({ "keys": keys }).to_string());
+    }
+
+    pub(super) fn respond_with(&self, status: StatusCode, body: String) {
+        let mut response = self.state.response.lock().unwrap();
+        response.status = status;
+        response.body = body;
+    }
 }

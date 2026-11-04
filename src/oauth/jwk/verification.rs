@@ -9,14 +9,6 @@ pub(crate) struct VerificationKey {
 }
 
 impl VerificationKey {
-    pub(crate) fn decoding_key(&self) -> &DecodingKey {
-        &self.key
-    }
-
-    pub(crate) fn allows(&self, algorithm: Algorithm) -> bool {
-        self.algorithm.is_none_or(|key_algorithm| key_algorithm == algorithm)
-    }
-
     /// Returns `None` for keys that are not for verifying signatures.
     pub(crate) fn from_jwk(jwk: &Jwk) -> Result<Option<Self>, jsonwebtoken::errors::Error> {
         let common = &jwk.common;
@@ -45,6 +37,14 @@ impl VerificationKey {
             key: DecodingKey::from_jwk(jwk)?,
             algorithm,
         }))
+    }
+
+    pub(crate) fn decoding_key(&self) -> &DecodingKey {
+        &self.key
+    }
+
+    pub(crate) fn allows(&self, algorithm: Algorithm) -> bool {
+        self.algorithm.is_none_or(|key_algorithm| key_algorithm == algorithm)
     }
 }
 
