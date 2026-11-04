@@ -23,7 +23,10 @@ run = "cargo run --features local"
 [tasks."compose"]
 description = "Start the mock OAuth server and OpenTelemetry stack"
 depends = ["setup"]
-run = "docker compose up -d"
+run = [
+  "docker compose up -d",
+  "docker compose up -d --wait oauth-server",
+]
 
 [tasks."setup"]
 description = "Create .env from .env.example if missing, and the mock OAuth server config"
