@@ -492,7 +492,7 @@ mod tests {
             let keys = validator.refresh_jwks("test").await;
 
             assert!(keys.get("key-2").is_some());
-            assert!(!keys.get("key-1").is_some());
+            assert!(keys.get("key-1").is_none());
             assert_eq!(idp.hits(), 2);
         }
 
