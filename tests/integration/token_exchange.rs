@@ -321,7 +321,7 @@ async fn test_token_exchange_missing_or_empty_user_token(address: &str) {
         },
         ErrorResponse {
             error: OAuthErrorCode::InvalidRequest,
-            description: "invalid request: missing or empty assertion parameter".to_string(),
+            description: "Invalid request: Missing or empty assertion parameter".to_string(),
         },
         StatusCode::BAD_REQUEST,
     )

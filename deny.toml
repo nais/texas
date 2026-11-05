@@ -13,10 +13,6 @@ all-features = true
 [advisories]
 unmaintained = "none" # cargo-audit will output informational warnings for unmaintained crates
 yanked = "deny"
-ignore = [
-    { id = "RUSTSEC-2023-0071", reason = "CVSS 5.9 (medium severity). No fix available. Has no practical impact for our usage" },
-    { id = "RUSTSEC-2026-0387", reason = "Temporary risk acceptance, including possible EC signing exposure, while evaluating crypto migrations. Review by 2026-11-07; remove when the affected dependency is gone. https://github.com/nais/texas/issues/204" },
-]
 
 [sources]
 unknown-registry = "deny"

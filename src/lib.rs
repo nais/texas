@@ -10,6 +10,7 @@ pub mod oauth {
     pub mod assertion;
     pub(super) mod grant;
     pub mod identity_provider;
+    pub(super) mod jwk;
     pub(super) mod jwt;
     pub mod request;
     pub mod response;
